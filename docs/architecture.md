@@ -11,80 +11,32 @@ Deliver Scholaxis as a **single hosted web application** where UI and API traffi
 - **Integration-friendly boundaries**: adapters and ranking logic should be modular behind internal service interfaces.
 - **Single host**: avoid deploying the frontend and backend on different public origins unless a later migration plan explicitly requires it.
 
-## Recommended runtime layout
+## Runtime layers
 
-The exact framework can change, but the deployment contract should look like this:
-
-- **Web shell / UI layer**
-  - Home, search, paper detail, similarity/report surfaces
-  - Korean-first navigation, date/number formatting, and labels
-- **API / BFF layer**
-  - `/api/search`
-  - `/api/papers/:paperId`
-  - `/api/papers/:paperId/related`
-  - `/api/similarity/report` (secondary, feature-flagged)
+- **UI layer**
+  - home, search, paper detail, similarity/report surfaces
+- **API/BFF layer**
+  - same-origin `/api/*`
 - **Domain services**
   - query normalization
-  - source adapter orchestration
-  - ranking / dedupe / enrichment
-  - report similarity job handling
+  - source fan-out and ingestion
+  - canonical dedupe
+  - vector + lexical ranking
+  - report similarity
 - **Provider adapters**
-  - KCI / RISS / DBpia / arXiv / Crossref / Semantic Scholar style adapters
-  - outbound requests stay server-side and normalize into one internal result schema
+  - API-backed: Semantic Scholar, arXiv, DBpia(keyed), KIPRIS Plus(configured)
+  - crawl-backed: RISS, ScienceON, NTIS, science fair, student invention fair
+  - configurable: KCI public search hook
 
-## Suggested directory ownership model
+## Storage model in the current prototype
 
-This is a target structure, not a claim on existing implementation files:
+- in-memory seed catalog
+- on-request live source ingestion
+- canonical merge in-process
+- vector features computed in-process
 
-- `app/` or `src/app/` — routed UI surfaces
-- `src/server/` — API handlers and domain services
-- `src/server/adapters/` — source/provider integrations
-- `src/server/security/` — headers, rate limits, validation helpers
-- `tests/` — smoke, contract, and verification scripts
-- `docs/` — operator-facing documentation
-- `cloudflared/` — tunnel config examples only (never credentials)
+## Next production evolution
 
-## Environment contract
-
-Use a single environment file shape for local and deployed environments:
-
-- `NODE_ENV`
-- `PORT`
-- `APP_BASE_URL`
-- `API_BASE_URL` (same origin by default)
-- `SESSION_SECRET`
-- `CONTENT_LOCALE`
-- `DEFAULT_SEARCH_REGION`
-- `SEARCH_RATE_LIMIT_RPM`
-- `DETAIL_RATE_LIMIT_RPM`
-- `SIMILARITY_RATE_LIMIT_RPH`
-- `UPLOAD_MAX_MB`
-- `ENABLE_REPORT_SIMILARITY`
-- `CLOUDFLARE_TUNNEL_HOSTNAME`
-
-## Deployment topology
-
-1. Unified web app listens on one internal port (default `3000`).
-2. Local reverse proxy is optional; public ingress should still target the same app.
-3. Cloudflare Tunnel forwards the public hostname to `http://localhost:3000`.
-4. Static assets and API responses share one origin to simplify CSP and cookies.
-5. Similarity/report jobs should run behind the same app boundary or a private worker queue, not a second public app.
-
-## Route contract
-
-- `/` — discovery landing / search prompt
-- `/search` — integrated result list and filters
-- `/papers/:paperId` — paper detail, metadata, citations, related work
-- `/similarity` — optional report similarity entry point
-- `/api/search` — search/query API
-- `/api/papers/:paperId` — normalized paper detail API
-- `/api/papers/:paperId/related` — related and similar paper API
-- `/api/similarity/report` — secondary report similarity endpoint
-
-## Korean-first behavior checklist
-
-- default locale: `ko-KR`
-- Korean labels appear before English helper text
-- source filters include domestic/global toggles by default
-- Hangul line-height, truncation, and search tokenization must be tested explicitly
-- empty, loading, and error states should ship in Korean first
+- persist `documents`, `source_records`, `canonical_documents`, and `embeddings`
+- move vectors into PostgreSQL + pgvector or a dedicated vector DB
+- move citation / relation edges into graph storage if real source expansion becomes large

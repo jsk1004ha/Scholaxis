@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ScienceBridge - Similarity Report</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #031425;
+            color: #d3e4fc;
+        }
+        .font-manrope { font-family: 'Manrope', sans-serif; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-tertiary": "#552100",
+                        "surface-container": "#0f2132",
+                        "on-primary-container": "#c8d9ff",
+                        "secondary-fixed-dim": "#b3c7f1",
+                        "surface-container-high": "#1a2b3d",
+                        "outline": "#8c909e",
+                        "inverse-surface": "#d3e4fc",
+                        "surface-dim": "#031425",
+                        "on-surface": "#d3e4fc",
+                        "inverse-on-surface": "#213244",
+                        "on-tertiary-fixed-variant": "#783100",
+                        "secondary-fixed": "#d7e2ff",
+                        "on-secondary-container": "#a5b9e2",
+                        "surface-container-highest": "#253648",
+                        "tertiary-fixed-dim": "#ffb691",
+                        "tertiary": "#ffb691",
+                        "surface-bright": "#2a3a4d",
+                        "surface": "#031425",
+                        "inverse-primary": "#115cb9",
+                        "tertiary-fixed": "#ffdbcb",
+                        "on-secondary-fixed": "#041b3c",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#341100",
+                        "error-container": "#93000a",
+                        "on-background": "#d3e4fc",
+                        "surface-variant": "#253648",
+                        "on-surface-variant": "#c2c6d4",
+                        "on-primary-fixed": "#001a40",
+                        "secondary": "#b3c7f1",
+                        "on-primary-fixed-variant": "#004591",
+                        "tertiary-container": "#9e4300",
+                        "background": "#031425",
+                        "primary": "#acc7ff",
+                        "error": "#ffb4ab",
+                        "primary-container": "#115cb9",
+                        "on-primary": "#002f67",
+                        "primary-fixed-dim": "#acc7ff",
+                        "surface-container-low": "#0b1d2e",
+                        "on-tertiary-container": "#ffcfb7",
+                        "on-secondary-fixed-variant": "#34476a",
+                        "outline-variant": "#424752",
+                        "primary-fixed": "#d7e2ff",
+                        "surface-tint": "#acc7ff",
+                        "on-error": "#690005",
+                        "secondary-container": "#36496d",
+                        "surface-container-lowest": "#000f1f",
+                        "on-secondary": "#1c3052"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="bg-[#031425]/70 backdrop-blur-xl font-manrope text-sm tracking-tight shadow-[0_20px_40px_-10px_rgba(211,228,252,0.04)] docked full-width top-0 sticky flex justify-between items-center px-8 py-4 w-full z-50">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-blue-400">ScienceBridge</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-slate-400 hover:text-white transition-colors" href="#">My Library</a>
+<a class="text-blue-400 border-b-2 border-blue-500 pb-1" href="#">Analysis</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Trends</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-white/5 rounded-full px-3 py-1 flex items-center gap-2 border border-outline-variant/20">
+<span class="material-symbols-outlined text-sm">language</span>
+<span class="text-xs">EN</span>
+</div>
+<img alt="User profile avatar" class="w-8 h-8 rounded-full border border-blue-500/30" data-alt="portrait of a professional researcher in a modern office, soft lighting, intellectual atmosphere" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDAIotQl0Qgsua_5oA8N0zsqWmdr1fdrfEARglNRiU9udU222ChprP7iGBjes4M58-Vh_nEWbgn6rTvMcBASu4xbNNDBTCOMyekk8t2idxnVHS6CWkgoVwfnn_PrHOSuWq3JUjC9iRb7BqRabE8xek7fD50DphbZ3gXUQrgy3os46dESWUOAPDa6qa_RPaz0P_K7lZAkwO8u5U1aGnGeQbntYHyxv0CZ5yAJRyYk8Alc2-k1Hs2kCQ3TlTw3bNAyrF0efNRAJEaEAW2"/>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<aside class="hidden md:flex flex-col h-full w-64 bg-gradient-to-b from-[#031425] to-[#0f2132] pt-6 gap-4 font-manrope text-xs font-bold uppercase tracking-widest shrink-0">
+<div class="px-6 mb-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-blue-500">analytics</span>
+<div>
+<div class="text-on-surface">Intelligence Filters</div>
+<div class="text-[10px] text-slate-500 font-normal normal-case tracking-normal">Refine discovery</div>
+</div>
+</div>
+</div>
+<nav class="flex flex-col gap-1 px-2">
+<div class="text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer flex items-center gap-3">
+<span class="material-symbols-outlined">calendar_today</span>
+<span>Year</span>
+</div>
+<div class="text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer flex items-center gap-3">
+<span class="material-symbols-outlined">description</span>
+<span>Source Type</span>
+</div>
+<div class="text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer flex items-center gap-3">
+<span class="material-symbols-outlined">database</span>
+<span>Source</span>
+</div>
+<div class="text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer flex items-center gap-3">
+<span class="material-symbols-outlined">lock_open</span>
+<span>Open Access</span>
+</div>
+<div class="text-blue-400 bg-blue-500/10 rounded-lg px-4 py-3 cursor-pointer flex items-center gap-3">
+<span class="material-symbols-outlined">history</span>
+<span>Search History</span>
+</div>
+</nav>
+</aside>
+<!-- Main Canvas -->
+<main class="flex-1 overflow-y-auto p-8 bg-surface space-y-8">
+<!-- Hero Analysis Section -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+<!-- Upload & Primary Score (Bento Box 1) -->
+<div class="lg:col-span-4 flex flex-col gap-8">
+<!-- Upload Area -->
+<div class="bg-surface-container-low rounded-xl p-6 border border-outline-variant/10 hover:bg-surface-container transition-colors group cursor-pointer h-48 flex flex-col items-center justify-center text-center">
+<div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-primary text-3xl">upload_file</span>
+</div>
+<p class="font-manrope font-semibold text-on-surface">Replace Analysis Document</p>
+<p class="text-xs text-on-surface-variant mt-1">PDF, DOCX up to 25MB</p>
+</div>
+<!-- Similarity Gauge -->
+<div class="bg-surface-container rounded-xl p-8 flex flex-col items-center justify-center relative overflow-hidden h-72">
+<!-- Abstract Background Glow -->
+<div class="absolute inset-0 bg-gradient-to-tr from-primary-container/20 to-transparent opacity-50"></div>
+<div class="relative w-48 h-48 flex items-center justify-center">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-surface-container-highest" cx="96" cy="96" fill="transparent" r="88" stroke="currentColor" stroke-width="12"></circle>
+<circle cx="96" cy="96" fill="transparent" r="88" stroke="url(#gradient-similarity)" stroke-dasharray="552.92" stroke-dashoffset="82.93" stroke-linecap="round" stroke-width="12"></circle>
+<defs>
+<lineargradient id="gradient-similarity" x1="0%" x2="100%" y1="0%" y2="100%">
+<stop offset="0%" style="stop-color:#115cb9"></stop>
+<stop offset="100%" style="stop-color:#acc7ff"></stop>
+</lineargradient>
+</defs>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-5xl font-extrabold font-manrope text-white tracking-tighter">85%</span>
+<span class="text-[10px] uppercase tracking-widest text-primary font-bold mt-1">Similarity Index</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Analysis Report Cards (Bento Box 2) -->
+<div class="lg:col-span-8 grid grid-cols-1 md:grid-cols-3 gap-6 h-full">
+<!-- Shared Context -->
+<div class="bg-surface-container-low rounded-xl p-6 border-l-4 border-blue-500/50 flex flex-col">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-blue-400">join_inner</span>
+<h3 class="font-manrope font-bold text-sm uppercase tracking-wider text-blue-200">공통점 (SHARED CONTEXT)</h3>
+</div>
+<div class="flex-1 space-y-4">
+<p class="text-sm leading-relaxed text-on-surface-variant">Core methodology aligns with standard neural transformer architectures. Primary datasets (arXiv:2023) overlap with established baselines.</p>
+<ul class="text-xs space-y-2 text-blue-200/70 italic">
+<li>• Mathematical proofs in Section 3.2</li>
+<li>• Hyperparameter selection strategy</li>
+</ul>
+</div>
+</div>
+<!-- Novelty -->
+<div class="bg-surface-container-low rounded-xl p-6 border-l-4 border-emerald-500/50 flex flex-col">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-emerald-400">auto_awesome</span>
+<h3 class="font-manrope font-bold text-sm uppercase tracking-wider text-emerald-200">차별점 (NOVELTY)</h3>
+</div>
+<div class="flex-1 space-y-4">
+<p class="text-sm leading-relaxed text-on-surface-variant">Unique integration of temporal causality layers. Performance benchmarks exceed current SOTA by 12.4% in low-latency environments.</p>
+<div class="bg-emerald-500/10 rounded-lg p-3 border border-emerald-500/20">
+<p class="text-[10px] text-emerald-400 font-bold uppercase">Critical Innovation Path</p>
+<p class="text-xs text-white">Non-linear entropy mapping applied to sequential data.</p>
+</div>
+</div>
+</div>
+<!-- Warning -->
+<div class="bg-surface-container-low rounded-xl p-6 border-l-4 border-red-500/50 flex flex-col">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-red-400">warning_amber</span>
+<h3 class="font-manrope font-bold text-sm uppercase tracking-wider text-red-200">주의사항 (WARNING)</h3>
+</div>
+<div class="flex-1 space-y-4">
+<p class="text-sm leading-relaxed text-on-surface-variant">High overlap detected in Literature Review citations without distinctive synthesis. Citation density for "Smith et al. (2022)" is above normal thresholds.</p>
+<button class="mt-4 w-full py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg text-red-200 text-xs font-bold transition-colors">
+                                View Overlap Segments
+                            </button>
+</div>
+</div>
+</div>
+</section>
+<!-- Comparison View Section -->
+<section class="space-y-6">
+<div class="flex items-end justify-between px-2">
+<h2 class="font-manrope text-2xl font-extrabold tracking-tighter">Comparison View</h2>
+<div class="flex gap-4">
+<button class="flex items-center gap-2 text-xs font-bold text-primary hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors">
+<span class="material-symbols-outlined text-sm">sync_alt</span>
+                            Highlight Differences
+                        </button>
+<button class="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+<span class="material-symbols-outlined text-sm">fullscreen</span>
+                            Full Screen
+                        </button>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-px bg-outline-variant/10 rounded-xl overflow-hidden border border-outline-variant/10">
+<!-- User Document -->
+<div class="bg-surface-container-lowest p-8 flex flex-col gap-6">
+<div class="flex items-center justify-between border-b border-outline-variant/10 pb-4">
+<span class="text-[10px] font-bold text-primary uppercase tracking-widest">Active Document</span>
+<span class="text-xs text-on-surface-variant italic">manuscript_draft_v2.pdf</span>
+</div>
+<div class="space-y-4 font-body text-sm leading-relaxed text-on-surface-variant/80">
+<p>Recent advancements in deep learning have significantly improved the capability of large-scale language models to understand complex contexts. In this study, we propose a <mark class="bg-red-500/30 text-white px-1">hybrid transformer architecture</mark> that specifically targets the <mark class="bg-red-500/30 text-white px-1">temporal consistency of scientific assertions</mark> within long-form texts.</p>
+<p>Our approach utilizes a multi-head attention mechanism optimized for sparse data structures, allowing for <mark class="bg-red-500/30 text-white px-1">efficient memory management during the inference phase</mark>.</p>
+</div>
+</div>
+<!-- Related Work -->
+<div class="bg-surface-container-low p-8 flex flex-col gap-6">
+<div class="flex items-center justify-between border-b border-outline-variant/10 pb-4">
+<span class="text-[10px] font-bold text-on-tertiary-container uppercase tracking-widest">Found Match (Source 01)</span>
+<span class="text-xs text-on-surface-variant italic underline">doi.org/10.1038/s41586-023-01</span>
+</div>
+<div class="space-y-4 font-body text-sm leading-relaxed text-on-surface-variant/80">
+<p>This paper introduces a <mark class="bg-blue-500/30 text-white px-1">novel hybrid transformer system</mark> designed to maintain <mark class="bg-blue-500/30 text-white px-1">temporal consistency in scientific claims</mark>. Unlike previous models, the architecture leverages sparse attention for <mark class="bg-blue-500/30 text-white px-1">memory-efficient inference across long sequences</mark>.</p>
+<p>We demonstrate that the cross-domain capabilities of this model provide a significant baseline for future research in autonomous scientific analysis.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Top-K Related Items -->
+<section class="space-y-6">
+<h2 class="font-manrope text-xl font-extrabold tracking-tighter px-2">Top Related Intelligence Items</h2>
+<div class="space-y-3">
+<!-- Item 1 -->
+<div class="group bg-surface-container-low hover:bg-surface-container-high transition-all p-5 rounded-xl flex items-center gap-6 border border-transparent hover:border-primary/20">
+<div class="w-12 h-12 bg-surface-container-highest rounded-lg flex items-center justify-center font-manrope font-black text-xl text-primary/50 group-hover:text-primary">01</div>
+<div class="flex-1">
+<h4 class="font-manrope font-bold text-on-surface group-hover:text-white transition-colors">Neural Architectures for Scientific Information Extraction</h4>
+<p class="text-xs text-on-surface-variant">Journal of Computational Linguistics • 2023 • Dr. Elena Vance</p>
+</div>
+<div class="text-right">
+<div class="text-lg font-bold text-blue-400 font-manrope">92%</div>
+<div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Relevance</div>
+</div>
+<button class="bg-surface-bright p-2 rounded-lg text-primary hover:bg-primary hover:text-on-primary transition-all">
+<span class="material-symbols-outlined">open_in_new</span>
+</button>
+</div>
+<!-- Item 2 -->
+<div class="group bg-surface-container-low hover:bg-surface-container-high transition-all p-5 rounded-xl flex items-center gap-6 border border-transparent hover:border-primary/20">
+<div class="w-12 h-12 bg-surface-container-highest rounded-lg flex items-center justify-center font-manrope font-black text-xl text-primary/50 group-hover:text-primary">02</div>
+<div class="flex-1">
+<h4 class="font-manrope font-bold text-on-surface group-hover:text-white transition-colors">Consistency in Sequential Knowledge Modeling</h4>
+<p class="text-xs text-on-surface-variant">AI Research Review • 2022 • Smith, R. &amp; Jenkins, L.</p>
+</div>
+<div class="text-right">
+<div class="text-lg font-bold text-blue-400 font-manrope">78%</div>
+<div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Relevance</div>
+</div>
+<button class="bg-surface-bright p-2 rounded-lg text-primary hover:bg-primary hover:text-on-primary transition-all">
+<span class="material-symbols-outlined">open_in_new</span>
+</button>
+</div>
+<!-- Item 3 -->
+<div class="group bg-surface-container-low hover:bg-surface-container-high transition-all p-5 rounded-xl flex items-center gap-6 border border-transparent hover:border-primary/20">
+<div class="w-12 h-12 bg-surface-container-highest rounded-lg flex items-center justify-center font-manrope font-black text-xl text-primary/50 group-hover:text-primary">03</div>
+<div class="flex-1">
+<h4 class="font-manrope font-bold text-on-surface group-hover:text-white transition-colors">The Future of Scholarly Intelligence Platforms</h4>
+<p class="text-xs text-on-surface-variant">Preprint Server • 2024 • Global Science Consortium</p>
+</div>
+<div class="text-right">
+<div class="text-lg font-bold text-blue-400 font-manrope">64%</div>
+<div class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Relevance</div>
+</div>
+<button class="bg-surface-bright p-2 rounded-lg text-primary hover:bg-primary hover:text-on-primary transition-all">
+<span class="material-symbols-outlined">open_in_new</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+</div>
+<!-- Footer -->
+<footer class="bg-[#031425] py-8 font-inter text-xs text-slate-500 flex flex-col items-center justify-center gap-2 w-full shrink-0 border-t border-outline-variant/5">
+<span class="font-manrope font-black text-blue-900 tracking-tighter">SCIENCEBRIDGE</span>
+<div class="flex gap-6">
+<a class="text-slate-500 hover:text-blue-400 transition-colors" href="#">Privacy Policy</a>
+<a class="text-slate-500 hover:text-blue-400 transition-colors underline" href="#">Accessibility</a>
+</div>
+<p>© 2024 ScienceBridge. Empowering Discovery.</p>
+</footer>
+</body></html>

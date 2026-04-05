@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ScienceBridge - The Digital Curator</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-fixed-variant": "#004491",
+                        "error-container": "#ffdad6",
+                        "tertiary": "#071900",
+                        "tertiary-fixed-dim": "#9ad76e",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-tint": "#4f6073",
+                        "primary-container": "#1a2b3c",
+                        "primary": "#041627",
+                        "inverse-surface": "#003543",
+                        "secondary-fixed-dim": "#acc7ff",
+                        "on-error": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-surface": "#001f28",
+                        "surface-dim": "#b2e1f4",
+                        "on-primary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#b7c8de",
+                        "on-background": "#001f28",
+                        "tertiary-fixed": "#b5f487",
+                        "on-tertiary": "#ffffff",
+                        "outline-variant": "#c4c6cd",
+                        "surface-container": "#d5f3ff",
+                        "on-primary-container": "#8192a7",
+                        "on-secondary-fixed": "#001a40",
+                        "on-tertiary-container": "#669f3e",
+                        "inverse-on-surface": "#ddf5ff",
+                        "tertiary-container": "#123000",
+                        "secondary-container": "#659dfe",
+                        "surface-container-highest": "#baeafd",
+                        "surface-bright": "#f2fbff",
+                        "surface": "#f2fbff",
+                        "primary-fixed-dim": "#b7c8de",
+                        "on-tertiary-fixed": "#0a2000",
+                        "outline": "#74777d",
+                        "on-tertiary-fixed-variant": "#245100",
+                        "surface-container-high": "#c6efff",
+                        "on-secondary-container": "#003370",
+                        "surface-container-low": "#e4f7ff",
+                        "on-primary-fixed-variant": "#38485a",
+                        "background": "#f2fbff",
+                        "secondary": "#115cb9",
+                        "surface-variant": "#baeafd",
+                        "on-surface-variant": "#44474c",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#d2e4fb",
+                        "secondary-fixed": "#d7e2ff",
+                        "on-primary-fixed": "#0b1d2d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="bg-[#041627] fixed top-0 w-full z-50 shadow-none">
+<div class="flex justify-between items-center w-full px-8 py-4 max-w-[1920px] mx-auto">
+<div class="text-xl font-bold tracking-tight text-white">ScienceBridge</div>
+<nav class="hidden md:flex items-center gap-8 font-inter text-sm font-medium tracking-normal">
+<a class="text-white border-b-2 border-[#115cb9] pb-1" href="#">Search</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">My Library</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Analysis</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Trends</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-white hover:bg-white/5 p-2 rounded-full transition-all duration-200">language</button>
+<button class="material-symbols-outlined text-white hover:bg-white/5 p-2 rounded-full transition-all duration-200">account_circle</button>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow pt-32 pb-20 px-6 flex flex-col items-center justify-center relative overflow-hidden">
+<!-- Background Accents -->
+<div class="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-secondary-container/20 rounded-full blur-[120px] -z-10"></div>
+<div class="absolute bottom-[5%] left-[-5%] w-[400px] h-[400px] bg-primary-container/10 rounded-full blur-[100px] -z-10"></div>
+<!-- Conversational Search UI -->
+<div class="w-full max-w-4xl space-y-12">
+<!-- Branding/Hero -->
+<div class="text-center space-y-4">
+<h1 class="text-5xl font-extrabold tracking-tight text-primary leading-tight">
+                    The Digital Curator
+                </h1>
+<p class="text-slate-500 font-medium tracking-wide uppercase text-xs opacity-70">
+                    AI-Driven Academic Intelligence &amp; Discovery
+                </p>
+</div>
+<!-- Search Container -->
+<div class="space-y-6">
+<div class="surface-container-lowest glass-panel rounded-xl shadow-[0_40px_40px_-10px_rgba(0,31,40,0.06)] p-2 focus-within:ring-2 ring-secondary/20 transition-all">
+<div class="flex flex-col gap-4 p-4">
+<textarea class="w-full bg-transparent border-none focus:ring-0 text-xl font-medium placeholder:text-slate-300 resize-none" placeholder="무엇을 탐구하고 싶으신가요? (자연어로 입력하세요)" rows="2"></textarea>
+<div class="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-100">
+<!-- Regional & Content Toggles -->
+<div class="flex gap-4 items-center">
+<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-container-low rounded-lg">
+<span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Region</span>
+<label class="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
+<input checked="" class="rounded border-slate-300 text-secondary focus:ring-secondary" type="checkbox"/> 국내
+                                    </label>
+<label class="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
+<input checked="" class="rounded border-slate-300 text-secondary focus:ring-secondary" type="checkbox"/> 해외
+                                    </label>
+</div>
+<div class="hidden lg:flex items-center gap-3 px-3 py-1.5">
+<label class="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-primary transition-colors cursor-pointer">
+<input checked="" class="rounded-sm border-slate-300 text-secondary" type="checkbox"/> 논문
+                                    </label>
+<label class="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-primary transition-colors cursor-pointer">
+<input class="rounded-sm border-slate-300 text-secondary" type="checkbox"/> 특허
+                                    </label>
+<label class="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-primary transition-colors cursor-pointer">
+<input class="rounded-sm border-slate-300 text-secondary" type="checkbox"/> 보고서
+                                    </label>
+</div>
+</div>
+<button class="bg-secondary hover:bg-on-secondary-fixed-variant text-white px-8 py-3 rounded-lg font-bold text-sm transition-all shadow-lg shadow-secondary/20 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">search</span>
+                                탐구 시작
+                            </button>
+</div>
+</div>
+</div>
+<!-- Search Modes Bento -->
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+<button class="flex flex-col items-center gap-2 p-4 rounded-xl bg-surface-container-lowest border border-transparent hover:border-secondary/20 hover:bg-white transition-all group">
+<span class="material-symbols-outlined text-secondary group-hover:scale-110 transition-transform">star</span>
+<span class="text-[10px] font-bold uppercase tracking-wider text-slate-600">기본 모드</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-4 rounded-xl bg-surface-container-lowest border border-transparent hover:border-secondary/20 hover:bg-white transition-all group">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-secondary group-hover:scale-110 transition-transform">hub</span>
+<span class="text-[10px] font-bold uppercase tracking-wider text-slate-600">넓게 찾기</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-4 rounded-xl bg-surface-container-lowest border border-transparent hover:border-secondary/20 hover:bg-white transition-all group">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-secondary group-hover:scale-110 transition-transform">public</span>
+<span class="text-[10px] font-bold uppercase tracking-wider text-slate-600">한국 우선</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-4 rounded-xl bg-surface-container-lowest border border-transparent hover:border-secondary/20 hover:bg-white transition-all group">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-secondary group-hover:scale-110 transition-transform">update</span>
+<span class="text-[10px] font-bold uppercase tracking-wider text-slate-600">최신순</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-4 rounded-xl bg-surface-container-lowest border border-transparent hover:border-secondary/20 hover:bg-white transition-all group">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-secondary group-hover:scale-110 transition-transform">history_edu</span>
+<span class="text-[10px] font-bold uppercase tracking-wider text-slate-600">선행연구</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-4 rounded-xl bg-surface-container-lowest border border-transparent hover:border-secondary/20 hover:bg-white transition-all group">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-secondary group-hover:scale-110 transition-transform">lightbulb</span>
+<span class="text-[10px] font-bold uppercase tracking-wider text-slate-600">아이디어</span>
+</button>
+</div>
+</div>
+<!-- Trends Section -->
+<div class="pt-8 animate-fade-in">
+<div class="flex items-center gap-4 mb-6">
+<span class="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary">Intelligent Trends</span>
+<div class="h-[1px] flex-grow bg-slate-200/50"></div>
+</div>
+<div class="flex flex-wrap gap-3 justify-center">
+<a class="px-5 py-2.5 rounded-full bg-surface-container-low hover:bg-surface-container-high transition-colors text-sm font-semibold text-primary flex items-center gap-2" href="#">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-fixed-dim"></span>
+                        초전도체
+                    </a>
+<a class="px-5 py-2.5 rounded-full bg-surface-container-low hover:bg-surface-container-high transition-colors text-sm font-semibold text-primary flex items-center gap-2" href="#">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                        AI 반도체 설계
+                    </a>
+<a class="px-5 py-2.5 rounded-full bg-surface-container-low hover:bg-surface-container-high transition-colors text-sm font-semibold text-primary flex items-center gap-2" href="#">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+                        기후 위기 대응 기술
+                    </a>
+<a class="px-5 py-2.5 rounded-full bg-surface-container-low hover:bg-surface-container-high transition-colors text-sm font-semibold text-primary flex items-center gap-2" href="#">
+<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                        양자 암호화
+                    </a>
+<a class="px-5 py-2.5 rounded-full bg-surface-container-low hover:bg-surface-container-high transition-colors text-sm font-semibold text-primary flex items-center gap-2" href="#">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+                        디지털 트윈
+                    </a>
+</div>
+</div>
+</div>
+</main>
+<!-- SideNavBar (Suppressed on Home, but template kept as guide - logic dictates hiding it for clean search landing) -->
+<!-- Footer -->
+<footer class="bg-[#f2fbff] w-full px-12 py-16 flex flex-col items-center gap-8 border-t border-slate-200/15">
+<div class="flex flex-wrap justify-center gap-12 items-center opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+<!-- Mock Partner Logos with Editorial Style -->
+<div class="flex flex-col items-center">
+<span class="text-xs font-black tracking-tighter text-primary">KCI</span>
+<span class="text-[8px] uppercase tracking-widest text-slate-400">Journal Database</span>
+</div>
+<div class="flex flex-col items-center">
+<span class="text-xs font-black tracking-tighter text-primary">ScienceON</span>
+<span class="text-[8px] uppercase tracking-widest text-slate-400">Knowledge Service</span>
+</div>
+<div class="flex flex-col items-center">
+<span class="text-xs font-black tracking-tighter text-primary">KIPRIS</span>
+<span class="text-[8px] uppercase tracking-widest text-slate-400">Patent Intelligence</span>
+</div>
+<div class="flex flex-col items-center">
+<span class="text-xs font-black tracking-tighter text-primary">NTIS</span>
+<span class="text-[8px] uppercase tracking-widest text-slate-400">R&amp;D Info</span>
+</div>
+</div>
+<div class="flex flex-wrap justify-center gap-6 font-inter text-[10px] tracking-wider uppercase font-semibold text-slate-500">
+<a class="hover:text-[#115cb9] transition-colors" href="#">Accessibility</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">API Docs</a>
+</div>
+<div class="text-lg font-black text-[#041627]">ScienceBridge</div>
+<p class="font-inter text-[10px] tracking-wider uppercase text-slate-400">
+            © 2024 ScienceBridge. All Intellectual Assets Reserved.
+        </p>
+</footer>
+<!-- FAB (Suppressed on Home Search to avoid clutter) -->
+</body></html>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scholaxis · 상세 분석</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="detail">
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar__inner">
+          <div class="brand">Scholaxis</div>
+          <nav>
+            <a href="./index.html">탐색</a>
+            <a href="./results.html">검색 결과</a>
+            <a class="is-active" href="./detail.html">상세 분석</a>
+            <a href="./similarity.html">유사도 리포트</a>
+          </nav>
+        </div>
+      </header>
+
+      <main class="page">
+        <article class="detail-hero" data-detail-root>
+          <span class="pill" data-detail-badge>SCI-E</span>
+          <p class="lead" data-detail-source>SCI-E · 2024</p>
+          <h1 data-detail-title>Quantum Neural Architectures for Scholarly Knowledge Graph Expansion</h1>
+          <p data-detail-subtitle>학술 지식 그래프 확장을 위한 양자 신경 아키텍처</p>
+          <p data-detail-authors>Sung-min Lee · Ji-hoon Kim — SNU Department of AI Convergence</p>
+          <div class="metric-grid">
+            <div class="metric-card">
+              <strong>인용수</strong>
+              <span data-metric-citations>0</span>
+            </div>
+            <div class="metric-card">
+              <strong>참고문헌</strong>
+              <span data-metric-references>0</span>
+            </div>
+            <div class="metric-card">
+              <strong>영향도</strong>
+              <span data-metric-impact>0</span>
+            </div>
+            <div class="metric-card">
+              <strong>속도</strong>
+              <span data-metric-velocity>-</span>
+            </div>
+          </div>
+          <div class="action-row">
+            <a class="button button--primary" href="./results.html">관련 결과 더 보기</a>
+            <a class="button button--ghost" data-similarity-link href="./similarity.html">유사도 분석으로 이동</a>
+          </div>
+        </article>
+
+        <section class="detail-grid">
+          <div class="stack">
+            <article class="card">
+              <span class="section-eyebrow">Abstract</span>
+              <h2>핵심 요약</h2>
+              <p data-detail-abstract></p>
+              <div class="tag-row" style="margin-top: 1rem" data-detail-tags></div>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Intelligence network map</span>
+              <h2>영향 관계 맵</h2>
+              <div class="network" data-network-root></div>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Related items</span>
+              <h2>함께 읽을 자료</h2>
+              <div class="result-list" data-related-results></div>
+            </article>
+          </div>
+
+          <div class="stack">
+            <article class="card">
+              <span class="section-eyebrow">Research insight</span>
+              <h3>빠른 인사이트</h3>
+              <p data-detail-insight></p>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Why it matters</span>
+              <h3>이 논문을 먼저 읽어야 하는 이유</h3>
+              <ul>
+                <li>국내·해외·특허 데이터를 동시에 연결해 후속 탐색의 허브 역할을 합니다.</li>
+                <li>인용/참고문헌/영향도 지표를 한 화면에서 비교할 수 있습니다.</li>
+                <li>유사도 분석 화면으로 즉시 이어져 차별점 검토까지 가능합니다.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

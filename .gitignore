@@ -1,5 +1,35 @@
+# dependencies
 node_modules/
+
+# env / secrets
 .env
+.env.local
+.env.*.local
+
+# os / editor
 .DS_Store
-.tmp/
+Thumbs.db
+*.swp
+*.swo
+
+# coverage / temp / logs
 coverage/
+.tmp/
+tmp/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# runtime state
+.codex
+.omx/
+.data/
+
+# sqlite / backups
+*.db
+*.db-shm
+*.db-wal
+
+# caches
+.pytest_cache/

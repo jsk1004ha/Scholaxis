@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scholaxis · 검색 결과</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="results">
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar__inner">
+          <div class="brand">Scholaxis</div>
+          <nav>
+            <a href="./index.html">탐색</a>
+            <a class="is-active" href="./results.html">검색 결과</a>
+            <a href="./detail.html">상세 분석</a>
+            <a href="./similarity.html">유사도 리포트</a>
+          </nav>
+        </div>
+      </header>
+
+      <main class="page layout">
+        <aside class="sidebar">
+          <span class="section-eyebrow">Advanced filters</span>
+          <h2>Refine Intelligence</h2>
+          <p>국내 연구 우선·자료 유형·소스별 흐름을 빠르게 좁힙니다.</p>
+          <form class="stack inline-search" data-inline-search>
+            <div>
+              <label class="label" for="search-inline">검색어</label>
+              <input id="search-inline" name="q" type="text" placeholder="AI 반도체 설계 자동화" />
+            </div>
+            <div>
+              <label class="label" for="region-inline">지역</label>
+              <select class="select" id="region-inline" name="region">
+                <option value="국내,해외">국내 + 해외</option>
+                <option value="국내">국내 우선</option>
+                <option value="해외">해외 우선</option>
+              </select>
+            </div>
+            <div>
+              <label class="label" for="type-inline">유형</label>
+              <select class="select" id="type-inline" name="sourceType">
+                <option value="논문,특허,보고서">전체</option>
+                <option value="논문">논문</option>
+                <option value="특허">특허</option>
+                <option value="보고서">보고서</option>
+              </select>
+            </div>
+            <button class="button button--primary" type="submit">다시 탐색</button>
+          </form>
+
+          <div class="card" style="margin-top: 1rem">
+            <span class="section-eyebrow">지원 소스</span>
+            <ul data-source-list></ul>
+          </div>
+        </aside>
+
+        <section>
+          <article class="result-hero">
+            <span class="section-eyebrow">Integrated search</span>
+            <h1 data-query-label>AI 반도체 설계 자동화</h1>
+            <p data-results-summary>
+              국내 연구·과제·특허를 우선 노출하면서 글로벌 SCI-E 문헌을 함께 연결한 결과입니다.
+            </p>
+            <div class="chip-row" style="margin-top: 1rem" data-related-queries></div>
+            <div class="action-row" style="margin-top: 1rem">
+              <span class="pill" data-results-count>0개 결과</span>
+              <a class="pill pill--muted" href="./similarity.html">리포트 유사도 분석으로 이동</a>
+            </div>
+          </article>
+
+          <div class="result-list" data-results-root></div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

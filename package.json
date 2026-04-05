@@ -1,0 +1,22 @@
+{
+  "name": "scholaxis",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Korean-first research exploration engine with unified live-source ingestion, deduplication, and vector search.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "test": "node --test --test-concurrency=1",
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "sync": "node scripts/sync-sources.mjs",
+    "backup": "node scripts/backup-sqlite.mjs",
+    "restore": "node scripts/restore-sqlite.mjs",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run smoke"
+  }
+}

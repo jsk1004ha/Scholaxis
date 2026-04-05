@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+
+<html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-fixed-variant": "#004491",
+                        "error-container": "#ffdad6",
+                        "tertiary": "#071900",
+                        "tertiary-fixed-dim": "#9ad76e",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-tint": "#4f6073",
+                        "primary-container": "#1a2b3c",
+                        "primary": "#041627",
+                        "inverse-surface": "#003543",
+                        "secondary-fixed-dim": "#acc7ff",
+                        "on-error": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-surface": "#001f28",
+                        "surface-dim": "#b2e1f4",
+                        "on-primary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#b7c8de",
+                        "on-background": "#001f28",
+                        "tertiary-fixed": "#b5f487",
+                        "on-tertiary": "#ffffff",
+                        "outline-variant": "#c4c6cd",
+                        "surface-container": "#d5f3ff",
+                        "on-primary-container": "#8192a7",
+                        "on-secondary-fixed": "#001a40",
+                        "on-tertiary-container": "#669f3e",
+                        "inverse-on-surface": "#ddf5ff",
+                        "tertiary-container": "#123000",
+                        "secondary-container": "#659dfe",
+                        "surface-container-highest": "#baeafd",
+                        "surface-bright": "#f2fbff",
+                        "surface": "#f2fbff",
+                        "primary-fixed-dim": "#b7c8de",
+                        "on-tertiary-fixed": "#0a2000",
+                        "outline": "#74777d",
+                        "on-tertiary-fixed-variant": "#245100",
+                        "surface-container-high": "#c6efff",
+                        "on-secondary-container": "#003370",
+                        "surface-container-low": "#e4f7ff",
+                        "on-primary-fixed-variant": "#38485a",
+                        "background": "#f2fbff",
+                        "secondary": "#115cb9",
+                        "surface-variant": "#baeafd",
+                        "on-surface-variant": "#44474c",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#d2e4fb",
+                        "secondary-fixed": "#d7e2ff",
+                        "on-primary-fixed": "#0b1d2d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(242, 251, 255, 0.7);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface">
+<!-- TopAppBar Execution -->
+<header class="bg-[#041627] dark:bg-[#041627] docked full-width top-0 z-50 sticky">
+<div class="flex justify-between items-center w-full px-8 py-4 max-w-[1920px] mx-auto">
+<div class="text-xl font-bold tracking-tight text-white">ScienceBridge</div>
+<nav class="hidden md:flex gap-8 font-inter text-sm font-medium tracking-normal">
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Search</a>
+<a class="text-white border-b-2 border-[#115cb9] pb-1" href="#">Analysis</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">My Library</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Trends</a>
+</nav>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-white cursor-pointer hover:bg-white/5 p-2 rounded-full" data-icon="language">language</span>
+<span class="material-symbols-outlined text-white cursor-pointer hover:bg-white/5 p-2 rounded-full" data-icon="account_circle">account_circle</span>
+</div>
+</div>
+</header>
+<main class="max-w-[1920px] mx-auto flex flex-col md:flex-row min-h-screen">
+<!-- SideNav (Filters Hidden for Detail View as per relevance check, instead using for navigation) -->
+<aside class="hidden md:flex flex-col h-auto w-72 bg-[#f2fbff] dark:bg-[#041627] p-6 gap-8">
+<div class="flex flex-col gap-1">
+<span class="font-inter text-xs font-semibold uppercase tracking-widest text-slate-500">Advanced Filters</span>
+<h3 class="text-lg font-bold text-[#041627] dark:text-white">Refine Intelligence</h3>
+</div>
+<nav class="flex flex-col gap-4">
+<div class="flex items-center gap-3 p-3 text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Year</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Source Type</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Source</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<span class="material-symbols-outlined" data-icon="lock_open">lock_open</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Open Access</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Search History</span>
+</div>
+</nav>
+<button class="mt-auto bg-secondary text-white py-3 px-6 rounded-md font-bold tracking-tight hover:opacity-90 transition-opacity">
+                Apply Filters
+            </button>
+<div class="mt-8 pt-8 border-t border-slate-200/15 flex flex-col gap-4">
+<div class="flex items-center gap-3 text-slate-500 dark:text-slate-400 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-inter text-[10px] tracking-wider uppercase">Settings</span>
+</div>
+<div class="flex items-center gap-3 text-slate-500 dark:text-slate-400 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-inter text-[10px] tracking-wider uppercase">Help</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<section class="flex-1 overflow-y-auto bg-surface">
+<!-- Hero Section: Research Title & Abstract -->
+<div class="relative bg-primary-container text-white p-12 overflow-hidden">
+<div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 70% 30%, #115cb9 0%, transparent 70%);"></div>
+<div class="relative z-10 max-w-5xl">
+<div class="flex gap-3 mb-6">
+<span class="px-3 py-1 bg-tertiary-container text-tertiary-fixed rounded-full text-[10px] font-bold tracking-widest uppercase">SCI-E</span>
+<span class="px-3 py-1 bg-secondary text-white rounded-full text-[10px] font-bold tracking-widest uppercase">Open Access</span>
+</div>
+<h1 class="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight mb-6">
+                        Quantum Neural Architectures: Optimizing Vector Similarity in Multi-Modal Scholarly Knowledge Graphs
+                    </h1>
+<p class="text-on-primary-container font-medium text-lg mb-8">
+                        Lee, Sung-min; Kim, Ji-hoon; Park, Eleanor — Department of AI Convergence, SNU
+                    </p>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-8 py-8 border-y border-white/10">
+<div>
+<div class="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Citations</div>
+<div class="text-3xl font-black">1,402</div>
+</div>
+<div>
+<div class="text-[10px] uppercase tracking-widest text-slate-400 mb-1">h-Index Impact</div>
+<div class="text-3xl font-black">84</div>
+</div>
+<div>
+<div class="text-[10px] uppercase tracking-widest text-slate-400 mb-1">References</div>
+<div class="text-3xl font-black">42</div>
+</div>
+<div>
+<div class="text-[10px] uppercase tracking-widest text-slate-400 mb-1">KCI Impact</div>
+<div class="text-3xl font-black">4.92</div>
+</div>
+</div>
+<div class="mt-8 flex flex-wrap gap-4">
+<button class="bg-secondary text-white px-8 py-3 rounded-md font-bold flex items-center gap-2 hover:opacity-90 transition-all">
+<span class="material-symbols-outlined" data-icon="download">download</span> Download PDF
+                        </button>
+<button class="bg-white/10 text-white px-6 py-3 rounded-md font-bold flex items-center gap-2 hover:bg-white/20 transition-all">
+<span class="material-symbols-outlined" data-icon="format_quote">format_quote</span> Cite
+                        </button>
+<button class="bg-white/10 text-white px-6 py-3 rounded-md font-bold flex items-center gap-2 hover:bg-white/20 transition-all">
+<span class="material-symbols-outlined" data-icon="share">share</span> Share
+                        </button>
+</div>
+</div>
+</div>
+<div class="p-8 md:p-12 space-y-12">
+<!-- Data Visualization: Citation Graph -->
+<div class="bg-surface-container-low p-8 rounded-xl">
+<div class="flex justify-between items-end mb-8">
+<div>
+<h2 class="text-2xl font-bold tracking-tight text-primary">Intelligence Network Map</h2>
+<p class="text-sm text-slate-500">Mapping bibliographic coupling and direct influence</p>
+</div>
+<div class="flex gap-4">
+<div class="flex items-center gap-2 text-xs font-bold"><div class="w-3 h-3 rounded-full bg-secondary"></div> 후속연구</div>
+<div class="flex items-center gap-2 text-xs font-bold"><div class="w-3 h-3 rounded-full bg-primary"></div> 선행연구</div>
+<div class="flex items-center gap-2 text-xs font-bold"><div class="w-3 h-3 rounded-full bg-tertiary-fixed-dim"></div> 특허</div>
+</div>
+</div>
+<div class="relative w-full aspect-video bg-surface-container-lowest rounded-xl overflow-hidden border border-outline-variant/15 flex items-center justify-center">
+<!-- Abstract Visual Representation of Network -->
+<div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 50% 50%, #115cb9 1px, transparent 1px); background-size: 30px 30px;"></div>
+<div class="relative w-full h-full p-12">
+<!-- Central Node -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+<div class="w-24 h-24 bg-primary rounded-full border-4 border-white shadow-2xl flex items-center justify-center text-white text-[10px] font-bold text-center p-2 leading-tight">
+                                    CURRENT RESEARCH
+                                </div>
+</div>
+<!-- Connected Nodes -->
+<!-- Pre-Research (Left) -->
+<div class="absolute top-1/4 left-1/4 group cursor-pointer">
+<div class="w-16 h-16 bg-primary-container rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-[8px] font-bold text-center p-2 transition-transform group-hover:scale-110">
+                                    선행연구 A
+                                </div>
+<div class="absolute top-1/2 left-full w-32 h-[1px] bg-outline-variant/30 -rotate-12 origin-left"></div>
+</div>
+<div class="absolute bottom-1/4 left-1/4 group cursor-pointer">
+<div class="w-12 h-12 bg-primary-container rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-[8px] font-bold text-center p-2 transition-transform group-hover:scale-110">
+                                    선행연구 B
+                                </div>
+<div class="absolute top-1/2 left-full w-32 h-[1px] bg-outline-variant/30 rotate-12 origin-left"></div>
+</div>
+<!-- Post-Research (Right) -->
+<div class="absolute top-1/3 right-1/4 group cursor-pointer">
+<div class="w-20 h-20 bg-secondary rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-[8px] font-bold text-center p-2 transition-transform group-hover:scale-110">
+                                    후속연구 X
+                                </div>
+<div class="absolute top-1/2 right-full w-24 h-[1px] bg-outline-variant/30 rotate-6 origin-right"></div>
+</div>
+<div class="absolute bottom-1/3 right-1/4 group cursor-pointer">
+<div class="w-14 h-14 bg-secondary-container rounded-full border-2 border-white shadow-lg flex items-center justify-center text-on-secondary-container text-[8px] font-bold text-center p-2 transition-transform group-hover:scale-110">
+                                    후속연구 Y
+                                </div>
+<div class="absolute top-1/2 right-full w-24 h-[1px] bg-outline-variant/30 -rotate-12 origin-right"></div>
+</div>
+<!-- Patent Link (Top) -->
+<div class="absolute top-12 left-1/2 -translate-x-1/2 group cursor-pointer">
+<div class="px-4 py-2 bg-tertiary-fixed-dim rounded-full border-2 border-white shadow-lg flex items-center gap-2 text-on-tertiary-fixed text-[10px] font-bold transition-transform group-hover:scale-105">
+<span class="material-symbols-outlined text-sm" data-icon="gavel">gavel</span> KIPRIS Patent US-9201-B
+                                </div>
+<div class="absolute top-full left-1/2 w-[1px] h-24 bg-outline-variant/30 -translate-x-1/2"></div>
+</div>
+</div>
+<!-- Floating Controls -->
+<div class="absolute bottom-6 right-6 flex gap-2">
+<button class="bg-white p-2 rounded-lg shadow-sm border border-outline-variant/20 hover:bg-slate-50"><span class="material-symbols-outlined" data-icon="zoom_in">zoom_in</span></button>
+<button class="bg-white p-2 rounded-lg shadow-sm border border-outline-variant/20 hover:bg-slate-50"><span class="material-symbols-outlined" data-icon="zoom_out">zoom_out</span></button>
+<button class="bg-white p-2 rounded-lg shadow-sm border border-outline-variant/20 hover:bg-slate-50"><span class="material-symbols-outlined" data-icon="fullscreen">fullscreen</span></button>
+</div>
+</div>
+</div>
+<!-- Content Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-12">
+<!-- Main Body Content -->
+<div class="lg:col-span-2 space-y-12">
+<div>
+<h3 class="text-sm font-bold text-secondary uppercase tracking-[0.2em] mb-4">Abstract</h3>
+<div class="bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-outline-variant/5">
+<p class="text-on-surface leading-relaxed text-lg font-light italic">
+                                    "Quantum Neural Architectures (QNA) represent a fundamental shift in how high-dimensional semantic relationships are captured in scholar knowledge graphs. Our research demonstrates a 42% increase in discovery precision by leveraging entanglement-inspired weighting for vector similarity..."
+                                </p>
+</div>
+</div>
+<div>
+<h3 class="text-sm font-bold text-secondary uppercase tracking-[0.2em] mb-4">Analysis Details</h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="bg-surface-container-low p-6 rounded-xl">
+<span class="material-symbols-outlined text-secondary mb-3" data-icon="insights">insights</span>
+<h4 class="font-bold text-primary mb-2">Technical Novelty</h4>
+<p class="text-sm text-slate-600">The introduction of multi-qubit gates for citation weighting is a first in KCI history.</p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl">
+<span class="material-symbols-outlined text-secondary mb-3" data-icon="account_tree">account_tree</span>
+<h4 class="font-bold text-primary mb-2">Data Convergence</h4>
+<p class="text-sm text-slate-600">Integrated with NTIS and ScienceON metadata for validated cross-referencing.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- AI Insights Sidebar -->
+<div class="lg:col-span-1 space-y-8">
+<div class="bg-primary p-8 rounded-2xl text-white shadow-xl relative overflow-hidden">
+<div class="absolute top-0 right-0 w-32 h-32 bg-secondary opacity-20 -mr-16 -mt-16 rounded-full blur-3xl"></div>
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-secondary" data-icon="auto_awesome">auto_awesome</span>
+<h3 class="font-bold text-lg">AI Research Analysis</h3>
+</div>
+<div class="space-y-8">
+<div class="space-y-2">
+<h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">핵심 차별점</h4>
+<p class="text-sm leading-relaxed">기존 Euclidean 거리 방식이 아닌 양자 중첩 기반의 벡터 정렬 방식을 최초 제안함.</p>
+</div>
+<div class="space-y-2">
+<h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">후속 연구 방향성</h4>
+<p class="text-sm leading-relaxed">거대 언어 모델(LLM)의 Attention mechanism에 본 양자 아키텍처를 이식하는 연구 권장.</p>
+</div>
+<div class="space-y-4 pt-4 border-t border-white/10">
+<h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">국내 유사 선행 연구</h4>
+<ul class="space-y-3">
+<li class="flex items-start gap-2 group cursor-pointer">
+<span class="material-symbols-outlined text-secondary text-sm mt-0.5" data-icon="link">link</span>
+<span class="text-xs text-slate-300 group-hover:text-white transition-colors">지식 그래프 임베딩의 성능 향상 기법 (서울대, 2022)</span>
+</li>
+<li class="flex items-start gap-2 group cursor-pointer">
+<span class="material-symbols-outlined text-secondary text-sm mt-0.5" data-icon="link">link</span>
+<span class="text-xs text-slate-300 group-hover:text-white transition-colors">학술 데이터 추천을 위한 벡터 연산 가속화 (KAIST, 2021)</span>
+</li>
+<li class="flex items-start gap-2 group cursor-pointer">
+<span class="material-symbols-outlined text-secondary text-sm mt-0.5" data-icon="link">link</span>
+<span class="text-xs text-slate-300 group-hover:text-white transition-colors">복합 네트워크 기반의 논문 인용 분석 (포항공대, 2023)</span>
+</li>
+</ul>
+</div>
+</div>
+<button class="w-full mt-8 py-4 bg-white/5 border border-white/10 rounded-xl text-sm font-bold hover:bg-white/10 transition-all">
+                                Similar Research Report
+                            </button>
+</div>
+<!-- KIPRIS Patent Card -->
+<div class="bg-surface-container-high p-6 rounded-2xl border border-secondary/10">
+<div class="flex items-center justify-between mb-4">
+<span class="bg-secondary/10 text-secondary text-[10px] font-black px-2 py-1 rounded">KIPRIS</span>
+<span class="material-symbols-outlined text-secondary" data-icon="lightbulb">lightbulb</span>
+</div>
+<h4 class="font-bold text-primary text-sm mb-2">관련 특허 기술</h4>
+<p class="text-xs text-slate-600 mb-4">KR-10-2023-004921: 다중 모달 데이터를 활용한 지능형 검색 시스템</p>
+<a class="text-xs font-bold text-secondary flex items-center gap-1 hover:underline" href="#">상세 정보 보기 <span class="material-symbols-outlined text-[14px]" data-icon="arrow_forward">arrow_forward</span></a>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Execution -->
+<footer class="bg-[#f2fbff] dark:bg-[#041627] full-width border-t border-slate-200/15 mt-20">
+<div class="w-full px-12 py-16 flex flex-col items-center gap-8">
+<div class="text-lg font-black text-[#041627] dark:text-white">ScienceBridge</div>
+<div class="flex flex-wrap justify-center gap-8 font-inter text-[10px] tracking-wider uppercase text-slate-500">
+<a class="hover:text-[#115cb9] transition-colors" href="#">KCI</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">ScienceON</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">KIPRIS</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">NTIS</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">Accessibility</a>
+<a class="hover:text-[#115cb9] transition-colors" href="#">Privacy Policy</a>
+</div>
+<div class="text-slate-500 text-[10px] tracking-wider uppercase">© 2024 ScienceBridge. All Intellectual Assets Reserved.</div>
+</div>
+</footer>
+</section>
+</main>
+<!-- Floating Action Button Contextual Logic: On Detail page, suppress regular FAB and use focused floating tool -->
+<div class="fixed bottom-8 right-8 z-40">
+<button class="bg-secondary text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform active:scale-95">
+<span class="material-symbols-outlined" data-icon="forum">forum</span>
+</button>
+</div>
+</body></html>

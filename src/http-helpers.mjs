@@ -27,14 +27,13 @@ export function applySecurityHeaders(res) {
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
   );
 }
 
-export async function readRawBody(req, maxBytes = 200_000) {
+export async function readRawBody(req, maxBytes = 1_000_000) {
   const chunks = [];
   let size = 0;
-
   for await (const chunk of req) {
     size += chunk.length;
     if (size > maxBytes) {
@@ -44,18 +43,14 @@ export async function readRawBody(req, maxBytes = 200_000) {
     }
     chunks.push(chunk);
   }
-
-  if (chunks.length === 0) return Buffer.from('');
-
   return Buffer.concat(chunks);
 }
 
 export async function readJsonBody(req, maxBytes = 200_000) {
-  const body = await readRawBody(req, maxBytes);
-  if (body.length === 0) return {};
-
+  const raw = await readRawBody(req, maxBytes);
+  if (!raw.length) return {};
   try {
-    return JSON.parse(body.toString('utf8'));
+    return JSON.parse(raw.toString('utf8'));
   } catch {
     const error = new Error('Invalid JSON body');
     error.statusCode = 400;
@@ -63,29 +58,34 @@ export async function readJsonBody(req, maxBytes = 200_000) {
   }
 }
 
-export function parseMultipartForm(bodyBuffer, contentType = '') {
+export function parseMultipartForm(buffer, contentType = '') {
   const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
   if (!boundaryMatch) return {};
 
   const boundary = `--${boundaryMatch[1]}`;
-  const text = bodyBuffer.toString('utf8');
-  const parts = text.split(boundary).slice(1, -1);
+  const raw = buffer.toString('latin1');
+  const chunks = raw.split(boundary).slice(1, -1);
   const fields = {};
 
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
+  for (const chunk of chunks) {
+    const normalized = chunk.replace(/^\r\n/, '');
+    const splitIndex = normalized.indexOf('\r\n\r\n');
+    if (splitIndex === -1) continue;
 
-    const [rawHeaders, ...rest] = trimmed.split('\r\n\r\n');
-    const content = rest.join('\r\n\r\n').replace(/\r\n--$/, '').trim();
+    const rawHeaders = normalized.slice(0, splitIndex);
+    const rawBody = normalized.slice(splitIndex + 4).replace(/\r\n$/, '');
     const nameMatch = rawHeaders.match(/name="([^"]+)"/i);
-    const fileNameMatch = rawHeaders.match(/filename="([^"]*)"/i);
     if (!nameMatch) continue;
-    const name = nameMatch[1];
 
-    fields[name] = {
-      value: content,
-      filename: fileNameMatch?.[1] || ''
+    const filenameMatch = rawHeaders.match(/filename="([^"]*)"/i);
+    const contentTypeMatch = rawHeaders.match(/Content-Type:\s*([^\r\n]+)/i);
+    const bodyBuffer = Buffer.from(rawBody, 'latin1');
+
+    fields[nameMatch[1]] = {
+      value: bodyBuffer.toString('utf8'),
+      buffer: bodyBuffer,
+      filename: filenameMatch?.[1] || '',
+      contentType: contentTypeMatch?.[1] || 'application/octet-stream'
     };
   }
 

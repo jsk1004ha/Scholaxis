@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scholaxis · 연구 탐색 홈</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="home">
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar__inner">
+          <div class="brand">Scholaxis</div>
+          <nav>
+            <a class="is-active" href="./index.html">탐색</a>
+            <a href="./results.html">검색 결과</a>
+            <a href="./detail.html">상세 분석</a>
+            <a href="./similarity.html">유사도 리포트</a>
+          </nav>
+        </div>
+      </header>
+
+      <main class="page">
+        <section class="hero">
+          <article class="hero__panel">
+            <span class="hero__eyebrow">Korean-first research discovery</span>
+            <h1>국내·해외 연구를 한 흐름으로 탐색하는 디지털 큐레이터</h1>
+            <p>
+              Scholaxis는 논문·특허·과제·학생발명 데이터를 함께 연결해 연구 아이디어를 빠르게
+              찾고, 다음에 읽어야 할 자료와 차별화 포인트를 제안합니다.
+            </p>
+
+            <form class="search-box" data-search-form>
+              <label class="label" for="query">무엇을 탐구하고 싶으신가요?</label>
+              <textarea id="query" name="q" placeholder="예: AI 반도체 설계 자동화, KCI 우선으로 탐색"></textarea>
+              <div class="form-row">
+                <div>
+                  <label class="label" for="intent">탐색 의도</label>
+                  <select class="select" id="intent" name="intent">
+                    <option value="discovery">연구 발견</option>
+                    <option value="review">선행연구 조사</option>
+                    <option value="opportunity">사업화/아이디어 탐색</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="label" for="region">지역 우선순위</label>
+                  <select class="select" id="region" name="region">
+                    <option value="국내,해외">국내 + 해외</option>
+                    <option value="국내">국내 우선</option>
+                    <option value="해외">해외 우선</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="label" for="sourceType">자료 유형</label>
+                  <select class="select" id="sourceType" name="sourceType">
+                    <option value="논문,특허,보고서">논문 + 특허 + 보고서</option>
+                    <option value="논문">논문</option>
+                    <option value="특허">특허</option>
+                    <option value="보고서">보고서</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="label" for="sort">정렬</label>
+                  <select class="select" id="sort" name="sort">
+                    <option value="relevance">추천순</option>
+                    <option value="latest">최신순</option>
+                    <option value="domestic">국내 우선</option>
+                  </select>
+                </div>
+                <button class="button button--primary" type="submit">탐색 시작</button>
+              </div>
+            </form>
+
+            <div class="quick-grid">
+              <button class="quick-card" type="button" data-suggestion="AI 반도체 설계 자동화">
+                <strong>AI 반도체</strong>
+                <span>EDA·국내 과제 연결</span>
+              </button>
+              <button class="quick-card" type="button" data-suggestion="양자 암호화 국내 과제">
+                <strong>양자 암호화</strong>
+                <span>KCI/NTIS 우선</span>
+              </button>
+              <button class="quick-card" type="button" data-suggestion="학생발명전 의료 AI 아이디어">
+                <strong>학생발명전</strong>
+                <span>아이디어 확장</span>
+              </button>
+              <button class="quick-card" type="button" data-suggestion="KIPRIS 친환경 소재 특허">
+                <strong>KIPRIS</strong>
+                <span>특허와 논문 교집합</span>
+              </button>
+              <button class="quick-card" type="button" data-suggestion="RISS 교육 AI 최신 동향">
+                <strong>RISS</strong>
+                <span>교육 연구 탐색</span>
+              </button>
+              <button class="quick-card" type="button" data-suggestion="ScienceON 바이오센서 보고서">
+                <strong>ScienceON</strong>
+                <span>보고서 연결</span>
+              </button>
+            </div>
+          </article>
+
+          <article class="hero__panel">
+            <span class="section-eyebrow">지능형 탐색 모드</span>
+            <div class="stack">
+              <div class="card">
+                <h3>국내 연구 우선 랭킹</h3>
+                <p>KCI·RISS·ScienceON·DBpia를 먼저 보여주고, 연결되는 글로벌 문헌을 이어서 제안합니다.</p>
+              </div>
+              <div class="card">
+                <h3>논문·특허·과제 동시 탐색</h3>
+                <p>Semantic Scholar, arXiv, NTIS, KIPRIS, 학생발명전 데이터를 하나의 질의 흐름으로 연결합니다.</p>
+              </div>
+              <div class="card">
+                <h3>유사도/차별점 분석</h3>
+                <p>내 보고서와 기존 문헌의 공통점·차별점을 빠르게 읽을 수 있는 분석 화면으로 이동합니다.</p>
+              </div>
+            </div>
+            <div>
+              <span class="section-eyebrow">빠른 트렌드</span>
+              <div class="trend-list" style="margin-top: 0.85rem">
+                <a class="chip" href="./results.html?q=초전도체">초전도체</a>
+                <a class="chip" href="./results.html?q=AI 반도체 설계">AI 반도체 설계</a>
+                <a class="chip" href="./results.html?q=기후 위기 대응 기술">기후 위기 대응 기술</a>
+                <a class="chip" href="./results.html?q=디지털 트윈">디지털 트윈</a>
+              </div>
+            </div>
+          </article>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="footer__inner footer-grid">
+          <div>
+            <strong>탐색 소스</strong>
+            <p>Semantic Scholar · arXiv · KCI · RISS · ScienceON · DBpia</p>
+          </div>
+          <div>
+            <strong>확장 소스</strong>
+            <p>NTIS · KIPRIS · 학생과학발명품경진대회 · 대한민국학생발명전시회</p>
+          </div>
+          <div>
+            <strong>배포 가정</strong>
+            <p>정적 프런트엔드를 단일 서버/public 경로로 제공하고 API는 동일 오리진 /api/* 를 사용합니다.</p>
+          </div>
+        </div>
+      </footer>
+    </div>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

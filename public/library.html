@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scholaxis · Library</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="library">
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar__inner">
+          <div class="brand">Scholaxis</div>
+          <nav>
+            <a href="./index.html">탐색</a>
+            <a class="is-active" href="./library.html">내 라이브러리</a>
+            <a href="./admin.html">관리</a>
+          </nav>
+        </div>
+      </header>
+      <main class="page">
+        <section class="analysis-grid">
+          <article class="card">
+            <h2>로그인 / 회원가입</h2>
+            <form data-auth-form class="stack">
+              <input class="input" name="email" placeholder="email" />
+              <input class="input" name="password" type="password" placeholder="password" />
+              <input class="input" name="displayName" placeholder="display name (register only)" />
+              <div class="action-row">
+                <button class="button button--primary" data-auth-action="login" type="submit">로그인</button>
+                <button class="button button--ghost" data-auth-action="register" type="submit">회원가입</button>
+                <button class="button button--ghost" data-auth-action="logout" type="button">로그아웃</button>
+              </div>
+            </form>
+            <pre data-auth-state></pre>
+          </article>
+          <article class="card">
+            <h2>저장된 논문</h2>
+            <div data-library-items></div>
+          </article>
+          <article class="card">
+            <h2>저장된 검색</h2>
+            <form data-save-search-form class="stack">
+              <input class="input" name="label" placeholder="label" />
+              <input class="input" name="queryText" placeholder="query" />
+              <button class="button button--primary" type="submit">검색 저장</button>
+            </form>
+            <div data-saved-searches></div>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

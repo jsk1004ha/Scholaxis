@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        /* Custom scrollbar for scholarly feel */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #031425; }
+        ::-webkit-scrollbar-thumb { background: #1a2b3d; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #acc7ff; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-tertiary": "#552100",
+                        "surface-container": "#0f2132",
+                        "on-primary-container": "#c8d9ff",
+                        "secondary-fixed-dim": "#b3c7f1",
+                        "surface-container-high": "#1a2b3d",
+                        "outline": "#8c909e",
+                        "inverse-surface": "#d3e4fc",
+                        "surface-dim": "#031425",
+                        "on-surface": "#d3e4fc",
+                        "inverse-on-surface": "#213244",
+                        "on-tertiary-fixed-variant": "#783100",
+                        "secondary-fixed": "#d7e2ff",
+                        "on-secondary-container": "#a5b9e2",
+                        "surface-container-highest": "#253648",
+                        "tertiary-fixed-dim": "#ffb691",
+                        "tertiary": "#ffb691",
+                        "surface-bright": "#2a3a4d",
+                        "surface": "#031425",
+                        "inverse-primary": "#115cb9",
+                        "tertiary-fixed": "#ffdbcb",
+                        "on-secondary-fixed": "#041b3c",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#341100",
+                        "error-container": "#93000a",
+                        "on-background": "#d3e4fc",
+                        "surface-variant": "#253648",
+                        "on-surface-variant": "#c2c6d4",
+                        "on-primary-fixed": "#001a40",
+                        "secondary": "#b3c7f1",
+                        "on-primary-fixed-variant": "#004591",
+                        "tertiary-container": "#9e4300",
+                        "background": "#031425",
+                        "primary": "#acc7ff",
+                        "error": "#ffb4ab",
+                        "primary-container": "#115cb9",
+                        "on-primary": "#002f67",
+                        "primary-fixed-dim": "#acc7ff",
+                        "surface-container-low": "#0b1d2e",
+                        "on-tertiary-container": "#ffcfb7",
+                        "on-secondary-fixed-variant": "#34476a",
+                        "outline-variant": "#424752",
+                        "primary-fixed": "#d7e2ff",
+                        "surface-tint": "#acc7ff",
+                        "on-error": "#690005",
+                        "secondary-container": "#36496d",
+                        "surface-container-lowest": "#000f1f",
+                        "on-secondary": "#1c3052"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-surface text-on-surface font-body selection:bg-primary-container selection:text-white">
+<!-- TopNavBar -->
+<header class="bg-[#031425]/70 backdrop-blur-xl shadow-[0_20px_40px_-10px_rgba(211,228,252,0.04)] font-manrope text-sm tracking-tight docked full-width top-0 sticky z-50">
+<div class="flex justify-between items-center px-8 py-4 w-full">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-blue-400">ScienceBridge</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-slate-400 hover:text-white transition-colors" href="#">My Library</a>
+<a class="text-blue-400 border-b-2 border-blue-500 pb-1" href="#">Analysis</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Trends</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-slate-400 hover:bg-white/5 p-2 rounded-full transition-all">language</button>
+<img alt="User profile avatar" class="w-8 h-8 rounded-full border border-outline-variant/30" data-alt="portrait of a focused professional researcher in a dark studio setting with cool blue accent lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDlqb74gG8WcAXVLHGbIWoZazEZyB4TyDSZong9So-w4xqsKb8eANgFxYR0EsGkwNA2Py8MhwYlpOios0_QW-YXffMPkaq8LjY-IJNnBCvgTQk1Fuv9YEr-O8lnE_DndxGmJddT4F6x7c_DQSMCt-TJQjmvPpO_JIjSInuQcs-WHOizhz8dQkkOb0HIA4iJgJlyjshm8xmQudipT1Fq_YulSv6hMgmQa4Y5sMOi0wqf3_upwAoSw_wa69W9v7-1kab3sueYIvhCBL6O"/>
+</div>
+</div>
+</header>
+<div class="flex min-h-[calc(100vh-64px)]">
+<!-- SideNavBar -->
+<aside class="hidden md:flex flex-col h-[calc(100vh-64px)] w-64 bg-gradient-to-b from-[#031425] to-[#0f2132] sticky top-16 pt-6 gap-4">
+<div class="px-6 mb-4">
+<h3 class="font-manrope text-xs font-bold uppercase tracking-widest text-primary">Intelligence Filters</h3>
+<p class="text-[10px] text-on-surface-variant/60">Refine discovery</p>
+</div>
+<nav class="flex flex-col gap-1">
+<div class="text-slate-400 px-6 py-3 cursor-pointer hover:text-white transition-all flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px]">calendar_today</span>
+<span class="font-manrope text-xs font-bold uppercase tracking-widest">Year</span>
+</div>
+<div class="text-slate-400 px-6 py-3 cursor-pointer hover:text-white transition-all flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px]">description</span>
+<span class="font-manrope text-xs font-bold uppercase tracking-widest">Source Type</span>
+</div>
+<div class="text-slate-400 px-6 py-3 cursor-pointer hover:text-white transition-all flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px]">database</span>
+<span class="font-manrope text-xs font-bold uppercase tracking-widest">Source</span>
+</div>
+<div class="text-blue-400 bg-blue-500/10 rounded-lg mx-2 px-4 py-3 cursor-pointer flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px]">lock_open</span>
+<span class="font-manrope text-xs font-bold uppercase tracking-widest">Open Access</span>
+</div>
+<div class="text-slate-400 px-6 py-3 cursor-pointer hover:text-white transition-all flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px]">history</span>
+<span class="font-manrope text-xs font-bold uppercase tracking-widest">Search History</span>
+</div>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 px-8 py-10 max-w-7xl mx-auto">
+<!-- Hero Title & Top Metrics -->
+<section class="mb-12">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+<div class="max-w-3xl">
+<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-container/20 text-primary text-xs font-semibold mb-4 border border-primary/20">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+                            Quantum Computing • Neural Networks
+                        </span>
+<h1 class="font-headline text-5xl font-extrabold tracking-tighter text-on-surface leading-tight">
+                            Quantum Neural Architectures: <br/> <span class="text-slate-400">Scaling Entanglement for Deep Learning Efficiency</span>
+</h1>
+</div>
+<div class="flex gap-4">
+<button class="bg-gradient-to-br from-primary-container to-primary text-on-primary px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/10 hover:scale-105 active:opacity-80 transition-all">
+<span class="material-symbols-outlined">download</span>
+                            Full Manuscript
+                        </button>
+</div>
+</div>
+<!-- Bento Metric Grid -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/10">
+<p class="text-on-surface-variant text-xs font-medium uppercase tracking-wider mb-2">Citations</p>
+<p class="text-3xl font-bold text-white">4,281</p>
+<p class="text-primary text-[10px] mt-1 font-semibold">+12% this month</p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/10">
+<p class="text-on-surface-variant text-xs font-medium uppercase tracking-wider mb-2">H-Index (Field)</p>
+<p class="text-3xl font-bold text-white">84</p>
+<p class="text-tertiary text-[10px] mt-1 font-semibold">Top 0.1% Globally</p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/10">
+<p class="text-on-surface-variant text-xs font-medium uppercase tracking-wider mb-2">Social Buzz</p>
+<p class="text-3xl font-bold text-white">12.4k</p>
+<p class="text-on-surface-variant text-[10px] mt-1">ResearchGate • X • LinkedIn</p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/10">
+<p class="text-on-surface-variant text-xs font-medium uppercase tracking-wider mb-2">Patent filings</p>
+<p class="text-3xl font-bold text-white">18</p>
+<p class="text-primary text-[10px] mt-1 font-semibold">3 Pending Approval</p>
+</div>
+</div>
+</section>
+<!-- Intelligence Network Map (Visual Feature) -->
+<section class="mb-12">
+<div class="relative h-[500px] w-full bg-surface-container-lowest rounded-2xl overflow-hidden border border-outline-variant/10">
+<div class="absolute inset-0 opacity-40 mix-blend-screen pointer-events-none" style="background-image: radial-gradient(circle at 50% 50%, rgba(17, 92, 185, 0.15) 0%, transparent 70%);"></div>
+<img alt="Central Intelligence Network Map" class="w-full h-full object-cover" data-alt="abstract digital visualization of a neural network map with glowing blue and teal connections on a dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCUbVLzRXAEcBkxhMzBxyarJ5NfQjNueqSygxHSWSyEVR3CoC1jpONY1VlZEkS6cfGMABQCo9v3__WFL8Mc7tY9kj385oJ-dCIf4UvPhKuYB_tlZQcl_036_PnO_e3vRXY0iKQdXFpIO60HBaXsWVGxGofea9w_b2oNARJMIR8tR5ge0zFDMFxHPGNpq-phoexcard1xOs29_tH8pUx3ZjW9Nk4KVs8Z8_N9jW0i9LH3EWXHE1fnHChOR2ixpIyYGFnhU_22CP8vsF_"/>
+<!-- Overlay Controls -->
+<div class="absolute top-6 left-6 flex flex-col gap-2">
+<div class="glass-panel bg-surface-container/60 p-4 rounded-xl border border-white/5">
+<h4 class="text-white font-bold text-sm mb-1">Intelligence Network Map</h4>
+<p class="text-on-surface-variant text-[10px]">Real-time patent &amp; research clustering</p>
+</div>
+</div>
+<div class="absolute bottom-6 right-6 flex gap-2">
+<button class="bg-surface-container-highest/80 backdrop-blur-md p-2 rounded-lg text-white hover:bg-primary transition-colors">
+<span class="material-symbols-outlined text-sm">zoom_in</span>
+</button>
+<button class="bg-surface-container-highest/80 backdrop-blur-md p-2 rounded-lg text-white hover:bg-primary transition-colors">
+<span class="material-symbols-outlined text-sm">zoom_out</span>
+</button>
+<button class="bg-surface-container-highest/80 backdrop-blur-md p-2 rounded-lg text-white hover:bg-primary transition-colors">
+<span class="material-symbols-outlined text-sm">fullscreen</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Content Grid (Abstract & Sidebar) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+<!-- Main Body -->
+<div class="lg:col-span-8 flex flex-col gap-8">
+<!-- Abstract Card -->
+<div class="bg-surface-container-low p-10 rounded-2xl border border-outline-variant/10">
+<h2 class="font-headline text-2xl font-bold text-white mb-8">Core Abstract</h2>
+<div class="space-y-6 text-on-surface-variant leading-relaxed">
+<p>
+                                We propose a novel framework for <span class="text-primary font-medium">Quantum-Enhanced Deep Learning (QEDL)</span> that leverages high-dimensional entanglement to optimize weight distributions in neural architectures. Current classical limitations in gradient descent for trillion-parameter models often encounter "barren plateaus"—a problem we mitigate using the geometric properties of Hilbert space.
+                            </p>
+<p>
+                                Our results demonstrate a <span class="text-white font-bold">40% reduction</span> in training latency and a significant increase in inference precision for non-linear time-series prediction. This paper details the structural isomorphism between transformer attention mechanisms and photonic interference patterns.
+                            </p>
+</div>
+<div class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="p-4 bg-surface-container-highest rounded-xl border border-outline-variant/20">
+<span class="material-symbols-outlined text-primary mb-2">bolt</span>
+<h4 class="text-white font-bold text-sm mb-1">Novelty Index</h4>
+<p class="text-on-surface-variant text-xs">Proprietary score based on semantic divergence from existing literature.</p>
+<div class="mt-4 h-1.5 w-full bg-surface-dim rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[92%] rounded-full"></div>
+</div>
+</div>
+<div class="p-4 bg-surface-container-highest rounded-xl border border-outline-variant/20">
+<span class="material-symbols-outlined text-tertiary mb-2">verified</span>
+<h4 class="text-white font-bold text-sm mb-1">Reproducibility</h4>
+<p class="text-on-surface-variant text-xs">Confirmed via 12 independent laboratory verification clusters.</p>
+<div class="mt-4 h-1.5 w-full bg-surface-dim rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[88%] rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Analysis Details -->
+<div class="bg-surface-container-low p-10 rounded-2xl border border-outline-variant/10">
+<h2 class="font-headline text-2xl font-bold text-white mb-8">Structural Breakdown</h2>
+<div class="grid grid-cols-1 gap-4">
+<div class="group flex items-center justify-between p-4 rounded-xl hover:bg-surface-container-highest/50 transition-colors border-b border-outline-variant/5 last:border-0">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-surface-dim flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">analytics</span>
+</div>
+<div>
+<h5 class="text-white font-semibold text-sm">Entanglement Distribution Models</h5>
+<p class="text-on-surface-variant text-[10px]">Statistical variance in qubit state preparation</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant/40 group-hover:text-primary transition-colors">chevron_right</span>
+</div>
+<div class="group flex items-center justify-between p-4 rounded-xl hover:bg-surface-container-highest/50 transition-colors border-b border-outline-variant/5 last:border-0">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-surface-dim flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">hub</span>
+</div>
+<div>
+<h5 class="text-white font-semibold text-sm">Attention Isomorphism Theory</h5>
+<p class="text-on-surface-variant text-[10px]">Mapping transformer nodes to photonic pathways</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant/40 group-hover:text-primary transition-colors">chevron_right</span>
+</div>
+<div class="group flex items-center justify-between p-4 rounded-xl hover:bg-surface-container-highest/50 transition-colors border-b border-outline-variant/5 last:border-0">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-surface-dim flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">memory</span>
+</div>
+<div>
+<h5 class="text-white font-semibold text-sm">Hardware Benchmarking</h5>
+<p class="text-on-surface-variant text-[10px]">Comparative analysis of Ion-Trap vs Superconducting</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant/40 group-hover:text-primary transition-colors">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Sidebar AI Insights -->
+<div class="lg:col-span-4 sticky top-24">
+<div class="bg-gradient-to-br from-surface-container-high to-surface-container p-8 rounded-2xl border border-outline-variant/10 shadow-2xl">
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-primary text-2xl" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<h3 class="font-headline text-lg font-extrabold text-white">AI Research Analyst</h3>
+</div>
+<div class="space-y-6">
+<div>
+<p class="text-primary text-[10px] font-black uppercase tracking-[0.2em] mb-2">Novelty Summary</p>
+<p class="text-on-surface-variant text-xs italic leading-relaxed">
+                                    "This research marks a significant shift from 'simulated' quantum neural networks to 'native' quantum backpropagation, potentially rendering current GPU-based training obsolete by 2027."
+                                </p>
+</div>
+<div class="p-4 bg-surface-dim rounded-xl border border-primary/10">
+<p class="text-white text-xs font-bold mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">trending_up</span>
+                                    Future Directions
+                                </p>
+<ul class="space-y-3">
+<li class="flex items-start gap-2">
+<span class="text-primary mt-1">•</span>
+<span class="text-on-surface-variant text-[11px]">Integration with Topological Qubits</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="text-primary mt-1">•</span>
+<span class="text-on-surface-variant text-[11px]">Decoherence-resistant training loops</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="text-primary mt-1">•</span>
+<span class="text-on-surface-variant text-[11px]">Hybrid classical-quantum transformers</span>
+</li>
+</ul>
+</div>
+<button class="w-full py-3 bg-surface-bright rounded-xl text-primary font-bold text-sm hover:bg-white/10 transition-colors flex items-center justify-center gap-2">
+                                Ask Deep Analysis
+                                <span class="material-symbols-outlined text-sm">smart_toy</span>
+</button>
+</div>
+</div>
+<!-- Related Authors/Entities -->
+<div class="mt-6 p-6">
+<h4 class="text-on-surface-variant text-[10px] font-black uppercase tracking-[0.2em] mb-4">Leading Contributors</h4>
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-3">
+<img class="w-10 h-10 rounded-full object-cover grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all cursor-pointer" data-alt="headshot of a female computer scientist with a smart, professional expression" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBrnvTayANNtO8xzgatXxqe3CwdFX2nH1Ke3up01fffYfkEyO3UXu0uvARcCoSaX_4YuCNr9Fh5B2jTybk79CgRVp2FOqtpDqwvJ5J9LTWOVAkakREHMXjhD0J-Sb3bbEAIsW2EBlJIO_lpz34JIR4Fs6BY5PWYqhICTyDl7E3D6DZ-dLdrOcU8lUjkM9FG4msTQcmxxYmSgAAXXM8JvO7Qq6xh2s1Z2TFg-zOuPOgyMI6lWiIyExj9baqQ57koxvIHrREreYOtq18f"/>
+<div>
+<p class="text-white text-xs font-bold">Dr. Elena Rostova</p>
+<p class="text-on-surface-variant text-[10px]">CERN • Quantum AI Lead</p>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<img class="w-10 h-10 rounded-full object-cover grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all cursor-pointer" data-alt="headshot of a male theoretical physicist with glasses in a professional setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAI8hIfM3yPS6xswS_FFVaalc31sS79Ql26-DoCIPXqqGocS1g-nSA8PO1LTvsrGAaR1Q1VJFgLW-YASXp3Y1G5WE6Zzf2X2ceBGDGqDOk2ojnEFB2pTDPUdiIYNQj6wJdX5hlyl58dzdDK4wqcnL8xblkg4NstxDYKHkUNLXFJT49uIBbkouwd0s-xPqyJe9X7TVBSWxy-O_TxD9P-LC0IYJ3Fq9SJhskpxJCtLMGxna7UNPQzdtl8Q0hoNG1Wj-SGEqDQ0I7VWUfa"/>
+<div>
+<p class="text-white text-xs font-bold">Prof. Julian Thorne</p>
+<p class="text-on-surface-variant text-[10px]">MIT • Director of CS</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Footer -->
+<footer class="bg-[#031425] py-12 font-inter text-xs text-slate-500 border-t border-outline-variant/10">
+<div class="max-w-7xl mx-auto flex flex-col items-center justify-center gap-4 w-full">
+<span class="font-manrope font-black text-blue-900 text-lg tracking-widest">SCIENCEBRIDGE</span>
+<div class="flex gap-6">
+<a class="text-slate-500 hover:text-blue-400 transition-colors" href="#">Privacy Policy</a>
+<a class="text-slate-500 hover:text-blue-400 transition-colors" href="#">Accessibility</a>
+<a class="text-slate-500 hover:text-blue-400 transition-colors underline" href="#">Institutional Login</a>
+</div>
+<p class="mt-4 opacity-40">© 2024 ScienceBridge. Empowering Discovery.</p>
+</div>
+</footer>
+</body></html>

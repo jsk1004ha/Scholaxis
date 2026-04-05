@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ScienceBridge - Intelligent Discovery</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary": "#552100",
+                        "surface-container": "#0f2132",
+                        "on-primary-container": "#c8d9ff",
+                        "secondary-fixed-dim": "#b3c7f1",
+                        "surface-container-high": "#1a2b3d",
+                        "outline": "#8c909e",
+                        "inverse-surface": "#d3e4fc",
+                        "surface-dim": "#031425",
+                        "on-surface": "#d3e4fc",
+                        "inverse-on-surface": "#213244",
+                        "on-tertiary-fixed-variant": "#783100",
+                        "secondary-fixed": "#d7e2ff",
+                        "on-secondary-container": "#a5b9e2",
+                        "surface-container-highest": "#253648",
+                        "tertiary-fixed-dim": "#ffb691",
+                        "tertiary": "#ffb691",
+                        "surface-bright": "#2a3a4d",
+                        "surface": "#031425",
+                        "inverse-primary": "#115cb9",
+                        "tertiary-fixed": "#ffdbcb",
+                        "on-secondary-fixed": "#041b3c",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#341100",
+                        "error-container": "#93000a",
+                        "on-background": "#d3e4fc",
+                        "surface-variant": "#253648",
+                        "on-surface-variant": "#c2c6d4",
+                        "on-primary-fixed": "#001a40",
+                        "secondary": "#b3c7f1",
+                        "on-primary-fixed-variant": "#004591",
+                        "tertiary-container": "#9e4300",
+                        "background": "#031425",
+                        "primary": "#acc7ff",
+                        "error": "#ffb4ab",
+                        "primary-container": "#115cb9",
+                        "on-primary": "#002f67",
+                        "primary-fixed-dim": "#acc7ff",
+                        "surface-container-low": "#0b1d2e",
+                        "on-tertiary-container": "#ffcfb7",
+                        "on-secondary-fixed-variant": "#34476a",
+                        "outline-variant": "#424752",
+                        "primary-fixed": "#d7e2ff",
+                        "surface-tint": "#acc7ff",
+                        "on-error": "#690005",
+                        "secondary-container": "#36496d",
+                        "surface-container-lowest": "#000f1f",
+                        "on-secondary": "#1c3052"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #031425; color: #d3e4fc; }
+        .font-manrope { font-family: 'Manrope', sans-serif; }
+        .glass-card {
+            background: rgba(15, 33, 50, 0.7);
+            backdrop-filter: blur(20px);
+        }
+        .search-gradient-glow {
+            box-shadow: 0 0 40px -10px rgba(172, 199, 255, 0.15);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col overflow-x-hidden">
+<!-- TopNavBar (Shared Component) -->
+<header class="bg-[#031425]/70 backdrop-blur-xl docked full-width top-0 sticky z-50 shadow-[0_20px_40px_-10px_rgba(211,228,252,0.04)]">
+<nav class="flex justify-between items-center px-8 py-4 w-full">
+<div class="flex items-center gap-12">
+<span class="text-xl font-bold tracking-tighter text-blue-400 font-manrope">ScienceBridge</span>
+<div class="hidden md:flex gap-8 items-center font-manrope text-sm tracking-tight">
+<a class="text-slate-400 hover:text-white transition-colors" href="#">My Library</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Analysis</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Trends</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-slate-400 hover:bg-white/5 transition-all p-2 rounded-full">language</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden">
+<img alt="User profile avatar" class="w-full h-full object-cover" data-alt="close-up portrait of a professional scholar, soft cinematic lighting, dark background, highly detailed skin texture" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAWX5nj4GqAWzNIfiQpb-_4K2JC5j_pK2Bi_uAt6MtCADaBM0qmTVft_Ko5E8W1iwwFZh6UbfLOHpml6A2phD5zg2lQ9GTBEepB58BSUgrIbn7xfwPkybsboxVKEDOH5KiEaM_B3BNTtjo4qJBL7z9GfUhu1IUF3jPM9xQsBp9pRoI3Zxb6NWNQzJPI_ew7XuXL_IVxd4HysrzEYRrqlvwN0hjXxMyjOPMyWU7YuxpFKDTX57RttMDONDzMeBdJ_Sq4dbLz3KHqyprS"/>
+</div>
+</div>
+</nav>
+</header>
+<main class="flex-grow flex">
+<!-- SideNavBar (Shared Component) -->
+<aside class="hidden lg:flex flex-col h-[calc(100vh-68px)] sticky top-[68px] w-64 bg-gradient-to-b from-[#031425] to-[#0f2132] font-manrope text-xs font-bold uppercase tracking-widest pt-6 overflow-y-auto">
+<div class="px-6 mb-8">
+<h3 class="text-blue-400 mb-1">Intelligence Filters</h3>
+<p class="text-slate-500 lowercase font-normal tracking-normal text-[10px]">Refine discovery</p>
+</div>
+<nav class="flex flex-col gap-2 px-2">
+<div class="flex items-center gap-4 text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">calendar_today</span>
+<span>Year</span>
+</div>
+<div class="flex items-center gap-4 text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">description</span>
+<span>Source Type</span>
+</div>
+<div class="flex items-center gap-4 text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">database</span>
+<span>Source</span>
+</div>
+<div class="flex items-center gap-4 text-slate-400 px-4 py-3 hover:text-white transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">lock_open</span>
+<span>Open Access</span>
+</div>
+<div class="flex items-center gap-4 text-blue-400 bg-blue-500/10 rounded-lg px-4 py-3 cursor-pointer">
+<span class="material-symbols-outlined text-lg">history</span>
+<span>Search History</span>
+</div>
+</nav>
+</aside>
+<!-- Main Canvas -->
+<div class="flex-1 px-6 md:px-12 py-12 flex flex-col items-center bg-surface">
+<!-- Hero Search Area -->
+<section class="w-full max-w-4xl flex flex-col items-center mb-24">
+<h1 class="text-display-lg text-center font-manrope font-extrabold text-5xl md:text-6xl tracking-tighter mb-12 text-on-surface">
+                    Discover the <span class="text-transparent bg-clip-text bg-gradient-to-br from-primary to-primary-container">Unknown</span>.
+                </h1>
+<div class="w-full relative group">
+<div class="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-primary-container/20 rounded-2xl blur opacity-30 group-focus-within:opacity-100 transition duration-1000"></div>
+<div class="relative flex items-center bg-surface-container-lowest rounded-2xl p-2 search-gradient-glow border border-outline-variant/10">
+<input class="w-full bg-transparent border-none focus:ring-0 px-6 py-4 text-lg text-on-surface placeholder:text-on-surface-variant/40 font-body" placeholder="무엇을 탐구하고 싶으신가요?" type="text"/>
+<button class="bg-gradient-to-br from-primary-container to-primary p-4 rounded-xl text-on-primary-container shadow-lg active:scale-95 transition-transform flex items-center justify-center">
+<span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</button>
+</div>
+</div>
+<!-- Filters/Chips -->
+<div class="flex flex-wrap justify-center gap-3 mt-8">
+<div class="px-5 py-2 rounded-full border border-outline-variant/20 bg-surface-container-low text-body-sm font-medium hover:bg-surface-container-high hover:border-primary/50 transition-all cursor-pointer flex items-center gap-2">
+<span class="text-primary-fixed-dim text-xs uppercase tracking-widest">Region</span>
+<span class="text-on-surface">Domestic</span>
+</div>
+<div class="px-5 py-2 rounded-full border border-outline-variant/20 bg-surface-container-low text-body-sm font-medium hover:bg-surface-container-high hover:border-primary/50 transition-all cursor-pointer flex items-center gap-2">
+<span class="text-primary-fixed-dim text-xs uppercase tracking-widest">Region</span>
+<span class="text-on-surface">Overseas</span>
+</div>
+<div class="w-px h-8 bg-outline-variant/20 mx-2 self-center"></div>
+<div class="px-5 py-2 rounded-full border border-primary/40 bg-primary/10 text-body-sm font-medium hover:bg-primary/20 transition-all cursor-pointer flex items-center gap-2">
+<span class="text-primary-fixed-dim text-xs uppercase tracking-widest">Source</span>
+<span class="text-on-surface">Thesis</span>
+</div>
+<div class="px-5 py-2 rounded-full border border-outline-variant/20 bg-surface-container-low text-body-sm font-medium hover:bg-surface-container-high hover:border-primary/50 transition-all cursor-pointer flex items-center gap-2">
+<span class="text-on-surface">Patent</span>
+</div>
+<div class="px-5 py-2 rounded-full border border-outline-variant/20 bg-surface-container-low text-body-sm font-medium hover:bg-surface-container-high hover:border-primary/50 transition-all cursor-pointer flex items-center gap-2">
+<span class="text-on-surface">Report</span>
+</div>
+</div>
+</section>
+<!-- Search Modes - Bento Grid -->
+<section class="w-full max-w-6xl mb-24">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="glass-card p-8 rounded-xl group cursor-pointer hover:bg-surface-container-high transition-all border border-white/5 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity">
+<span class="material-symbols-outlined text-6xl">search</span>
+</div>
+<h3 class="text-primary font-manrope font-bold text-xl mb-2">기본 모드</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">광범위하고 표준적인 학술 데이터 탐색을 시작합니다.</p>
+<div class="mt-6 w-8 h-1 bg-primary rounded-full group-hover:w-16 transition-all"></div>
+</div>
+<div class="glass-card p-8 rounded-xl group cursor-pointer hover:bg-surface-container-high transition-all border border-white/5 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity">
+<span class="material-symbols-outlined text-6xl">travel_explore</span>
+</div>
+<h3 class="text-primary font-manrope font-bold text-xl mb-2">넓게 찾기</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">다학제적 연결과 비전형적인 소스까지 확장하여 검색합니다.</p>
+<div class="mt-6 w-8 h-1 bg-primary rounded-full group-hover:w-16 transition-all"></div>
+</div>
+<div class="glass-card p-8 rounded-xl group cursor-pointer hover:bg-surface-container-high transition-all border border-white/5 relative overflow-hidden border-primary/20">
+<div class="absolute top-0 right-0 p-4 opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-primary">language_korean_latin</span>
+</div>
+<h3 class="text-primary font-manrope font-bold text-xl mb-2">한국 우선</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">국내 학술지 및 KCI 등재지 데이터를 최우선적으로 분석합니다.</p>
+<div class="mt-6 w-8 h-1 bg-primary rounded-full group-hover:w-16 transition-all"></div>
+</div>
+<div class="glass-card p-8 rounded-xl group cursor-pointer hover:bg-surface-container-high transition-all border border-white/5 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity">
+<span class="material-symbols-outlined text-6xl">new_releases</span>
+</div>
+<h3 class="text-primary font-manrope font-bold text-xl mb-2">최신순</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">최근 6개월 이내의 실시간 트렌드와 논문을 집중 탐구합니다.</p>
+<div class="mt-6 w-8 h-1 bg-primary rounded-full group-hover:w-16 transition-all"></div>
+</div>
+<div class="glass-card p-8 rounded-xl group cursor-pointer hover:bg-surface-container-high transition-all border border-white/5 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity">
+<span class="material-symbols-outlined text-6xl">history_edu</span>
+</div>
+<h3 class="text-primary font-manrope font-bold text-xl mb-2">선행연구</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">특정 주제의 역사적 맥락과 주요 인용 문헌을 체계화합니다.</p>
+<div class="mt-6 w-8 h-1 bg-primary rounded-full group-hover:w-16 transition-all"></div>
+</div>
+<div class="glass-card p-8 rounded-xl group cursor-pointer hover:bg-surface-container-high transition-all border border-white/5 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity">
+<span class="material-symbols-outlined text-6xl">lightbulb</span>
+</div>
+<h3 class="text-primary font-manrope font-bold text-xl mb-2">아이디어</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">생성형 AI가 제안하는 가설과 연구 방향성을 확인합니다.</p>
+<div class="mt-6 w-8 h-1 bg-primary rounded-full group-hover:w-16 transition-all"></div>
+</div>
+</div>
+</section>
+<!-- Trending Topics Section -->
+<section class="w-full max-w-4xl bg-surface-container-low rounded-2xl p-10 border border-outline-variant/10">
+<div class="flex items-center justify-between mb-8">
+<h2 class="font-manrope font-extrabold text-sm uppercase tracking-[0.2em] text-slate-500">Intelligent Trends</h2>
+<span class="material-symbols-outlined text-primary-fixed-dim">trending_up</span>
+</div>
+<div class="flex flex-wrap gap-x-12 gap-y-6">
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase font-bold text-primary/60 tracking-widest">Energy</span>
+<span class="text-on-surface font-semibold hover:text-primary transition-colors cursor-pointer">차세대 전고체 배터리 효율성</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase font-bold text-primary/60 tracking-widest">AI / ML</span>
+<span class="text-on-surface font-semibold hover:text-primary transition-colors cursor-pointer">멀티모달 대형 언어 모델의 추론</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase font-bold text-primary/60 tracking-widest">Bio Tech</span>
+<span class="text-on-surface font-semibold hover:text-primary transition-colors cursor-pointer">CRISPR 유전자 가위의 임상 적용</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase font-bold text-primary/60 tracking-widest">Space</span>
+<span class="text-on-surface font-semibold hover:text-primary transition-colors cursor-pointer">심우주 탐사를 위한 추진 시스템</span>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Footer (Shared Component) -->
+<footer class="bg-[#031425] full-width py-8 border-t-0 flex flex-col items-center justify-center gap-2 w-full font-inter text-xs text-slate-500">
+<div class="flex gap-6 mb-2">
+<a class="text-slate-500 hover:text-blue-400 transition-colors" href="#">Privacy Policy</a>
+<a class="text-slate-500 hover:text-blue-400 transition-colors" href="#">Accessibility</a>
+</div>
+<div class="font-manrope font-black text-blue-900 mb-1">ScienceBridge</div>
+<p>© 2024 ScienceBridge. Empowering Discovery.</p>
+</footer>
+</body></html>

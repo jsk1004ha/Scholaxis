@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-tertiary": "#552100",
+                    "surface-container": "#0f2132",
+                    "on-primary-container": "#c8d9ff",
+                    "secondary-fixed-dim": "#b3c7f1",
+                    "surface-container-high": "#1a2b3d",
+                    "outline": "#8c909e",
+                    "inverse-surface": "#d3e4fc",
+                    "surface-dim": "#031425",
+                    "on-surface": "#d3e4fc",
+                    "inverse-on-surface": "#213244",
+                    "on-tertiary-fixed-variant": "#783100",
+                    "secondary-fixed": "#d7e2ff",
+                    "on-secondary-container": "#a5b9e2",
+                    "surface-container-highest": "#253648",
+                    "tertiary-fixed-dim": "#ffb691",
+                    "tertiary": "#ffb691",
+                    "surface-bright": "#2a3a4d",
+                    "surface": "#031425",
+                    "inverse-primary": "#115cb9",
+                    "tertiary-fixed": "#ffdbcb",
+                    "on-secondary-fixed": "#041b3c",
+                    "on-error-container": "#ffdad6",
+                    "on-tertiary-fixed": "#341100",
+                    "error-container": "#93000a",
+                    "on-background": "#d3e4fc",
+                    "surface-variant": "#253648",
+                    "on-surface-variant": "#c2c6d4",
+                    "on-primary-fixed": "#001a40",
+                    "secondary": "#b3c7f1",
+                    "on-primary-fixed-variant": "#004591",
+                    "tertiary-container": "#9e4300",
+                    "background": "#031425",
+                    "primary": "#acc7ff",
+                    "error": "#ffb4ab",
+                    "primary-container": "#115cb9",
+                    "on-primary": "#002f67",
+                    "primary-fixed-dim": "#acc7ff",
+                    "surface-container-low": "#0b1d2e",
+                    "on-tertiary-container": "#ffcfb7",
+                    "on-secondary-fixed-variant": "#34476a",
+                    "outline-variant": "#424752",
+                    "primary-fixed": "#d7e2ff",
+                    "surface-tint": "#acc7ff",
+                    "on-error": "#690005",
+                    "secondary-container": "#36496d",
+                    "surface-container-lowest": "#000f1f",
+                    "on-secondary": "#1c3052"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        background-color: #031425;
+        color: #d3e4fc;
+        font-family: 'Inter', sans-serif;
+      }
+      .glass-nav {
+        background: rgba(3, 20, 37, 0.7);
+        backdrop-filter: blur(20px);
+      }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #424752;
+        border-radius: 10px;
+      }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<nav class="docked full-width top-0 sticky z-50 bg-[#031425]/70 backdrop-blur-xl shadow-[0_20px_40px_-10px_rgba(211,228,252,0.04)] flex justify-between items-center px-8 py-4 w-full">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-blue-400 font-manrope">ScienceBridge</span>
+<div class="hidden md:flex items-center bg-surface-container-lowest rounded-full px-4 py-2 w-96 group focus-within:ring-1 ring-primary/30 transition-all">
+<span class="material-symbols-outlined text-slate-400 text-sm mr-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm font-body w-full text-on-surface" type="text" value="Artificial Intelligence"/>
+</div>
+<div class="hidden lg:flex items-center gap-6 font-manrope text-sm tracking-tight">
+<a class="text-slate-400 hover:text-white transition-colors" href="#">My Library</a>
+<a class="text-blue-400 border-b-2 border-blue-500 pb-1" href="#">Analysis</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Trends</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-slate-400 hover:bg-white/5 p-2 rounded-full transition-all">language</button>
+<div class="h-8 w-8 rounded-full overflow-hidden bg-surface-container-high ring-1 ring-outline-variant/30">
+<img alt="User profile avatar" data-alt="close up headshot of professional researcher in a clean corporate environment with soft natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDlZ1ckBVLRNc_BAQvwWkc9a6EohqjH07yC1ZTPt4xPH0Xiais2Z2gUWsSne5w5QY8lwneZ3FegMyVXVxQS-TsTHg8utloMwYRAY9NcyQSosIftuKRooWduhfLJMtZqNjJWMV5AhXFdyp4c64VvyZJIEQXSsaczne-TCJFPdSrf9SjcEy7_0XwMYmQMW5XlPt80FisEMElmSGo2Wy3fdjJeWRqT-eax21ayRTgcy2yRYR6zGdUUX5CJa7ST42hFrHd1tt9e09yhRuR8"/>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar (Filter Shell) -->
+<aside class="hidden md:flex flex-col h-screen w-64 bg-gradient-to-b from-[#031425] to-[#0f2132] font-manrope text-xs font-bold uppercase tracking-widest pt-6 overflow-y-auto custom-scrollbar">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3 mb-1">
+<span class="material-symbols-outlined text-blue-500" style="font-variation-settings: 'FILL' 1;">filter_list</span>
+<span class="text-on-surface tracking-normal font-bold text-base normal-case">Intelligence Filters</span>
+</div>
+<p class="text-slate-500 text-[10px] tracking-normal font-medium lowercase">Refine discovery</p>
+</div>
+<div class="flex flex-col gap-1">
+<div class="text-slate-400 px-6 py-3 cursor-pointer transition-all hover:text-white flex items-center gap-3 group">
+<span class="material-symbols-outlined text-lg">calendar_today</span>
+<span>Year</span>
+</div>
+<div class="text-blue-400 bg-blue-500/10 rounded-lg mx-2 px-4 py-3 cursor-pointer flex items-center gap-3">
+<span class="material-symbols-outlined text-lg">description</span>
+<span>Source Type</span>
+</div>
+<div class="text-slate-400 px-6 py-3 cursor-pointer transition-all hover:text-white flex items-center gap-3">
+<span class="material-symbols-outlined text-lg text-slate-500">database</span>
+<span>Source</span>
+</div>
+<div class="text-slate-400 px-6 py-3 cursor-pointer transition-all hover:text-white flex items-center gap-3">
+<span class="material-symbols-outlined text-lg text-slate-500">lock_open</span>
+<span>Open Access</span>
+</div>
+<div class="text-slate-400 px-6 py-3 cursor-pointer transition-all hover:text-white flex items-center gap-3">
+<span class="material-symbols-outlined text-lg text-slate-500">history</span>
+<span>Search History</span>
+</div>
+</div>
+<!-- Visual Separation via Tonal Shift -->
+<div class="mt-8 pt-8 border-t border-outline-variant/10 px-6">
+<h4 class="text-[10px] text-slate-500 mb-4">Quick Stats</h4>
+<div class="bg-surface-container-low p-4 rounded-xl space-y-4">
+<div>
+<p class="text-on-surface-variant normal-case font-medium mb-1">Total Hits</p>
+<p class="text-lg normal-case font-headline font-bold text-primary">1.2M+</p>
+</div>
+<div>
+<p class="text-on-surface-variant normal-case font-medium mb-1">Processing</p>
+<div class="h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-2/3"></div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Results Canvas -->
+<main class="flex-1 overflow-y-auto bg-surface-dim custom-scrollbar p-6 lg:p-10">
+<!-- Query Expansion Tags -->
+<div class="flex flex-wrap items-center gap-3 mb-10">
+<span class="text-xs font-bold text-slate-500 uppercase tracking-widest mr-2">Expand Query:</span>
+<button class="bg-surface-container-high hover:bg-surface-bright text-primary text-xs font-medium px-4 py-1.5 rounded-full transition-all flex items-center gap-2">
+                    Machine Learning <span class="material-symbols-outlined text-[14px]">add</span>
+</button>
+<button class="bg-surface-container-high hover:bg-surface-bright text-primary text-xs font-medium px-4 py-1.5 rounded-full transition-all flex items-center gap-2">
+                    Deep Learning <span class="material-symbols-outlined text-[14px]">add</span>
+</button>
+<button class="bg-surface-container-high hover:bg-surface-bright text-primary text-xs font-medium px-4 py-1.5 rounded-full transition-all flex items-center gap-2">
+                    Neural Networks <span class="material-symbols-outlined text-[14px]">add</span>
+</button>
+<button class="bg-surface-container-high hover:bg-surface-bright text-primary text-xs font-medium px-4 py-1.5 rounded-full transition-all flex items-center gap-2">
+                    Computer Vision <span class="material-symbols-outlined text-[14px]">add</span>
+</button>
+</div>
+<!-- Tabs/Categories -->
+<div class="flex items-center gap-8 mb-8 border-b border-outline-variant/10 overflow-x-auto pb-px">
+<button class="pb-4 text-sm font-bold text-primary border-b-2 border-primary whitespace-nowrap">Integrated Results (42,109)</button>
+<button class="pb-4 text-sm font-medium text-slate-500 hover:text-on-surface transition-colors whitespace-nowrap">Domestic Thesis</button>
+<button class="pb-4 text-sm font-medium text-slate-500 hover:text-on-surface transition-colors whitespace-nowrap">Overseas Patents</button>
+<button class="pb-4 text-sm font-medium text-slate-500 hover:text-on-surface transition-colors whitespace-nowrap">Invention Disclosures</button>
+</div>
+<!-- Results List (Bento-like cards) -->
+<div class="space-y-6 max-w-5xl">
+<!-- Result Card 1 -->
+<div class="bg-surface-container-low rounded-xl p-6 hover:shadow-[0_20px_40px_-10px_rgba(211,228,252,0.04)] transition-all group relative border-l-4 border-transparent hover:border-primary">
+<div class="flex justify-between items-start gap-4 mb-4">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-primary-container/20 text-primary-fixed-dim">Patent</span>
+<span class="text-xs text-slate-500 font-medium">US-2023-041293-A1</span>
+</div>
+<h3 class="text-xl font-headline font-bold text-on-surface group-hover:text-primary transition-colors leading-tight">Neural Network Architecture for Real-time Quantum State Estimation</h3>
+</div>
+<div class="flex items-center gap-2">
+<button class="material-symbols-outlined text-slate-500 hover:text-primary transition-colors">bookmark</button>
+<button class="material-symbols-outlined text-slate-500 hover:text-primary transition-colors">share</button>
+</div>
+</div>
+<p class="text-on-surface-variant text-sm mb-6 leading-relaxed line-clamp-2">
+                        This invention relates to a system and method for estimating quantum states using a specialized deep neural network architecture that significantly reduces computational overhead in cryogenic environments...
+                    </p>
+<!-- AI Summary Highlight -->
+<div class="bg-surface-container-lowest/50 border border-primary/20 rounded-lg p-4 mb-6">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<span class="text-[10px] font-bold text-primary uppercase tracking-widest">AI SUMMARY</span>
+</div>
+<p class="text-xs text-on-surface/80 leading-relaxed italic">
+                            Proposes a novel 4-layer transformer model optimized for FPGA implementation, achieving 98.4% accuracy in noise-prone qubit monitoring.
+                        </p>
+</div>
+<div class="flex flex-wrap items-center justify-between gap-4">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500 text-sm">groups</span>
+<span class="text-xs text-slate-400"><span class="font-bold text-on-surface">1,240</span> Citations</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500 text-sm">source</span>
+<span class="text-xs text-slate-400"><span class="font-bold text-on-surface">IEEE</span> Sources</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-4 py-1.5 rounded-lg text-xs font-bold text-primary border border-primary/30 hover:bg-primary/10 transition-all">원문보기</button>
+<button class="px-4 py-1.5 rounded-lg text-xs font-bold bg-primary-container text-white flex items-center gap-2 hover:opacity-90 transition-all">
+<span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
+                            </button>
+<button class="px-4 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-on-surface transition-all">DOI</button>
+</div>
+</div>
+</div>
+<!-- Result Card 2 -->
+<div class="bg-surface-container-low rounded-xl p-6 hover:shadow-[0_20px_40px_-10px_rgba(211,228,252,0.04)] transition-all group border-l-4 border-transparent hover:border-tertiary">
+<div class="flex justify-between items-start gap-4 mb-4">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-tertiary-container/20 text-tertiary">Thesis</span>
+<span class="text-xs text-slate-500 font-medium">Domestic (KAIST, 2024)</span>
+</div>
+<h3 class="text-xl font-headline font-bold text-on-surface group-hover:text-tertiary transition-colors leading-tight">Scale-Invariant Feature Extraction in Generative Adversarial Networks</h3>
+</div>
+<div class="flex items-center gap-2">
+<button class="material-symbols-outlined text-slate-500">bookmark</button>
+<button class="material-symbols-outlined text-slate-500">share</button>
+</div>
+</div>
+<p class="text-on-surface-variant text-sm mb-6 leading-relaxed line-clamp-2">
+                        본 연구는 생성적 적대 신경망(GAN)에서 이미지의 크기 변화에 강인한 특징 추출 기법을 제안한다. 특히 고해상도 의료 영상 합성 과정에서 발생하는 아티팩트를 최소화하기 위한 비정형 레이어 구조를...
+                    </p>
+<div class="flex flex-wrap items-center justify-between gap-4">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500 text-sm">groups</span>
+<span class="text-xs text-slate-400"><span class="font-bold text-on-surface">312</span> Citations</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500 text-sm">school</span>
+<span class="text-xs text-slate-400"><span class="font-bold text-on-surface">KCI</span> Scopus</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-4 py-1.5 rounded-lg text-xs font-bold text-primary border border-primary/30 hover:bg-primary/10 transition-all">원문보기</button>
+<button class="px-4 py-1.5 rounded-lg text-xs font-bold bg-surface-container-highest text-slate-300 flex items-center gap-2 hover:bg-surface-bright transition-all">
+<span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
+                            </button>
+</div>
+</div>
+</div>
+<!-- Result Card 3 -->
+<div class="bg-surface-container-low rounded-xl p-6 hover:shadow-[0_20px_40px_-10px_rgba(211,228,252,0.04)] transition-all group border-l-4 border-transparent hover:border-primary">
+<div class="flex justify-between items-start gap-4 mb-4">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-primary-container/20 text-primary-fixed-dim">Overseas Patent</span>
+<span class="text-xs text-slate-500 font-medium">EP-1982-552-B1</span>
+</div>
+<h3 class="text-xl font-headline font-bold text-on-surface group-hover:text-primary transition-colors leading-tight">Adaptive Learning Rates for Stochastic Gradient Descent in Large-scale Data</h3>
+</div>
+</div>
+<p class="text-on-surface-variant text-sm mb-6 leading-relaxed line-clamp-2">
+                        Methods and systems for dynamically adjusting learning rate parameters during the training phase of an artificial intelligence engine, specifically designed for distributed cluster computing environments...
+                    </p>
+<div class="bg-surface-container-lowest/50 border border-primary/20 rounded-lg p-4 mb-6">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<span class="text-[10px] font-bold text-primary uppercase tracking-widest">AI SUMMARY</span>
+</div>
+<p class="text-xs text-on-surface/80 leading-relaxed italic">
+                            Identifies a key mathematical optimization that prevents gradient vanishing in deep networks without requiring extensive hyperparameter tuning.
+                        </p>
+</div>
+<div class="flex flex-wrap items-center justify-between gap-4">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500 text-sm">groups</span>
+<span class="text-xs text-slate-400"><span class="font-bold text-on-surface">5,821</span> Citations</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500 text-sm">language</span>
+<span class="text-xs text-slate-400"><span class="font-bold text-on-surface">Nature</span> Portfolio</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-4 py-1.5 rounded-lg text-xs font-bold text-primary border border-primary/30 hover:bg-primary/10 transition-all">원문보기</button>
+<button class="px-4 py-1.5 rounded-lg text-xs font-bold bg-primary-container text-white flex items-center gap-2 hover:opacity-90 transition-all">
+<span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
+                            </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Footer -->
+<footer class="bg-[#031425] full-width py-8 flex flex-col items-center justify-center gap-2 w-full border-t border-outline-variant/10">
+<div class="font-manrope font-black text-blue-900 text-lg mb-2">ScienceBridge</div>
+<p class="font-inter text-xs text-slate-500">© 2024 ScienceBridge. Empowering Discovery.</p>
+<div class="flex gap-6 mt-4">
+<a class="font-inter text-xs text-slate-500 hover:text-blue-400 transition-colors underline" href="#">Privacy Policy</a>
+<a class="font-inter text-xs text-slate-500 hover:text-blue-400 transition-colors" href="#">Accessibility</a>
+</div>
+</footer>
+</body></html>

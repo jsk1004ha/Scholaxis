@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ScienceBridge - Integrated Search Results</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-fixed-variant": "#004491",
+                        "error-container": "#ffdad6",
+                        "tertiary": "#071900",
+                        "tertiary-fixed-dim": "#9ad76e",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-tint": "#4f6073",
+                        "primary-container": "#1a2b3c",
+                        "primary": "#041627",
+                        "inverse-surface": "#003543",
+                        "secondary-fixed-dim": "#acc7ff",
+                        "on-error": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-surface": "#001f28",
+                        "surface-dim": "#b2e1f4",
+                        "on-primary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#b7c8de",
+                        "on-background": "#001f28",
+                        "tertiary-fixed": "#b5f487",
+                        "on-tertiary": "#ffffff",
+                        "outline-variant": "#c4c6cd",
+                        "surface-container": "#d5f3ff",
+                        "on-primary-container": "#8192a7",
+                        "on-secondary-fixed": "#001a40",
+                        "on-tertiary-container": "#669f3e",
+                        "inverse-on-surface": "#ddf5ff",
+                        "tertiary-container": "#123000",
+                        "secondary-container": "#659dfe",
+                        "surface-container-highest": "#baeafd",
+                        "surface-bright": "#f2fbff",
+                        "surface": "#f2fbff",
+                        "primary-fixed-dim": "#b7c8de",
+                        "on-tertiary-fixed": "#0a2000",
+                        "outline": "#74777d",
+                        "on-tertiary-fixed-variant": "#245100",
+                        "surface-container-high": "#c6efff",
+                        "on-secondary-container": "#003370",
+                        "surface-container-low": "#e4f7ff",
+                        "on-primary-fixed-variant": "#38485a",
+                        "background": "#f2fbff",
+                        "secondary": "#115cb9",
+                        "surface-variant": "#baeafd",
+                        "on-surface-variant": "#44474c",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#d2e4fb",
+                        "secondary-fixed": "#d7e2ff",
+                        "on-primary-fixed": "#0b1d2d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- TopNavBar -->
+<nav class="bg-[#041627] fixed top-0 w-full z-50 flex justify-between items-center px-8 py-4 max-w-[1920px] mx-auto shadow-none">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tight text-white">ScienceBridge</span>
+<div class="hidden md:flex gap-6 font-inter text-sm font-medium tracking-normal">
+<a class="text-white border-b-2 border-[#115cb9] pb-1" href="#">Search</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">My Library</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Analysis</a>
+<a class="text-slate-400 hover:text-white transition-colors" href="#">Trends</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative bg-white/10 rounded-full px-4 py-2 flex items-center gap-2 group hover:bg-white/15 transition-all">
+<span class="material-symbols-outlined text-slate-400 text-sm" data-icon="search">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-white text-sm w-64 placeholder-slate-500" type="text" value="Artificial Intelligence"/>
+</div>
+<div class="flex gap-2">
+<button class="p-2 text-slate-400 hover:bg-white/5 rounded-full transition-all">
+<span class="material-symbols-outlined" data-icon="language">language</span>
+</button>
+<button class="p-2 text-slate-400 hover:bg-white/5 rounded-full transition-all">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</div>
+</nav>
+<div class="flex pt-[72px] min-h-screen">
+<!-- SideNavBar / Advanced Filters -->
+<aside class="hidden md:flex bg-[#f2fbff] dark:bg-[#041627] flex-col h-[calc(100vh-72px)] w-72 sticky top-[72px] overflow-y-auto overflow-x-hidden border-r border-outline-variant/15">
+<div class="p-6 border-b border-outline-variant/10">
+<h2 class="font-inter text-xs font-semibold uppercase tracking-widest text-[#041627] dark:text-white mb-1">Advanced Filters</h2>
+<p class="text-[10px] text-slate-500 uppercase tracking-tighter">Refine Intelligence</p>
+</div>
+<nav class="flex-1 py-4">
+<div class="px-6 py-3 flex items-center justify-between text-[#115cb9] font-bold border-r-4 border-[#115cb9] bg-[#e4f7ff] dark:bg-[#1a2b3c] cursor-pointer">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Year</span>
+</div>
+</div>
+<div class="px-6 py-3 flex items-center justify-between text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Source Type</span>
+</div>
+</div>
+<div class="px-6 py-3 flex items-center justify-between text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Source</span>
+</div>
+</div>
+<div class="px-6 py-3 flex items-center justify-between text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined" data-icon="lock_open">lock_open</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Open Access</span>
+</div>
+</div>
+<div class="px-6 py-3 flex items-center justify-between text-slate-500 dark:text-slate-400 hover:bg-[#e4f7ff] dark:hover:bg-[#1a2b3c] transition-all cursor-pointer border-b border-outline-variant/10">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-inter text-xs font-semibold uppercase tracking-widest">Search History</span>
+</div>
+</div>
+<div class="p-6">
+<div class="space-y-4">
+<div class="flex flex-col gap-2">
+<span class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Grade / Status</span>
+<label class="flex items-center gap-2 text-xs text-on-surface">
+<input checked="" class="rounded border-outline text-secondary focus:ring-secondary" type="checkbox"/> Award Winner
+                            </label>
+<label class="flex items-center gap-2 text-xs text-on-surface">
+<input class="rounded border-outline text-secondary focus:ring-secondary" type="checkbox"/> KCI Accredited
+                            </label>
+</div>
+</div>
+</div>
+</nav>
+<div class="p-6 mt-auto flex flex-col gap-4 border-t border-outline-variant/10">
+<button class="w-full bg-[#115cb9] text-white py-3 rounded-md text-xs font-bold uppercase tracking-widest hover:bg-blue-700 transition-colors">
+                    Apply Filters
+                </button>
+<div class="flex justify-around text-slate-500 dark:text-slate-400">
+<button class="flex items-center gap-1 hover:text-[#115cb9] transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="settings">settings</span>
+<span class="text-[10px] font-bold uppercase tracking-widest">Settings</span>
+</button>
+<button class="flex items-center gap-1 hover:text-[#115cb9] transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="help">help</span>
+<span class="text-[10px] font-bold uppercase tracking-widest">Help</span>
+</button>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 bg-surface min-w-0">
+<!-- Search Query Expansion -->
+<div class="px-8 py-6 bg-gradient-to-r from-primary to-primary-container text-white">
+<div class="max-w-5xl mx-auto">
+<div class="flex items-center gap-3 mb-3 text-secondary-fixed-dim">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+<span class="text-[10px] font-bold uppercase tracking-widest">Knowledge Expansion Map</span>
+</div>
+<div class="flex flex-wrap items-center gap-2">
+<span class="text-lg font-bold">‘Artificial Intelligence’</span>
+<span class="material-symbols-outlined text-slate-500" data-icon="arrow_forward">arrow_forward</span>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1 bg-white/10 rounded-full text-sm font-medium border border-white/5">인공지능</span>
+<span class="px-3 py-1 bg-white/10 rounded-full text-sm font-medium border border-white/5">Deep Learning</span>
+<span class="px-3 py-1 bg-white/10 rounded-full text-sm font-medium border border-white/5">Machine Learning</span>
+<span class="px-3 py-1 bg-white/10 rounded-full text-sm font-medium border border-white/5">Neural Networks</span>
+<span class="px-3 py-1 bg-white/10 rounded-full text-sm font-medium border border-white/5 text-secondary-fixed-dim">+4 More</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Content Canvas -->
+<div class="p-8 max-w-5xl mx-auto">
+<div class="flex justify-between items-end mb-8">
+<div>
+<h1 class="text-3xl font-extrabold tracking-tight text-on-surface mb-2">Search Results</h1>
+<p class="text-sm text-on-surface-variant">Showing 1,248 items across multi-disciplinary databases.</p>
+</div>
+<div class="flex gap-4 border-b border-outline-variant/15 pb-2">
+<button class="text-[10px] font-bold uppercase tracking-widest text-secondary border-b-2 border-secondary pb-1">Relevant</button>
+<button class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant hover:text-secondary transition-colors">Latest</button>
+<button class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant hover:text-secondary transition-colors">Citations</button>
+<button class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant hover:text-secondary transition-colors">Prior Art</button>
+</div>
+</div>
+<!-- Core Research Group -->
+<section class="mb-12">
+<div class="flex items-center gap-4 mb-6">
+<div class="h-px flex-1 bg-outline-variant/15"></div>
+<h3 class="font-inter text-xs font-bold uppercase tracking-widest text-slate-500">핵심 논문</h3>
+<div class="h-px flex-1 bg-outline-variant/15"></div>
+</div>
+<!-- Result Card 1 -->
+<div class="group bg-surface-container-lowest rounded-xl p-6 mb-4 shadow-none hover:bg-surface-bright transition-all relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-secondary opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex flex-col md:flex-row gap-6">
+<div class="flex-1">
+<div class="flex flex-wrap items-center gap-2 mb-3">
+<span class="bg-primary text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">논문</span>
+<span class="bg-tertiary-fixed text-on-tertiary-fixed text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">SCI-E</span>
+<span class="bg-secondary-fixed text-on-secondary-fixed text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">Open Access</span>
+</div>
+<h2 class="text-xl font-bold leading-tight mb-2 group-hover:text-secondary transition-colors cursor-pointer">
+                                    Multi-Layer Perceptron Architecture for Real-time Cognitive Modeling
+                                </h2>
+<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-on-surface-variant mb-4 font-medium">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm" data-icon="person">person</span> Dr. Sarah Jensen, et al.</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm" data-icon="menu_book">menu_book</span> IEEE Transactions on AI</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm" data-icon="calendar_month">calendar_month</span> 2023</span>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg mb-4 border-l-4 border-tertiary-container">
+<div class="flex items-center gap-2 mb-1 text-[10px] font-bold uppercase text-on-tertiary-container">
+<span class="material-symbols-outlined text-sm" data-icon="auto_awesome" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+                                        AI Summary
+                                    </div>
+<p class="text-sm text-on-surface leading-relaxed">This study introduces a novel MLP architecture optimized for sub-millisecond inference in edge computing devices, significantly reducing energy consumption by 40% compared to standard models.</p>
+</div>
+<div class="flex flex-wrap gap-2">
+<button class="bg-secondary text-white px-4 py-2 rounded text-xs font-bold uppercase tracking-widest hover:bg-on-secondary-fixed-variant transition-all">원본보기</button>
+<button class="text-secondary border border-secondary/20 hover:bg-secondary/5 px-4 py-2 rounded text-xs font-bold uppercase tracking-widest transition-all">PDF</button>
+<button class="text-slate-500 hover:text-secondary flex items-center gap-1 px-2 py-2 text-[10px] font-bold uppercase tracking-widest transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="share">share</span> DOI
+                                    </button>
+<button class="text-slate-500 hover:text-secondary flex items-center gap-1 px-2 py-2 text-[10px] font-bold uppercase tracking-widest transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="analytics">analytics</span> 유사자료 분석
+                                    </button>
+</div>
+</div>
+<div class="md:w-32 flex flex-col items-end gap-3 text-right">
+<div class="bg-primary-fixed p-3 rounded-lg w-full">
+<span class="block text-[10px] uppercase font-black text-on-primary-fixed-variant">Citations</span>
+<span class="text-2xl font-black text-primary">482</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[9px] font-bold uppercase tracking-widest text-slate-400">Sources</span>
+<div class="flex gap-1 justify-end">
+<span class="bg-slate-100 text-[9px] px-1.5 py-0.5 rounded font-bold">KCI</span>
+<span class="bg-slate-100 text-[9px] px-1.5 py-0.5 rounded font-bold">DBpia</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Domestic Records Group -->
+<section class="mb-12">
+<div class="flex items-center gap-4 mb-6">
+<div class="h-px flex-1 bg-outline-variant/15"></div>
+<h3 class="font-inter text-xs font-bold uppercase tracking-widest text-slate-500">국내 관련 자료</h3>
+<div class="h-px flex-1 bg-outline-variant/15"></div>
+</div>
+<!-- Result Card 2 (Award Winner) -->
+<div class="group bg-surface-container-lowest rounded-xl p-6 mb-4 shadow-none hover:bg-surface-bright transition-all border border-tertiary-container/10">
+<div class="flex flex-col gap-4">
+<div class="flex justify-between items-start">
+<div class="flex flex-wrap items-center gap-2">
+<span class="bg-primary text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">전람회</span>
+<div class="flex items-center gap-1 px-3 py-0.5 bg-tertiary-container text-tertiary-fixed rounded-full text-[10px] font-bold border border-tertiary-fixed/20 shadow-lg shadow-tertiary-container/20">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">emoji_events</span>
+                                        제68회 전국과학전람회 국무총리상 (2022)
+                                    </div>
+</div>
+<span class="text-[10px] font-bold uppercase text-slate-400">Science.go.kr</span>
+</div>
+<div>
+<h2 class="text-xl font-bold leading-tight mb-2 cursor-pointer hover:text-secondary transition-colors">
+                                    AI 기반의 농작물 병해충 자동 탐지 및 방제 드론 시스템 연구
+                                </h2>
+<p class="text-sm text-on-surface-variant font-medium mb-4">박승우, 이민재 (한국과학영재학교) | 2022</p>
+<div class="bg-[#f2fbff] p-4 rounded-lg italic text-sm text-on-surface border-l-2 border-secondary mb-4">
+                                    "본 연구는 CNN 알고리즘을 활용하여 현장에서 실시간으로 병해충을 98% 이상의 정확도로 탐지하는 프로토타입을 제시함."
+                                </div>
+<div class="flex gap-2">
+<button class="bg-secondary text-white px-4 py-2 rounded text-xs font-bold uppercase tracking-widest hover:bg-blue-700">원본보기</button>
+<button class="text-secondary border border-secondary/20 px-4 py-2 rounded text-xs font-bold uppercase tracking-widest">유사자료 분석</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Patents Group -->
+<section>
+<div class="flex items-center gap-4 mb-6">
+<div class="h-px flex-1 bg-outline-variant/15"></div>
+<h3 class="font-inter text-xs font-bold uppercase tracking-widest text-slate-500">특허/발명 사례</h3>
+<div class="h-px flex-1 bg-outline-variant/15"></div>
+</div>
+<!-- Result Card 3 (Patent) -->
+<div class="group bg-surface-container-lowest rounded-xl p-6 mb-4 shadow-none hover:bg-surface-bright transition-all">
+<div class="flex flex-col md:flex-row gap-6">
+<div class="flex-1">
+<div class="flex flex-wrap items-center gap-2 mb-3">
+<span class="bg-[#245100] text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">특허</span>
+<span class="text-on-surface-variant text-[10px] font-bold">등록번호: 10-2023-0123456</span>
+</div>
+<h2 class="text-xl font-bold leading-tight mb-2 cursor-pointer hover:text-secondary transition-colors">
+                                    Deep Learning based Signal Processing for Adaptive Wireless Communications
+                                </h2>
+<p class="text-sm text-on-surface-variant font-medium mb-4">삼성전자주식회사 | 2023.11.14</p>
+<div class="flex flex-wrap gap-2">
+<button class="bg-secondary text-white px-4 py-2 rounded text-xs font-bold uppercase tracking-widest">공고전문</button>
+<button class="text-secondary border border-secondary/20 px-4 py-2 rounded text-xs font-bold uppercase tracking-widest">행정정보</button>
+</div>
+</div>
+<div class="md:w-32">
+<img class="w-full aspect-square object-cover rounded-lg grayscale hover:grayscale-0 transition-all cursor-zoom-in" data-alt="Technical patent diagram showing schematic of wireless signal processing nodes and interconnected neural network layers on white background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRIzRGnUsv_m2io6r2VTY030eTZGiSXF6xcFJppaBxnPiZlmDSoqst9jr4jb0NT5hfG7cUa65glFZwppcDO-LEw3KLn9N8y9Tn4C91BCsNcEyZ6Uk6LGwwJBOoQr4vtRTe5VdCe7Xe16iCis09TmLX-Tj9RYahQHAm7rVJw4REEiWFdDvjlufZWw3RXXt_uEnrg4pwUQL5yme_wlNcP8dsek9OHoM1G8r7fgRodUWhH3VF61ppnKLCv5Y1xuLBkbBWpiqq14ufpStx"/>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</div>
+<!-- Footer -->
+<footer class="bg-[#f2fbff] dark:bg-[#041627] w-full px-12 py-16 flex flex-col items-center gap-8 border-t border-slate-200/15">
+<div class="flex flex-col items-center gap-4">
+<span class="text-lg font-black text-[#041627] dark:text-white">ScienceBridge</span>
+<div class="flex flex-wrap justify-center gap-6">
+<a class="font-inter text-[10px] tracking-wider uppercase text-slate-500 hover:text-[#115cb9] transition-colors" href="#">KCI</a>
+<a class="font-inter text-[10px] tracking-wider uppercase text-slate-500 hover:text-[#115cb9] transition-colors" href="#">ScienceON</a>
+<a class="font-inter text-[10px] tracking-wider uppercase text-slate-500 hover:text-[#115cb9] transition-colors" href="#">KIPRIS</a>
+<a class="font-inter text-[10px] tracking-wider uppercase text-slate-500 hover:text-[#115cb9] transition-colors" href="#">NTIS</a>
+<a class="font-inter text-[10px] tracking-wider uppercase text-slate-500 hover:text-[#115cb9] transition-colors" href="#">Accessibility</a>
+<a class="font-inter text-[10px] tracking-wider uppercase text-slate-500 hover:text-[#115cb9] transition-colors" href="#">Privacy Policy</a>
+</div>
+</div>
+<p class="font-inter text-[10px] tracking-wider uppercase text-slate-400">
+            © 2024 ScienceBridge. All Intellectual Assets Reserved.
+        </p>
+</footer>
+</body></html>
