@@ -31,6 +31,7 @@ import {
   listSourceStatuses,
   listTrends,
   searchCatalog,
+  searchCatalogStream,
   getRecommendationsById
 } from './search-service.mjs';
 import { clearSourceCache, getSourceRuntimeDiagnostics } from './source-adapters.mjs';
@@ -152,6 +153,7 @@ function buildSimilarityFromRequest(body, fallbackTitle = '업로드 문서') {
 function buildAdminAlerts({ storage, ocr, sourceRuntime, recentRequests }) {
   const alerts = [];
   const errorRequests = recentRequests.filter((item) => Number(item.status) >= 500);
+  const cacheEntries = sourceRuntime?.cache?.entries || sourceRuntime?.cacheEntries || 0;
 
   if (!ocr.available) {
     alerts.push({
@@ -180,7 +182,7 @@ function buildAdminAlerts({ storage, ocr, sourceRuntime, recentRequests }) {
     });
   }
 
-  if ((sourceRuntime.cacheEntries || 0) === 0) {
+  if (cacheEntries === 0) {
     alerts.push({
       id: 'empty-source-cache',
       level: 'info',
@@ -199,6 +201,11 @@ function buildAdminAlerts({ storage, ocr, sourceRuntime, recentRequests }) {
   }
 
   return alerts;
+}
+
+function writeSseEvent(res, event, payload) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 async function buildSimilarityFromMultipart(fields) {
@@ -311,6 +318,49 @@ export function createServer() {
         return json(res, 200, { ...payload, data: { ...payload, items: payload.items } });
       }
 
+      if (pathname === '/api/search/stream') {
+        const preferredSources = (searchParams.get('preferredSources') || '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean);
+        const streamOptions = {
+          q: searchParams.get('q') || '',
+          region: searchParams.get('region') || 'all',
+          sourceType: searchParams.get('sourceType') || 'all',
+          sort: searchParams.get('sort') || 'relevance',
+          preferredSources,
+          live: searchParams.get('live') === '1' || appConfig.enableLiveSources,
+          forceRefresh: searchParams.get('refresh') === '1',
+          autoLive: searchParams.get('autoLive') === '0' ? false : appConfig.autoLiveOnEmpty
+        };
+
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders?.();
+
+        let closed = false;
+        req.on('close', () => {
+          closed = true;
+        });
+
+        try {
+          await searchCatalogStream(streamOptions, ({ type, payload }) => {
+            if (closed || res.writableEnded) return;
+            writeSseEvent(res, type, payload);
+          });
+          if (!closed && !res.writableEnded) res.end();
+        } catch (error) {
+          if (!closed && !res.writableEnded) {
+            writeSseEvent(res, 'error', { error: error.message || 'Unexpected server error' });
+            res.end();
+          }
+        }
+        return;
+      }
+
       if (pathname === '/api/search/suggestions') {
         return json(res, 200, getSearchSuggestions(searchParams.get('q') || ''));
       }
@@ -342,8 +392,10 @@ export function createServer() {
             host: appConfig.host,
             port: Number(process.env.PORT || 3000),
             liveSourcesEnabled: appConfig.enableLiveSources,
+            autoLiveOnEmpty: appConfig.autoLiveOnEmpty,
             sourceTimeoutMs: appConfig.sourceTimeoutMs,
-            sourceCacheTtlMs: appConfig.sourceCacheTtlMs
+            sourceCacheTtlMs: appConfig.sourceCacheTtlMs,
+            maxLiveResultsPerSource: appConfig.maxLiveResultsPerSource
           },
           alerts: buildAdminAlerts({ storage, ocr, sourceRuntime, recentRequests }),
           storage,
