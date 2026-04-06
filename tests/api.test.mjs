@@ -154,6 +154,20 @@ test('cache clear endpoint responds with diagnostics', async () => {
   server.close();
 });
 
+test('sources status endpoint exposes cache/runtime diagnostics', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/sources/status`);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(payload.sources));
+  assert.ok(payload.sources.length >= 1);
+  assert.ok(payload.runtime.cache);
+  assert.equal(typeof payload.runtime.cache.entries, 'number');
+  assert.equal(typeof payload.runtime.cache.ttlMs, 'number');
+  assert.ok(payload.runtime.storage);
+  server.close();
+});
+
 test('storage stats endpoint returns sqlite diagnostics', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/storage/stats`);
@@ -214,6 +228,46 @@ test('auth and library flow works end-to-end', async () => {
   assert.equal(savedSearchResponse.status, 200);
   assert.equal(savedSearchPayload.ok, true);
   assert.ok(savedSearchPayload.searches.length > 0);
+  assert.deepEqual(savedSearchPayload.searches[0].filters, { region: 'domestic' });
+  assert.ok(savedSearchPayload.searches[0].createdAt);
+
+  const libraryResponse = await fetch(`${baseUrl}/api/library`, {
+    headers: { cookie },
+  });
+  const libraryPayload = await libraryResponse.json();
+  assert.equal(libraryResponse.status, 200);
+  assert.equal(libraryPayload.items[0].note, 'important');
+  assert.ok(libraryPayload.items[0].createdAt);
+
+  const savedSearchListResponse = await fetch(`${baseUrl}/api/saved-searches`, {
+    headers: { cookie },
+  });
+  const savedSearchListPayload = await savedSearchListResponse.json();
+  assert.equal(savedSearchListResponse.status, 200);
+  assert.equal(savedSearchListPayload.searches[0].label, '배터리 검색');
+  assert.deepEqual(savedSearchListPayload.searches[0].filters, { region: 'domestic' });
+
+  const deleteSavedSearchResponse = await fetch(
+    `${baseUrl}/api/saved-searches/${savedSearchListPayload.searches[0].id}`,
+    {
+      method: 'DELETE',
+      headers: { cookie },
+    }
+  );
+  const deleteSavedSearchPayload = await deleteSavedSearchResponse.json();
+  assert.equal(deleteSavedSearchResponse.status, 200);
+  assert.deepEqual(deleteSavedSearchPayload.searches, []);
+
+  const deleteLibraryResponse = await fetch(
+    `${baseUrl}/api/library/${encodeURIComponent('paper:seed-paper-global-quantum')}`,
+    {
+      method: 'DELETE',
+      headers: { cookie },
+    }
+  );
+  const deleteLibraryPayload = await deleteLibraryResponse.json();
+  assert.equal(deleteLibraryResponse.status, 200);
+  assert.deepEqual(deleteLibraryPayload.items, []);
 
   const meResponse = await fetch(`${baseUrl}/api/auth/me`, {
     headers: { cookie },
@@ -332,6 +386,14 @@ test('admin ops endpoint returns startup, alerts, and similarity runs', async ()
   assert.ok(Array.isArray(payload.recentRequests));
   assert.ok(Array.isArray(payload.recentSimilarityRuns));
   assert.ok(payload.recentSimilarityRuns.length >= 1);
+  assert.ok(payload.runtime.sourceRuntime);
+  assert.ok(payload.runtime.sourceRuntime.cache);
+  assert.equal(typeof payload.runtime.sourceRuntime.cache.entries, 'number');
+  assert.ok(payload.runtime.postgres);
+  assert.ok(payload.runtime.vectorBackend);
+  assert.ok(payload.runtime.graphBackend);
+  assert.ok(payload.runtime.worker);
+  assert.ok(Array.isArray(payload.jobs));
 
   server.close();
 });
@@ -441,9 +503,15 @@ test('similarity report returns matches and recommendations', async () => {
   assert.ok(payload.sectionComparisons.length > 0);
   assert.ok(payload.differentiationAnalysis);
   assert.ok(payload.differentiationAnalysis.summary);
+  assert.ok(payload.differentiationAnalysis.strengthLevel);
+  assert.ok(Array.isArray(payload.differentiationAnalysis.lowOverlapSections));
   assert.ok(Array.isArray(payload.differentiationAnalysis.strategyRecommendations));
+  assert.ok(payload.topMatches[0].denseScore >= 0);
+  assert.ok(payload.topMatches[0].sparseScore >= 0);
   server.close();
 });
+
+test.todo('search stream endpoint emits summary, progress, results, and done events');
 
 
 
