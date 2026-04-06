@@ -116,6 +116,8 @@ async function initResultsPage() {
     region: params.get('region') || 'all',
     sourceType: params.get('sourceType') || 'all',
     sort: params.get('sort') || 'relevance',
+    live: params.get('live') || '',
+    autoLive: params.get('autoLive') || '',
   });
 
   setText('[data-query-label]', searchPayload.query);

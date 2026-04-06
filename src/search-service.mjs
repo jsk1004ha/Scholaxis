@@ -12,6 +12,10 @@ import { searchVectorCandidates, syncDocumentVectors } from './vector-index-serv
 
 const regionLabel = { all: '전체', domestic: '국내', global: '해외' };
 const sourceTypeLabel = { all: '전체', paper: '논문', thesis: '학위논문', patent: '특허', report: '보고서', fair_entry: '전람회/발명품' };
+const SEARCH_STOPWORDS = new Set([
+  '연구','분석','시스템','모델','기반','설계','예측','요약','문서','검색','자료','평가','결과',
+  'analysis','research','system','model','based','design','prediction','summary','document','search','data','evaluation','results'
+]);
 
 function classifySourceType(type) {
   if (['paper', 'thesis', 'patent', 'report', 'fair_entry'].includes(type)) return type;
@@ -36,7 +40,7 @@ function buildQueryTokens(query = '') {
   return unique([...base, ...variants, ...koreanChunks]).filter((token) => token.length >= 2);
 }
 
-function hasQueryEvidence(scoreBundle, queryTokens = [], document = {}, query = '') {
+function hasQueryEvidence(scoreBundle, queryTokens = [], queryTerms = [], rawQueryTermCount = 0, document = {}, query = '') {
   if (!queryTokens.length) return true;
   const normalizedTitle = String(document.title || '').toLowerCase();
   const normalizedEnglishTitle = String(document.englishTitle || '').toLowerCase();
@@ -55,6 +59,12 @@ function hasQueryEvidence(scoreBundle, queryTokens = [], document = {}, query = 
   );
   const normalizedQuery = String(query || '').toLowerCase().trim();
   if (normalizedQuery && (normalizedTitle.includes(normalizedQuery) || normalizedEnglishTitle.includes(normalizedQuery))) return true;
+  const exactTermMatches = queryTerms.filter((token) => normalizedBody.includes(token));
+  if (queryTerms.length >= 2) {
+    return exactTermMatches.length >= Math.min(2, queryTerms.length);
+  }
+  if (queryTerms.length === 1 && exactTermMatches.length >= 1) return true;
+  if (rawQueryTermCount >= 2) return false;
   if (queryTokens.some((token) => normalizedBody.includes(token))) return true;
   return (
     scoreBundle.lexicalScore >= 8 ||
@@ -210,6 +220,8 @@ export async function searchCatalog({
   autoLive = appConfig.autoLiveOnEmpty
 } = {}) {
   const queryTokens = buildQueryTokens(q);
+  const queryTerms = unique(tokenize(q)).filter((token) => !SEARCH_STOPWORDS.has(token));
+  const rawQueryTermCount = unique(tokenize(q)).length;
   const queryVector = buildDenseVector(q, appConfig.vectorDimensions);
   const querySparse = buildSparseVector(q);
   const shouldAutoLive = Boolean(q.trim()) && autoLive && !live;
@@ -237,7 +249,7 @@ export async function searchCatalog({
           total: scoreBundle.total + (vectorHitScores.get(item.canonicalId || item.id) || 0) * 10,
         },
       }))
-      .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, item, q));
+      .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, q));
   }
 
   let liveBundle = { documents: [], statuses: [] };

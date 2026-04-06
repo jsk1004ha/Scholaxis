@@ -396,6 +396,15 @@ test('search endpoint blocks dense-only collisions for compact Korean queries', 
   server.close();
 });
 
+test('search endpoint rejects generic multi-term semantic collisions', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/search?q=%EC%96%91%EC%9E%90%20%EC%95%94%ED%98%B8&region=all&sourceType=all&sort=relevance&autoLive=0`);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.total, 0);
+  server.close();
+});
+
 test('detail endpoint returns related materials and alternate source metadata', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum`);

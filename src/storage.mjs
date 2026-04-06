@@ -17,23 +17,26 @@ function openDatabase(targetPath) {
     database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
     return { database, path: targetPath };
   } catch (error) {
-    if (
-      error?.code === 'ERR_SQLITE_ERROR' &&
-      /not a database|database disk image is malformed/i.test(error.message) &&
-      existsSync(targetPath)
-    ) {
-      try {
-        const brokenPath = `${targetPath}.broken-${Date.now()}`;
-        renameSync(targetPath, brokenPath);
-        const database = new DatabaseSync(targetPath);
-        database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
-        return { database, path: targetPath };
-      } catch {
-        const recoveryPath = path.join(tmpdir(), `scholaxis-recovery-${Date.now()}.db`);
-        const database = new DatabaseSync(recoveryPath);
-        database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
-        return { database, path: recoveryPath };
+    if (error?.code === 'ERR_SQLITE_ERROR') {
+      if (
+        /not a database|database disk image is malformed/i.test(error.message) &&
+        existsSync(targetPath)
+      ) {
+        try {
+          const brokenPath = `${targetPath}.broken-${Date.now()}`;
+          renameSync(targetPath, brokenPath);
+          const database = new DatabaseSync(targetPath);
+          database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+          return { database, path: targetPath };
+        } catch {
+          // fall through to tmp recovery
+        }
       }
+
+      const recoveryPath = path.join(tmpdir(), `scholaxis-recovery-${Date.now()}.db`);
+      const database = new DatabaseSync(recoveryPath);
+      database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+      return { database, path: recoveryPath };
     }
     throw error;
   }

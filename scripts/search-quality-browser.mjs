@@ -90,25 +90,37 @@ function relevanceVerdict(query, payload) {
   };
 }
 
-async function runBrowserCheck(chromePath, url, screenshotPath) {
-  const args = [
+async function runBrowserCheck(chromePath, url) {
+  const command = [
+    'timeout 15s',
+    `'${chromePath.replaceAll("'", "'\\''")}'`,
     '--headless=new',
     '--disable-gpu',
     '--no-first-run',
     '--no-default-browser-check',
     '--virtual-time-budget=4000',
-    `--screenshot=${screenshotPath}`,
-    '--window-size=1440,1200',
     '--dump-dom',
-    url,
-  ];
-  const { stdout } = await execFileAsync(chromePath, args, { maxBuffer: 8 * 1024 * 1024 });
-  const dom = stdout.toString();
-  return {
-    hasResults: dom.includes('result-card') || dom.includes('개 결과'),
-    hasError: dom.includes('검색 오류'),
-    domLength: dom.length,
-  };
+    `'${url.replaceAll("'", "'\\''")}'`,
+    '2>/dev/null'
+  ].join(' ');
+  try {
+    const { stdout } = await execFileAsync('/bin/bash', ['-lc', command], {
+      maxBuffer: 8 * 1024 * 1024
+    });
+    const dom = stdout.toString();
+    return {
+      hasResults: dom.includes('result-card') || dom.includes('개 결과'),
+      hasError: dom.includes('검색 오류'),
+      domLength: dom.length,
+    };
+  } catch (error) {
+    return {
+      hasResults: false,
+      hasError: true,
+      domLength: 0,
+      error: error.message,
+    };
+  }
 }
 
 async function main() {
@@ -126,7 +138,7 @@ async function main() {
   const topics = shuffle(TOPICS).slice(0, API_RUNS);
   const apiResults = [];
 
-  for (const query of topics) {
+  for (const [index, query] of topics.entries()) {
     const response = await fetch(
       `${baseUrl}/api/search?q=${encodeURIComponent(query)}&region=all&sourceType=all&sort=relevance&autoLive=0`
     );
@@ -142,6 +154,9 @@ async function main() {
       topTitle: quality.top?.title || '',
       topSource: quality.top?.source || '',
     });
+    if ((index + 1) % 20 === 0) {
+      console.error(`API progress ${index + 1}/${topics.length}`);
+    }
   }
 
   const liveTopics = topics.slice(0, Math.min(LIVE_SAMPLE_RUNS, topics.length));
@@ -167,9 +182,9 @@ async function main() {
   for (let index = 0; index < browserTopics.length; index += 1) {
     const query = browserTopics[index];
     const url = `${baseUrl}/results.html?q=${encodeURIComponent(query)}&region=all&sourceType=all&sort=relevance&autoLive=0`;
-    const screenshotPath = path.join(SAMPLE_DIR, `search-${String(index + 1).padStart(3, '0')}.png`);
-    const browser = await runBrowserCheck(chromePath, url, screenshotPath);
-    browserResults.push({ query, screenshotPath, ...browser });
+    const browser = await runBrowserCheck(chromePath, url);
+    browserResults.push({ query, ...browser });
+    console.error(`Browser progress ${index + 1}/${browserTopics.length}`);
   }
 
   const relevant = apiResults.filter((item) => item.verdict === 'relevant').length;
