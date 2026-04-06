@@ -225,6 +225,60 @@ test('auth and library flow works end-to-end', async () => {
   server.close();
 });
 
+test('auth login/logout endpoints rotate session state cleanly', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const email = `login-${Date.now()}@example.com`;
+  const password = 'test-password';
+
+  const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      password,
+      displayName: 'Login Tester',
+    }),
+  });
+  const cookie = registerResponse.headers.get('set-cookie');
+  assert.ok(cookie);
+
+  const logoutResponse = await fetch(`${baseUrl}/api/auth/logout`, {
+    method: 'POST',
+    headers: { cookie },
+  });
+  const logoutPayload = await logoutResponse.json();
+  assert.equal(logoutResponse.status, 200);
+  assert.equal(logoutPayload.ok, true);
+  assert.match(logoutResponse.headers.get('set-cookie') || '', /Max-Age=0/);
+
+  const loggedOutMeResponse = await fetch(`${baseUrl}/api/auth/me`, {
+    headers: { cookie },
+  });
+  const loggedOutMePayload = await loggedOutMeResponse.json();
+  assert.equal(loggedOutMeResponse.status, 200);
+  assert.equal(loggedOutMePayload.user, null);
+
+  const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const loginPayload = await loginResponse.json();
+  const loginCookie = loginResponse.headers.get('set-cookie');
+  assert.equal(loginResponse.status, 200);
+  assert.equal(loginPayload.ok, true);
+  assert.ok(loginCookie);
+
+  const meResponse = await fetch(`${baseUrl}/api/auth/me`, {
+    headers: { cookie: loginCookie },
+  });
+  const mePayload = await meResponse.json();
+  assert.equal(meResponse.status, 200);
+  assert.equal(mePayload.user.email, email);
+
+  server.close();
+});
+
 test('profile endpoint saves user preferences', async () => {
   const { server, baseUrl } = await startTestServer();
   const email = `profile-${Date.now()}@example.com`;
@@ -297,6 +351,26 @@ test('citations and references endpoints return graph-backed expansions', async 
   const referencesPayload = await referencesResponse.json();
   assert.equal(referencesResponse.status, 200);
   assert.ok(Array.isArray(referencesPayload.references));
+
+  server.close();
+});
+
+test('graph and postgres migration endpoints expose expected payload formats', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  const graphResponse = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum/graph`);
+  const graphPayload = await graphResponse.json();
+  assert.equal(graphResponse.status, 200);
+  assert.ok(graphPayload.graph);
+  assert.ok(Array.isArray(graphPayload.graph.references));
+  assert.ok(graphPayload.graph.references.length >= 1);
+  assert.equal(graphPayload.graph.references[0].sourceId, 'paper:seed-paper-global-quantum');
+
+  const migrationResponse = await fetch(`${baseUrl}/api/admin/postgres-migration`);
+  const migrationText = await migrationResponse.text();
+  assert.equal(migrationResponse.status, 200);
+  assert.match(migrationResponse.headers.get('content-type') || '', /^text\/plain/);
+  assert.equal(migrationText, buildPostgresMigrationSql());
 
   server.close();
 });
