@@ -139,6 +139,9 @@ Stored entities include:
 - `GET /api/papers/:id/related`
 - `GET /api/papers/:id/expand`
 - `GET /api/papers/:id/recommendations`
+- `GET /api/papers/:id/citations`
+- `GET /api/papers/:id/references`
+- `GET /api/papers/:id/graph`
 
 ### Similarity / upload analysis
 - `POST /api/similarity/report`
@@ -148,12 +151,19 @@ Stored entities include:
 - `GET /api/storage/stats`
 - `POST /api/cache/clear`
 - `GET /api/admin/summary`
+- `GET /api/admin/ops`
+- `GET /api/admin/infra`
+- `GET /api/admin/jobs`
+- `POST /api/admin/jobs`
+- `GET /api/admin/postgres-migration`
 
 ### Local auth / user state
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
+- `GET /api/profile`
+- `PATCH /api/profile`
 - `GET /api/library`
 - `POST /api/library`
 - `DELETE /api/library/:canonicalId`
