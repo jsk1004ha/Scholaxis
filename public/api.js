@@ -112,6 +112,70 @@ export async function fetchSearch(query) {
   }
 }
 
+function parseStreamEventPayload(event) {
+  try {
+    return JSON.parse(event.data);
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchSearchStream(query, handlers = {}) {
+  if (typeof EventSource === 'undefined') {
+    const payload = await fetchSearch(query);
+    handlers.onDone?.(payload);
+    return payload;
+  }
+
+  const params = new URLSearchParams(normalizeSearchQuery(query));
+
+  return new Promise((resolve, reject) => {
+    const stream = new EventSource(`/api/search/stream?${params.toString()}`);
+    let completed = false;
+
+    const finishWithFallback = async () => {
+      if (completed) return;
+      completed = true;
+      stream.close();
+      try {
+        const payload = await fetchSearch(query);
+        handlers.onDone?.(payload);
+        resolve(payload);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    stream.addEventListener('summary', (event) => {
+      const payload = parseStreamEventPayload(event);
+      if (payload) handlers.onSummary?.(payload);
+    });
+
+    stream.addEventListener('progress', (event) => {
+      const payload = parseStreamEventPayload(event);
+      if (payload) handlers.onProgress?.(payload);
+    });
+
+    stream.addEventListener('results', (event) => {
+      const payload = parseStreamEventPayload(event);
+      if (payload) handlers.onResults?.(normalizeSearch(payload));
+    });
+
+    stream.addEventListener('done', (event) => {
+      if (completed) return;
+      completed = true;
+      stream.close();
+      const payload = normalizeSearch(parseStreamEventPayload(event));
+      handlers.onDone?.(payload);
+      resolve(payload);
+    });
+
+    stream.addEventListener('error', () => {
+      void finishWithFallback();
+    });
+  });
+}
+
 export function normalizeSearchQuery(query = {}) {
   return {
     ...query,

@@ -3,6 +3,11 @@ import { seedCatalog, trendingTopics } from './catalog.mjs';
 import { deriveGraphEdges } from './graph-service.mjs';
 import { searchCatalog } from './search-service.mjs';
 import {
+  listHotSourceQueries,
+  markSourceCachePrewarmFinish,
+  markSourceCachePrewarmStart
+} from './source-cache.mjs';
+import {
   completeBackgroundJob,
   enqueueBackgroundJob,
   failBackgroundJob,
@@ -14,6 +19,23 @@ import {
 import { attachVectors } from './vector-service.mjs';
 
 export function enqueueRecurringInfraJobs() {
+  const hotQueries = listHotSourceQueries(3);
+  const prewarmQueries = hotQueries.length
+    ? hotQueries.map((item, index) =>
+        enqueueBackgroundJob({
+          jobType: 'cache-prewarm',
+          payload: { query: item.query, preferredSources: item.sources || [], trigger: 'hot-query' },
+          priority: 6 - index
+        })
+      )
+    : trendingTopics.slice(0, 2).map((topic, index) =>
+        enqueueBackgroundJob({
+          jobType: 'cache-prewarm',
+          payload: { query: topic, trigger: 'trending-topic' },
+          priority: 3 - index
+        })
+      );
+
   return [
     enqueueBackgroundJob({
       jobType: 'graph-refresh',
@@ -27,6 +49,7 @@ export function enqueueRecurringInfraJobs() {
         priority: 4 - index,
       })
     ),
+    ...prewarmQueries,
   ];
 }
 
@@ -53,6 +76,47 @@ async function runCitationRefresh(payload = {}) {
   return { ok: true, total: result.total };
 }
 
+async function runCachePrewarm(payload = {}) {
+  const query = payload.query || 'AI research';
+  const preferredSources = Array.isArray(payload.preferredSources) ? payload.preferredSources : [];
+  const trigger = payload.trigger || 'job';
+  const forceRefresh = payload.forceRefresh !== false;
+  markSourceCachePrewarmStart({ query, trigger, forceRefresh });
+  try {
+    const result = await searchCatalog({
+      q: query,
+      preferredSources,
+      live: true,
+      autoLive: true,
+      forceRefresh,
+    });
+    markSourceCachePrewarmFinish({
+      query,
+      trigger,
+      forceRefresh,
+      status: 'completed',
+      total: result.total,
+      liveSourceCount: result.liveSourceCount,
+    });
+    return {
+      ok: true,
+      query,
+      total: result.total,
+      liveSourceCount: result.liveSourceCount,
+      preferredSources,
+    };
+  } catch (error) {
+    markSourceCachePrewarmFinish({
+      query,
+      trigger,
+      forceRefresh,
+      status: 'failed',
+      error: error.message,
+    });
+    throw error;
+  }
+}
+
 export async function runBackgroundJob(job) {
   switch (job.jobType) {
     case 'graph-refresh':
@@ -61,6 +125,8 @@ export async function runBackgroundJob(job) {
       return runLiveSearchSync(job.payload);
     case 'citation-refresh':
       return runCitationRefresh(job.payload);
+    case 'cache-prewarm':
+      return runCachePrewarm(job.payload);
     default:
       return { ok: true, skipped: true, jobType: job.jobType };
   }

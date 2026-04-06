@@ -209,7 +209,12 @@ export function getSearchSuggestions(query = '') {
   };
 }
 
-export async function searchCatalog({
+function emitSearchEvent(onEvent, type, payload) {
+  if (typeof onEvent !== 'function') return;
+  onEvent({ type, payload });
+}
+
+async function executeSearchCatalog({
   q = '',
   region = 'all',
   sourceType = 'all',
@@ -218,13 +223,22 @@ export async function searchCatalog({
   live = appConfig.enableLiveSources,
   forceRefresh = false,
   autoLive = appConfig.autoLiveOnEmpty
-} = {}) {
+} = {}, onEvent = null) {
   const queryTokens = buildQueryTokens(q);
   const queryTerms = unique(tokenize(q)).filter((token) => !SEARCH_STOPWORDS.has(token));
   const rawQueryTermCount = unique(tokenize(q)).length;
   const queryVector = buildDenseVector(q, appConfig.vectorDimensions);
   const querySparse = buildSparseVector(q);
   const shouldAutoLive = Boolean(q.trim()) && autoLive && !live;
+  const filters = { region, sourceType, sort, preferredSources };
+
+  emitSearchEvent(onEvent, 'summary', {
+    query: q,
+    filters,
+    summary: q
+      ? `“${q}” 검색을 시작합니다. 로컬 인덱스와 라이브 소스를 순차적으로 확인합니다.`
+      : `기본 탐색 결과를 준비하고 있습니다.`
+  });
 
   function rankDocuments(documents = []) {
     return documents
@@ -254,15 +268,37 @@ export async function searchCatalog({
 
   let liveBundle = { documents: [], statuses: [] };
   let mergedSourceData = await buildSearchIndexDocuments();
+  emitSearchEvent(onEvent, 'progress', {
+    stage: 'seed-index',
+    query: q,
+    filters,
+    message: `기본/저장 인덱스 ${mergedSourceData.length}건을 스캔했습니다.`,
+    indexedCount: mergedSourceData.length
+  });
   let rankedEntries = await attachVectorBoost(rankDocuments(mergedSourceData));
 
   if ((live || shouldAutoLive) && (!rankedEntries.length || live)) {
+    emitSearchEvent(onEvent, 'progress', {
+      stage: 'live-fetch',
+      query: q,
+      filters,
+      message: `라이브 소스를 조회하고 있습니다.`,
+      preferredSources
+    });
     liveBundle = await searchLiveSources(q, preferredSources, appConfig.maxLiveResultsPerSource, {
       forceRefresh,
       overrideEnable: shouldAutoLive || live
     });
     mergedSourceData = await buildSearchIndexDocuments(liveBundle.documents);
     rankedEntries = await attachVectorBoost(rankDocuments(mergedSourceData));
+    emitSearchEvent(onEvent, 'progress', {
+      stage: 'live-merged',
+      query: q,
+      filters,
+      message: `라이브 소스 ${liveBundle.documents.length}건을 병합했습니다.`,
+      liveSourceCount: liveBundle.documents.length,
+      sourceStatus: mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses)
+    });
   }
 
   const ranked = [...rankedEntries].sort((a, b) => {
@@ -284,11 +320,11 @@ export async function searchCatalog({
   await syncDocumentGraph(mergedSourceData);
   await syncDocumentVectors(mergedSourceData);
   await syncDocumentsToPostgres(mergedSourceData);
-  persistSearchRun({ query: q, filters: { region, sourceType, sort, preferredSources }, total: ranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
+  persistSearchRun({ query: q, filters, total: ranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
 
-  return {
+  const payload = {
     query: q,
-    filters: { region, sourceType, sort, preferredSources },
+    filters,
     summary,
     total: ranked.length,
     relatedQueries: getSearchSuggestions(q).suggestions.slice(0, 6),
@@ -298,6 +334,18 @@ export async function searchCatalog({
     liveSourceCount: liveBundle.documents.length,
     canonicalCount: mergedSourceData.length
   };
+
+  emitSearchEvent(onEvent, 'results', payload);
+  emitSearchEvent(onEvent, 'done', payload);
+  return payload;
+}
+
+export async function searchCatalog(options = {}) {
+  return executeSearchCatalog(options);
+}
+
+export async function searchCatalogStream(options = {}, onEvent = null) {
+  return executeSearchCatalog(options, onEvent);
 }
 
 export async function getPaperById(id) {

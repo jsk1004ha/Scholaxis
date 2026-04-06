@@ -8,7 +8,7 @@ import {
   fetchPaper,
   fetchProfile,
   fetchSavedSearches,
-  fetchSearch,
+  fetchSearchStream,
   login,
   logout,
   register,
@@ -87,6 +87,43 @@ function navigateToResults(form) {
   window.location.href = `./results.html?${params.toString()}`;
 }
 
+function renderSourceList(searchPayload, sourceRoot) {
+  if (!sourceRoot) return;
+  sourceRoot.innerHTML = (searchPayload.sourceStatus?.map((item) => item.source) ?? searchPayload.filters?.sources ?? mockSources)
+    .map((source) => `<li>${source}</li>`)
+    .join('');
+}
+
+function renderSearchPayload(searchPayload, resultsRoot) {
+  setText('[data-query-label]', searchPayload.query);
+  setText('[data-results-summary]', searchPayload.summary);
+  setText('[data-results-count]', `${searchPayload.total}개 결과`);
+
+  const relatedRoot = qs('[data-related-queries]');
+  if (relatedRoot) {
+    relatedRoot.innerHTML = (searchPayload.relatedQueries ?? [])
+      .map((query) => `<a class="chip" href="./results.html?q=${encodeURIComponent(query)}">${query}</a>`)
+      .join('');
+  }
+
+  renderSourceList(searchPayload, qs('[data-source-list]'));
+
+  resultsRoot.innerHTML = '';
+  if (searchPayload.error) {
+    resultsRoot.innerHTML = `<article class="card"><h3>검색 오류</h3><p>${escapeHtml(searchPayload.summary)}</p></article>`;
+    return;
+  }
+
+  if (!(searchPayload.items ?? []).length) {
+    resultsRoot.innerHTML = '<article class="card"><h3>검색 결과 없음</h3><p>다른 키워드나 필터로 다시 시도해 보세요.</p></article>';
+    return;
+  }
+
+  (searchPayload.items ?? mockPapers).forEach((paper) => {
+    resultsRoot.appendChild(createPaperCard(paper));
+  });
+}
+
 function initHomePage() {
   const form = qs('[data-search-form]');
   if (!form) return;
@@ -109,42 +146,39 @@ function initHomePage() {
 async function initResultsPage() {
   const resultsRoot = qs('[data-results-root]');
   if (!resultsRoot) return;
+  const progressRoot = qs('[data-search-progress]');
 
   const params = new URLSearchParams(window.location.search);
-  const searchPayload = await fetchSearch({
+  const query = {
     q: params.get('q') || 'AI 반도체 설계 자동화',
     region: params.get('region') || 'all',
     sourceType: params.get('sourceType') || 'all',
     sort: params.get('sort') || 'relevance',
     live: params.get('live') || '',
     autoLive: params.get('autoLive') || '',
+  };
+  resultsRoot.innerHTML = '<article class="card"><h3>검색 준비 중</h3><p>로컬 인덱스와 라이브 소스를 순차적으로 조회하고 있습니다.</p></article>';
+  if (progressRoot) progressRoot.textContent = '검색 스트리밍 연결 중…';
+
+  const searchPayload = await fetchSearchStream(query, {
+    onSummary(payload) {
+      setText('[data-query-label]', payload.query || query.q);
+      if (progressRoot) progressRoot.textContent = payload.summary || '검색을 시작했습니다.';
+    },
+    onProgress(payload) {
+      if (progressRoot) progressRoot.textContent = payload.message || '검색을 진행 중입니다.';
+      if (payload.sourceStatus) renderSourceList(payload, qs('[data-source-list]'));
+    },
+    onResults(payload) {
+      renderSearchPayload(payload, resultsRoot);
+      if (progressRoot) progressRoot.textContent = '결과 초안을 렌더링했습니다.';
+    },
+    onDone(payload) {
+      renderSearchPayload(payload, resultsRoot);
+      if (progressRoot) progressRoot.textContent = `스트리밍 완료 · ${payload.total}개 결과`;
+    },
   });
-
-  setText('[data-query-label]', searchPayload.query);
-  setText('[data-results-summary]', searchPayload.summary);
-  setText('[data-results-count]', `${searchPayload.total}개 결과`);
-
-  const relatedRoot = qs('[data-related-queries]');
-  if (relatedRoot) {
-    relatedRoot.innerHTML = (searchPayload.relatedQueries ?? [])
-      .map((query) => `<a class="chip" href="./results.html?q=${encodeURIComponent(query)}">${query}</a>`)
-      .join('');
-  }
-
-  const sourceRoot = qs('[data-source-list]');
-  if (sourceRoot) {
-    sourceRoot.innerHTML = (searchPayload.sourceStatus?.map((item) => item.source) ?? searchPayload.filters?.sources ?? mockSources)
-      .map((source) => `<li>${source}</li>`)
-      .join('');
-  }
-
-  resultsRoot.innerHTML = '';
-  if (searchPayload.error) {
-    resultsRoot.innerHTML = `<article class="card"><h3>검색 오류</h3><p>${escapeHtml(searchPayload.summary)}</p></article>`;
-  }
-  (searchPayload.items ?? mockPapers).forEach((paper) => {
-    resultsRoot.appendChild(createPaperCard(paper));
-  });
+  renderSearchPayload(searchPayload, resultsRoot);
 
   const form = qs('[data-inline-search]');
   if (!form) return;
