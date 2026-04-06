@@ -20,7 +20,40 @@
       </header>
       <main class="page">
         <article class="card">
-          <h2>운영 요약</h2>
+          <h2>운영 경보</h2>
+          <div class="dashboard-grid" data-admin-alerts></div>
+        </article>
+        <article class="card">
+          <h2>부팅 / 런타임</h2>
+          <div class="dashboard-grid" data-admin-startup></div>
+        </article>
+        <article class="card">
+          <h2>스토리지 / 활동 메트릭</h2>
+          <div class="dashboard-grid" data-admin-metrics></div>
+        </article>
+        <article class="card">
+          <h2>최근 요청 로그</h2>
+          <div class="table-shell">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Method</th>
+                  <th>Path</th>
+                  <th>Status</th>
+                  <th>Latency</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody data-admin-requests></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="card">
+          <h2>최근 유사도 분석 실행</h2>
+          <div class="timeline-list" data-admin-similarity></div>
+        </article>
+        <article class="card">
+          <h2>원본 운영 요약(JSON)</h2>
           <pre data-admin-summary></pre>
         </article>
         <article class="card">

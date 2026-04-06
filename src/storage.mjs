@@ -1,13 +1,43 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const dataDir = path.resolve('.data');
 mkdirSync(dataDir, { recursive: true });
 
-const dbPath = path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 'scholaxis.db'));
-const db = new DatabaseSync(dbPath);
-db.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+let dbPath = path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 'scholaxis.db'));
+const opened = openDatabase(dbPath);
+dbPath = opened.path;
+let db = opened.database;
+
+function openDatabase(targetPath) {
+  try {
+    const database = new DatabaseSync(targetPath);
+    database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+    return { database, path: targetPath };
+  } catch (error) {
+    if (
+      error?.code === 'ERR_SQLITE_ERROR' &&
+      /not a database|database disk image is malformed/i.test(error.message) &&
+      existsSync(targetPath)
+    ) {
+      try {
+        const brokenPath = `${targetPath}.broken-${Date.now()}`;
+        renameSync(targetPath, brokenPath);
+        const database = new DatabaseSync(targetPath);
+        database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+        return { database, path: targetPath };
+      } catch {
+        const recoveryPath = path.join(tmpdir(), `scholaxis-recovery-${Date.now()}.db`);
+        const database = new DatabaseSync(recoveryPath);
+        database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+        return { database, path: recoveryPath };
+      }
+    }
+    throw error;
+  }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS documents (
@@ -57,6 +87,21 @@ db.exec(`
     created_at TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS background_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_type TEXT,
+    status TEXT,
+    payload_json TEXT,
+    priority INTEGER,
+    attempts INTEGER,
+    last_error TEXT,
+    run_after TEXT,
+    leased_until TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    completed_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS request_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     method TEXT,
@@ -99,6 +144,21 @@ db.exec(`
     filters_json TEXT,
     created_at TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY,
+    research_interests_json TEXT,
+    preferred_sources_json TEXT,
+    default_region TEXT,
+    alert_opt_in INTEGER,
+    updated_at TEXT
+  );
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_graph_edges_source_type ON graph_edges(source_id, edge_type);
+  CREATE INDEX IF NOT EXISTS idx_graph_edges_target_type ON graph_edges(target_id, edge_type);
+  CREATE INDEX IF NOT EXISTS idx_background_jobs_status_run_after ON background_jobs(status, run_after);
 `);
 
 const upsertDocument = db.prepare(`
@@ -190,6 +250,9 @@ export function getStorageDiagnostics() {
   const [sessionsCount] = db.prepare('SELECT COUNT(*) AS count FROM sessions').all();
   const [libraryItemsCount] = db.prepare('SELECT COUNT(*) AS count FROM library_items').all();
   const [savedSearchesCount] = db.prepare('SELECT COUNT(*) AS count FROM saved_searches').all();
+  const [userPreferencesCount] = db.prepare('SELECT COUNT(*) AS count FROM user_preferences').all();
+  const [pendingJobsCount] = db.prepare("SELECT COUNT(*) AS count FROM background_jobs WHERE status IN ('queued', 'leased', 'running')").all();
+  const [completedJobsCount] = db.prepare("SELECT COUNT(*) AS count FROM background_jobs WHERE status = 'completed'").all();
   return {
     ready: true,
     dbPath,
@@ -201,7 +264,10 @@ export function getStorageDiagnostics() {
     users: usersCount?.count || 0,
     sessions: sessionsCount?.count || 0,
     libraryItems: libraryItemsCount?.count || 0,
-    savedSearches: savedSearchesCount?.count || 0
+    savedSearches: savedSearchesCount?.count || 0,
+    userPreferences: userPreferencesCount?.count || 0,
+    pendingJobs: pendingJobsCount?.count || 0,
+    completedJobs: completedJobsCount?.count || 0
   };
 }
 
@@ -263,12 +329,168 @@ const listSavedSearchesStmt = db.prepare(`
 const removeSavedSearchStmt = db.prepare(`
   DELETE FROM saved_searches WHERE user_id = ? AND id = ?
 `);
+const updateDisplayNameStmt = db.prepare(`
+  UPDATE users
+  SET display_name = ?
+  WHERE id = ?
+`);
+const upsertUserPreferencesStmt = db.prepare(`
+  INSERT INTO user_preferences (
+    user_id,
+    research_interests_json,
+    preferred_sources_json,
+    default_region,
+    alert_opt_in,
+    updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(user_id) DO UPDATE SET
+    research_interests_json=excluded.research_interests_json,
+    preferred_sources_json=excluded.preferred_sources_json,
+    default_region=excluded.default_region,
+    alert_opt_in=excluded.alert_opt_in,
+    updated_at=excluded.updated_at
+`);
+const getUserProfileStmt = db.prepare(`
+  SELECT
+    u.id,
+    u.email,
+    u.display_name AS displayName,
+    u.created_at AS createdAt,
+    p.research_interests_json AS researchInterestsJson,
+    p.preferred_sources_json AS preferredSourcesJson,
+    p.default_region AS defaultRegion,
+    p.alert_opt_in AS alertOptIn,
+    p.updated_at AS updatedAt
+  FROM users u
+  LEFT JOIN user_preferences p ON p.user_id = u.id
+  WHERE u.id = ?
+`);
+const deleteGraphEdgesBySourceStmt = db.prepare(`
+  DELETE FROM graph_edges WHERE source_id = ?
+`);
+const listGraphEdgesStmt = db.prepare(`
+  SELECT source_id AS sourceId, target_id AS targetId, edge_type AS edgeType, weight, created_at AS createdAt
+  FROM graph_edges
+  WHERE
+    (? IS NULL OR source_id = ?)
+    AND (? IS NULL OR target_id = ?)
+    AND (? IS NULL OR edge_type = ?)
+  ORDER BY weight DESC, id DESC
+  LIMIT ?
+`);
+const insertBackgroundJobStmt = db.prepare(`
+  INSERT INTO background_jobs (
+    job_type, status, payload_json, priority, attempts, last_error, run_after, leased_until, created_at, updated_at, completed_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+const listBackgroundJobsStmt = db.prepare(`
+  SELECT
+    id,
+    job_type AS jobType,
+    status,
+    payload_json AS payloadJson,
+    priority,
+    attempts,
+    last_error AS lastError,
+    run_after AS runAfter,
+    leased_until AS leasedUntil,
+    created_at AS createdAt,
+    updated_at AS updatedAt,
+    completed_at AS completedAt
+  FROM background_jobs
+  ORDER BY id DESC
+  LIMIT ?
+`);
+const leaseCandidateJobStmt = db.prepare(`
+  SELECT id
+  FROM background_jobs
+  WHERE status = 'queued' AND datetime(run_after) <= datetime(?)
+  ORDER BY priority DESC, id ASC
+  LIMIT 1
+`);
+const leaseJobStmt = db.prepare(`
+  UPDATE background_jobs
+  SET status = 'leased', leased_until = ?, attempts = attempts + 1, updated_at = ?
+  WHERE id = ?
+`);
+const getBackgroundJobByIdStmt = db.prepare(`
+  SELECT
+    id,
+    job_type AS jobType,
+    status,
+    payload_json AS payloadJson,
+    priority,
+    attempts,
+    last_error AS lastError,
+    run_after AS runAfter,
+    leased_until AS leasedUntil,
+    created_at AS createdAt,
+    updated_at AS updatedAt,
+    completed_at AS completedAt
+  FROM background_jobs
+  WHERE id = ?
+`);
+const completeJobStmt = db.prepare(`
+  UPDATE background_jobs
+  SET status = 'completed', leased_until = NULL, last_error = NULL, updated_at = ?, completed_at = ?
+  WHERE id = ?
+`);
+const failJobStmt = db.prepare(`
+  UPDATE background_jobs
+  SET status = 'failed', leased_until = NULL, last_error = ?, updated_at = ?
+  WHERE id = ?
+`);
+const releaseJobStmt = db.prepare(`
+  UPDATE background_jobs
+  SET status = 'queued', leased_until = NULL, updated_at = ?, run_after = ?
+  WHERE id = ?
+`);
+const getAllDocumentsStmt = db.prepare(`
+  SELECT
+    canonical_id AS canonicalId,
+    source,
+    type,
+    title,
+    year,
+    organization,
+    authors_json AS authorsJson,
+    keywords_json AS keywordsJson,
+    summary,
+    links_json AS linksJson,
+    vector_json AS vectorJson,
+    sparse_json AS sparseJson,
+    raw_json AS rawJson,
+    updated_at AS updatedAt
+  FROM documents
+  ORDER BY canonical_id ASC
+`);
 
 export function persistGraphEdges(edges = []) {
   const timestamp = new Date().toISOString();
   for (const edge of edges) {
     insertGraphEdge.run(edge.sourceId, edge.targetId, edge.edgeType, edge.weight || 0, timestamp);
   }
+}
+
+export function replaceGraphEdgesForSource(sourceId, edges = []) {
+  deleteGraphEdgesBySourceStmt.run(sourceId);
+  persistGraphEdges(edges);
+}
+
+export function listGraphEdges({ sourceId = null, targetId = null, edgeType = null, limit = 50 } = {}) {
+  return listGraphEdgesStmt.all(
+    sourceId,
+    sourceId,
+    targetId,
+    targetId,
+    edgeType,
+    edgeType,
+    limit
+  );
+}
+
+export function getAllGraphEdges(limit = 5000) {
+  return listGraphEdges({ limit });
 }
 
 export function persistRequestLog({ method = '', path = '', status = 0, durationMs = 0 } = {}) {
@@ -287,8 +509,122 @@ export function getRecommendationsFromStorage(canonicalId, limit = 5) {
   return rows;
 }
 
+function normalizeBackgroundJob(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    jobType: row.jobType,
+    status: row.status,
+    payload: JSON.parse(row.payloadJson || '{}'),
+    priority: row.priority || 0,
+    attempts: row.attempts || 0,
+    lastError: row.lastError || '',
+    runAfter: row.runAfter,
+    leasedUntil: row.leasedUntil,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    completedAt: row.completedAt
+  };
+}
+
 export function getRecentRequestLogs(limit = 20) {
   return db.prepare('SELECT method, path, status, duration_ms AS durationMs, created_at AS createdAt FROM request_logs ORDER BY id DESC LIMIT ?').all(limit);
+}
+
+export function getRecentSimilarityRuns(limit = 10) {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        title,
+        extraction_method AS extractionMethod,
+        extracted_characters AS extractedCharacters,
+        score,
+        risk_level AS riskLevel,
+        top_match_id AS topMatchId,
+        created_at AS createdAt
+      FROM similarity_runs
+      ORDER BY id DESC
+      LIMIT ?
+    `)
+    .all(limit);
+}
+
+export function listBackgroundJobs(limit = 50) {
+  return listBackgroundJobsStmt.all(limit).map(normalizeBackgroundJob);
+}
+
+export function enqueueBackgroundJob({
+  jobType,
+  payload = {},
+  priority = 0,
+  runAfter = new Date().toISOString()
+}) {
+  const now = new Date().toISOString();
+  insertBackgroundJobStmt.run(
+    jobType,
+    'queued',
+    JSON.stringify(payload),
+    priority,
+    0,
+    '',
+    runAfter,
+    null,
+    now,
+    now,
+    null
+  );
+  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(db.prepare('SELECT last_insert_rowid() AS id').get().id));
+}
+
+export function leaseNextBackgroundJob({
+  now = new Date().toISOString(),
+  leaseMs = 15000
+} = {}) {
+  const candidate = leaseCandidateJobStmt.get(now);
+  if (!candidate?.id) return null;
+  const leasedUntil = new Date(Date.now() + leaseMs).toISOString();
+  leaseJobStmt.run(leasedUntil, now, candidate.id);
+  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(candidate.id));
+}
+
+export function completeBackgroundJob(id) {
+  const now = new Date().toISOString();
+  completeJobStmt.run(now, now, id);
+  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+}
+
+export function failBackgroundJob(id, error = '') {
+  const now = new Date().toISOString();
+  failJobStmt.run(String(error || ''), now, id);
+  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+}
+
+export function requeueBackgroundJob(id, delayMs = 0) {
+  const now = new Date().toISOString();
+  const runAfter = new Date(Date.now() + delayMs).toISOString();
+  releaseJobStmt.run(now, runAfter, id);
+  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+}
+
+export function getStoredDocuments() {
+  return getAllDocumentsStmt.all().map((row) => ({
+    canonicalId: row.canonicalId,
+    id: row.canonicalId,
+    source: row.source,
+    type: row.type,
+    title: row.title,
+    year: row.year,
+    organization: row.organization,
+    authors: JSON.parse(row.authorsJson || '[]'),
+    keywords: JSON.parse(row.keywordsJson || '[]'),
+    summary: row.summary || '',
+    links: JSON.parse(row.linksJson || '{}'),
+    vector: JSON.parse(row.vectorJson || '[]'),
+    sparseVector: JSON.parse(row.sparseJson || '{}'),
+    rawRecord: JSON.parse(row.rawJson || 'null'),
+    updatedAt: row.updatedAt
+  }));
 }
 
 export function createUser({ email, displayName, passwordDigest }) {
@@ -337,4 +673,47 @@ export function listSavedSearches(userId) {
 
 export function removeSavedSearch(userId, id) {
   removeSavedSearchStmt.run(userId, id);
+}
+
+function normalizeProfileRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.displayName,
+    createdAt: row.createdAt,
+    researchInterests: JSON.parse(row.researchInterestsJson || '[]'),
+    preferredSources: JSON.parse(row.preferredSourcesJson || '[]'),
+    defaultRegion: row.defaultRegion || 'all',
+    alertOptIn: Boolean(row.alertOptIn),
+    updatedAt: row.updatedAt || null
+  };
+}
+
+export function getUserProfile(userId) {
+  return normalizeProfileRow(getUserProfileStmt.get(userId));
+}
+
+export function updateUserProfile({
+  userId,
+  displayName,
+  researchInterests = [],
+  preferredSources = [],
+  defaultRegion = 'all',
+  alertOptIn = false
+}) {
+  if (displayName) {
+    updateDisplayNameStmt.run(String(displayName).trim(), userId);
+  }
+
+  upsertUserPreferencesStmt.run(
+    userId,
+    JSON.stringify(Array.isArray(researchInterests) ? researchInterests : []),
+    JSON.stringify(Array.isArray(preferredSources) ? preferredSources : []),
+    defaultRegion || 'all',
+    alertOptIn ? 1 : 0,
+    new Date().toISOString()
+  );
+
+  return getUserProfile(userId);
 }

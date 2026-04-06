@@ -360,6 +360,30 @@ function similarityView() {
             </ul>
           </div>
           <div class="detail-card">
+            <p class="eyebrow">섹션 구조 비교</p>
+            <ul class="bullet-list">
+              ${state.similarity?.report?.sectionComparisons?.length
+                ? state.similarity.report.sectionComparisons
+                    .map(
+                      (item) =>
+                        `<li>${escapeHtml(item.inputSection)} → ${escapeHtml(item.matchedSection)} · ${escapeHtml(item.divergence)} (${escapeHtml(item.overlapScore)}%)</li>`,
+                    )
+                    .join('')
+                : '<li>섹션 기반 비교가 여기에 표시됩니다.</li>'}
+            </ul>
+          </div>
+          <div class="detail-card">
+            <p class="eyebrow">차별성 분석 요약</p>
+            <p class="body-copy">${state.similarity?.report?.differentiationAnalysis?.summary ? escapeHtml(state.similarity.report.differentiationAnalysis.summary) : '고유 키워드/방법 차이 분석이 여기에 표시됩니다.'}</p>
+            <div class="keyword-row">
+              ${state.similarity?.report?.differentiationAnalysis?.uniqueTerms?.length
+                ? state.similarity.report.differentiationAnalysis.uniqueTerms
+                    .map((item) => `<span class="keyword-chip">${escapeHtml(item)}</span>`)
+                    .join('')
+                : '<span class="body-copy">고유 키워드 대기 중</span>'}
+            </div>
+          </div>
+          <div class="detail-card">
             <p class="eyebrow">권장 액션</p>
             <ul class="bullet-list">
               ${state.similarity?.report?.recommendations?.length ? state.similarity.report.recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join('') : '<li>초록 첫 문단과 기여 요약을 붙여 넣어 보세요.</li>'}

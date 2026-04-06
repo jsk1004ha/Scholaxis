@@ -10,7 +10,20 @@ function readInt(name, defaultValue) {
 }
 
 export const appConfig = {
+  host: process.env.HOST || '127.0.0.1',
+  portFallbackAttempts: readInt('SCHOLAXIS_PORT_FALLBACK_ATTEMPTS', 10),
+  storageBackend: process.env.SCHOLAXIS_STORAGE_BACKEND || 'sqlite',
+  vectorBackend: process.env.SCHOLAXIS_VECTOR_BACKEND || 'local',
+  graphBackend: process.env.SCHOLAXIS_GRAPH_BACKEND || 'local',
+  vectorServiceUrl: process.env.SCHOLAXIS_VECTOR_SERVICE_URL || '',
+  graphServiceUrl: process.env.SCHOLAXIS_GRAPH_SERVICE_URL || '',
+  schedulerIntervalMs: readInt('SCHOLAXIS_SCHEDULER_INTERVAL_MS', 60000),
+  workerPollMs: readInt('SCHOLAXIS_WORKER_POLL_MS', 1500),
+  workerLeaseMs: readInt('SCHOLAXIS_WORKER_LEASE_MS', 15000),
+  citationExpansionLimit: readInt('SCHOLAXIS_CITATION_EXPANSION_LIMIT', 6),
+  recommendationCandidateLimit: readInt('SCHOLAXIS_RECOMMENDATION_CANDIDATE_LIMIT', 24),
   enableLiveSources: readBool('SCHOLAXIS_ENABLE_LIVE_SOURCES', false),
+  autoLiveOnEmpty: readBool('SCHOLAXIS_AUTO_LIVE_ON_EMPTY', true),
   sourceTimeoutMs: readInt('SCHOLAXIS_SOURCE_TIMEOUT_MS', 4500),
   sourceCacheTtlMs: readInt('SCHOLAXIS_SOURCE_CACHE_TTL_MS', 600000),
   dbPath: process.env.SCHOLAXIS_DB_PATH || '.data/scholaxis.db',

@@ -6,8 +6,12 @@ import {
   extractListItems,
   fetchJson,
   fetchText,
+  hasBrokenEncoding,
+  isUsableSearchText,
   normalizeAuthors,
   normalizeKeywordBag,
+  looksLikeNoise,
+  matchesQueryText,
   safeYear,
   stripTags,
   summarizeDocument,
@@ -261,6 +265,15 @@ function xmlValue(block, tag) {
 async function searchKiprisPublic(query, limit) {
   const pythonScript = [
     'import urllib.parse, urllib.request, http.cookiejar',
+    'def decode_best(raw):',
+    "    for enc in ('cp949','euc-kr','utf-8','latin1'):",
+    '        try:',
+    '            text = raw.decode(enc)',
+    "            if any('\\uac00' <= ch <= '\\ud7a3' for ch in text) or enc in ('utf-8','latin1'):",
+    '                return text',
+    '        except Exception:',
+    '            continue',
+    "    return raw.decode('utf-8', 'replace')",
     'jar=http.cookiejar.CookieJar()',
     'opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))',
     `query=${JSON.stringify(query)}`,
@@ -273,35 +286,49 @@ async function searchKiprisPublic(query, limit) {
     "api='https://www.kipris.or.kr/kportal/resulta.do'",
     "payload={'next':'patentList','FROM':'SEARCH','searchInTransKorToEng':'N','searchInTransEngToKor':'N','row':str(limit),'queryText':query,'expression':query}",
     "req2=urllib.request.Request(api,data=urllib.parse.urlencode(payload).encode(),headers={'User-Agent':'Mozilla/5.0','Referer':'https://www.kipris.or.kr/kportal/search/total_search.do'})",
-    "print(opener.open(req2, timeout=20).read().decode('utf-8','ignore'))"
+    'raw = opener.open(req2, timeout=20).read()',
+    'print(decode_best(raw))'
   ].join('\n');
 
   const { execFileSync } = await import('node:child_process');
   const xml = execFileSync('python3', ['-c', pythonScript], { encoding: 'utf8' });
-  return parseXmlItems(xml, 'article').map((item) =>
-    buildDocument({
-      id: `kipris:${xmlValue(item, 'VdkVgwKey') || xmlValue(item, 'GNV') || query}`,
-      source: 'kipris',
-      sourceLabel: 'KIPRIS',
-      type: 'patent',
-      title: xmlValue(item, 'TTL') || xmlValue(item, 'TLV'),
-      englishTitle: xmlValue(item, 'TLT') || xmlValue(item, 'TTL'),
-      authors: normalizeAuthors(xmlValue(item, 'INV')),
-      organization: xmlValue(item, 'APV'),
-      year: safeYear(xmlValue(item, 'GDV') || xmlValue(item, 'ADV')),
-      abstract: xmlValue(item, 'ABV') || '',
-      summary: summarizeDocument({ abstract: xmlValue(item, 'ABV') || '' }),
-      keywords: normalizeKeywordBag(`${query} ${xmlValue(item, 'TTL')} ${xmlValue(item, 'TLT')}`).slice(0, 8),
-      openAccess: false,
-      sourceIds: { kipris: xmlValue(item, 'VdkVgwKey') || xmlValue(item, 'GNV') || null },
-      links: {
-        detail: sourceDetailUrl('kipris', query),
-        original: sourceDetailUrl('kipris', query),
-        image: xmlValue(item, 'src') || null
-      },
-      rawRecord: item
+  return parseXmlItems(xml, 'article')
+    .map((item) => {
+      const title = xmlValue(item, 'TTL') || xmlValue(item, 'TLV');
+      const englishTitle = xmlValue(item, 'TLT') || xmlValue(item, 'TTL');
+      const abstract = xmlValue(item, 'ABV') || '';
+      const bestTitle = isUsableSearchText(title, query)
+        ? title
+        : isUsableSearchText(englishTitle, query)
+          ? englishTitle
+          : '';
+      if (!bestTitle) return null;
+      const safeAbstract = hasBrokenEncoding(abstract) || looksLikeNoise(abstract) ? '' : abstract;
+      return buildDocument({
+        id: `kipris:${xmlValue(item, 'VdkVgwKey') || xmlValue(item, 'GNV') || query}`,
+        source: 'kipris',
+        sourceLabel: 'KIPRIS',
+        type: 'patent',
+        title: bestTitle,
+        englishTitle: isUsableSearchText(englishTitle, query) ? englishTitle : bestTitle,
+        authors: normalizeAuthors(xmlValue(item, 'INV')),
+        organization: xmlValue(item, 'APV'),
+        year: safeYear(xmlValue(item, 'GDV') || xmlValue(item, 'ADV')),
+        abstract: safeAbstract,
+        summary: summarizeDocument({ abstract: safeAbstract, summary: bestTitle }),
+        keywords: normalizeKeywordBag(`${query} ${bestTitle} ${englishTitle}`).slice(0, 8),
+        openAccess: false,
+        sourceIds: { kipris: xmlValue(item, 'VdkVgwKey') || xmlValue(item, 'GNV') || null },
+        links: {
+          detail: sourceDetailUrl('kipris', query),
+          original: sourceDetailUrl('kipris', query),
+          image: xmlValue(item, 'src') || null
+        },
+        rawRecord: item
+      });
     })
-  );
+    .filter(Boolean)
+    .slice(0, limit);
 }
 
 async function searchKipris(query, limit) {
@@ -420,11 +447,16 @@ async function searchDbpia(query, limit) {
 async function searchNtis(query, limit) {
   const url = `https://www.ntis.go.kr/ThSearchProjectList.do?searchWord=${encodeURIComponent(query)}&dbt=project&sort=RANK%2FDESC`;
   const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
-  const snippet = textBetween(html, '### 검색 결과 :', '## NTIS 검색결과 다운로드') || html;
-  const rows = [...snippet.matchAll(/\*\s+([^\n]{4,160})/g)]
+  const anchorRows = [...html.matchAll(/<a[^>]+(?:href|onclick)[^>]*>([\s\S]*?)<\/a>/g)]
     .map((match) => stripTags(match[1]))
-    .filter((item) => item && !item.includes('검색 결과'))
-    .slice(0, limit);
+    .filter((item) => item.length >= 4 && item.length <= 160)
+    .filter((item) => !item.includes('검색 결과'))
+    .filter((item) => isUsableSearchText(item, query));
+  const listRows = [...html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)]
+    .map((match) => stripTags(match[1]))
+    .filter((item) => item.length >= 4 && item.length <= 160)
+    .filter((item) => isUsableSearchText(item, query));
+  const rows = unique([...anchorRows, ...listRows]).slice(0, limit);
 
   return rows.map((title) =>
     buildDocument({
@@ -731,7 +763,9 @@ const liveSourceRegistry = {
 };
 
 export async function searchLiveSources(query, requestedSources = [], limitPerSource = appConfig.maxLiveResultsPerSource, options = {}) {
-  if (!appConfig.enableLiveSources) {
+  const { forceRefresh = false, overrideEnable = false } = options;
+
+  if (!appConfig.enableLiveSources && !overrideEnable) {
     return {
       documents: [],
       statuses: Object.entries(liveSourceRegistry).map(([source, meta]) =>
@@ -745,8 +779,6 @@ export async function searchLiveSources(query, requestedSources = [], limitPerSo
       )
     };
   }
-
-  const { forceRefresh = false } = options;
 
   const selected = (requestedSources.length ? requestedSources : Object.keys(liveSourceRegistry)).filter(
     (source) => liveSourceRegistry[source]

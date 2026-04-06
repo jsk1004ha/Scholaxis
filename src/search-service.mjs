@@ -1,10 +1,14 @@
 import { seedCatalog, trendingTopics } from './catalog.mjs';
 import { appConfig } from './config.mjs';
 import { dedupeDocuments } from './dedup-service.mjs';
-import { getRecommendationsFromStorage, persistDocuments, persistGraphEdges, persistSearchRun } from './storage.mjs';
+import { getStoredDocuments, persistDocuments, persistGraphEdges, persistSearchRun } from './storage.mjs';
+import { getDocumentGraph, syncDocumentGraph } from './graph-service.mjs';
+import { loadDocumentsFromPostgres, syncDocumentsToPostgres } from './postgres-store.mjs';
+import { buildRecommendationSet } from './recommendation-service.mjs';
 import { searchLiveSources, sourceRegistrySummary } from './source-adapters.mjs';
-import { mergeSourceStatuses } from './source-helpers.mjs';
-import { attachVectors, buildDenseVector, buildSparseVector, cosineSimilarity, sparseOverlapScore, tokenize, unique } from './vector-service.mjs';
+import { expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
+import { attachVectors, buildDenseVector, buildSparseVector, cosineSimilarity, normalizeText, sparseOverlapScore, tokenize, unique } from './vector-service.mjs';
+import { searchVectorCandidates, syncDocumentVectors } from './vector-index-service.mjs';
 
 const regionLabel = { all: '전체', domestic: '국내', global: '해외' };
 const sourceTypeLabel = { all: '전체', paper: '논문', thesis: '학위논문', patent: '특허', report: '보고서', fair_entry: '전람회/발명품' };
@@ -12,6 +16,50 @@ const sourceTypeLabel = { all: '전체', paper: '논문', thesis: '학위논문'
 function classifySourceType(type) {
   if (['paper', 'thesis', 'patent', 'report', 'fair_entry'].includes(type)) return type;
   return 'paper';
+}
+
+function buildQueryTokens(query = '') {
+  const base = unique(tokenize(query));
+  const normalized = normalizeText(query).replace(/\s+/g, '');
+  const variants = expandQueryVariants(query).flatMap((value) => tokenize(value));
+
+  const koreanChunks = [];
+  if (/^[가-힣]{4,}$/.test(normalized)) {
+    for (let index = 0; index <= normalized.length - 2; index += 1) {
+      koreanChunks.push(normalized.slice(index, index + 2));
+    }
+    for (let index = 0; index <= normalized.length - 3; index += 1) {
+      koreanChunks.push(normalized.slice(index, index + 3));
+    }
+  }
+
+  return unique([...base, ...variants, ...koreanChunks]).filter((token) => token.length >= 2);
+}
+
+function hasQueryEvidence(scoreBundle, queryTokens = [], document = {}, query = '') {
+  if (!queryTokens.length) return true;
+  const normalizedTitle = String(document.title || '').toLowerCase();
+  const normalizedEnglishTitle = String(document.englishTitle || '').toLowerCase();
+  const normalizedBody = normalizeText(
+    [
+      document.title,
+      document.englishTitle,
+      document.abstract,
+      document.summary,
+      ...(document.keywords || []),
+      ...(document.methods || []),
+      ...(document.highlights || [])
+    ]
+      .filter(Boolean)
+      .join(' ')
+  );
+  const normalizedQuery = String(query || '').toLowerCase().trim();
+  if (normalizedQuery && (normalizedTitle.includes(normalizedQuery) || normalizedEnglishTitle.includes(normalizedQuery))) return true;
+  if (queryTokens.some((token) => normalizedBody.includes(token))) return true;
+  return (
+    scoreBundle.lexicalScore >= 8 ||
+    scoreBundle.sparseScore >= 0.14
+  );
 }
 
 function scoreDocument(document, queryTokens, queryVector, querySparse) {
@@ -79,6 +127,14 @@ function buildGraphEdgesFromResults(results = []) {
     edgeType: 'similar',
     weight: Number(item.score || 0)
   }));
+}
+
+async function buildSearchIndexDocuments(liveDocuments = []) {
+  const postgres = appConfig.storageBackend === 'postgres' ? await loadDocumentsFromPostgres() : [];
+  const stored = getStoredDocuments();
+  return dedupeDocuments([...seedCatalog, ...stored, ...postgres, ...liveDocuments]).map((document) =>
+    attachVectors(document, appConfig.vectorDimensions)
+  );
 }
 
 function normalizeSearchResult(document, rank, scoreBundle) {
@@ -150,36 +206,72 @@ export async function searchCatalog({
   sort = 'relevance',
   preferredSources = [],
   live = appConfig.enableLiveSources,
-  forceRefresh = false
+  forceRefresh = false,
+  autoLive = appConfig.autoLiveOnEmpty
 } = {}) {
-  const queryTokens = unique(tokenize(q));
+  const queryTokens = buildQueryTokens(q);
   const queryVector = buildDenseVector(q, appConfig.vectorDimensions);
   const querySparse = buildSparseVector(q);
+  const shouldAutoLive = Boolean(q.trim()) && autoLive && !live;
 
-  const liveBundle = live ? await searchLiveSources(q, preferredSources, appConfig.maxLiveResultsPerSource, { forceRefresh }) : { documents: [], statuses: [] };
-  const mergedSourceData = dedupeDocuments([...seedCatalog, ...liveBundle.documents]).map((document) =>
-    attachVectors(document, appConfig.vectorDimensions)
-  );
+  function rankDocuments(documents = []) {
+    return documents
+      .filter((item) => (region === 'all' ? true : item.region === region))
+      .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
+      .map((item) => ({ item, scoreBundle: scoreDocument(item, queryTokens, queryVector, querySparse) }));
+  }
 
-  const filtered = mergedSourceData
-    .filter((item) => (region === 'all' ? true : item.region === region))
-    .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-    .map((item) => ({ item, scoreBundle: scoreDocument(item, queryTokens, queryVector, querySparse) }));
+  async function attachVectorBoost(entries = []) {
+    const documents = entries.map((entry) => entry.item);
+    const vectorHits = await searchVectorCandidates({
+      query: q,
+      documents,
+      limit: appConfig.recommendationCandidateLimit,
+    });
+    const vectorHitScores = new Map(vectorHits.map((entry) => [entry.id, entry.score]));
+    return entries
+      .map(({ item, scoreBundle }) => ({
+        item,
+        scoreBundle: {
+          ...scoreBundle,
+          total: scoreBundle.total + (vectorHitScores.get(item.canonicalId || item.id) || 0) * 10,
+        },
+      }))
+      .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, item, q));
+  }
 
-  const ranked = [...filtered].sort((a, b) => {
+  let liveBundle = { documents: [], statuses: [] };
+  let mergedSourceData = await buildSearchIndexDocuments();
+  let rankedEntries = await attachVectorBoost(rankDocuments(mergedSourceData));
+
+  if ((live || shouldAutoLive) && (!rankedEntries.length || live)) {
+    liveBundle = await searchLiveSources(q, preferredSources, appConfig.maxLiveResultsPerSource, {
+      forceRefresh,
+      overrideEnable: shouldAutoLive || live
+    });
+    mergedSourceData = await buildSearchIndexDocuments(liveBundle.documents);
+    rankedEntries = await attachVectorBoost(rankDocuments(mergedSourceData));
+  }
+
+  const ranked = [...rankedEntries].sort((a, b) => {
     if (sort === 'latest') return (b.item.year || 0) - (a.item.year || 0) || b.scoreBundle.total - a.scoreBundle.total;
     if (sort === 'citation') return (b.item.citations || 0) - (a.item.citations || 0) || b.scoreBundle.total - a.scoreBundle.total;
     return b.scoreBundle.total - a.scoreBundle.total || (b.item.year || 0) - (a.item.year || 0);
   });
 
   const summary = q
-    ? `“${q}”에 대해 ${ranked.length}건의 ${sourceTypeLabel[sourceType] || '자료'}를 찾았습니다. ${summarizeFilters({ region, sourceType, sort })} 기준 결과입니다.`
+    ? ranked.length
+      ? `“${q}”에 대해 ${ranked.length}건의 ${sourceTypeLabel[sourceType] || '자료'}를 찾았습니다. ${summarizeFilters({ region, sourceType, sort })} 기준 결과입니다.`
+      : `“${q}”와 충분히 관련된 ${sourceTypeLabel[sourceType] || '자료'}를 찾지 못했습니다. 더 구체적인 키워드나 유사 표현으로 다시 시도해 보세요.`
     : `탐색 가능한 ${ranked.length}건의 자료를 불러왔습니다. ${summarizeFilters({ region, sourceType, sort })} 기준입니다.`;
 
   const results = ranked.map(({ item, scoreBundle }, index) => normalizeSearchResult(item, index + 1, scoreBundle));
   const sourceStatus = mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses);
   persistDocuments(mergedSourceData);
   persistGraphEdges(buildGraphEdgesFromResults(results));
+  await syncDocumentGraph(mergedSourceData);
+  await syncDocumentVectors(mergedSourceData);
+  await syncDocumentsToPostgres(mergedSourceData);
   persistSearchRun({ query: q, filters: { region, sourceType, sort, preferredSources }, total: ranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
 
   return {
@@ -197,7 +289,7 @@ export async function searchCatalog({
 }
 
 export async function getPaperById(id) {
-  const sourceData = dedupeDocuments(seedCatalog).map((document) => attachVectors(document, appConfig.vectorDimensions));
+  const sourceData = await buildSearchIndexDocuments();
   const paper = sourceData.find((item) => item.id === id || item.canonicalId === id);
   if (!paper) return null;
 
@@ -208,6 +300,7 @@ export async function getPaperById(id) {
   return {
     ...paper,
     related,
+    graph: getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit),
     metrics: {
       citations: paper.citations,
       references: 18 + (paper.keywords?.length || 0) * 3,
@@ -235,17 +328,41 @@ export async function expandPaperById(id) {
         source: item.source,
         year: item.year
       })),
+      graph: getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit),
       sourceStatus: listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source)),
       alternateSources: paper.alternateSources || [paper.source]
     }
   };
 }
 
-export async function getRecommendationsById(id, limit = 5) {
+export async function getRecommendationsById(id, limit = 5, userProfile = null) {
   const paper = await getPaperById(id);
   if (!paper) return [];
-  const edges = getRecommendationsFromStorage(paper.canonicalId || paper.id, limit);
-  if (!edges.length) return (paper.related || []).slice(0, limit);
-  const sourceData = dedupeDocuments(seedCatalog).map((document) => attachVectors(document, appConfig.vectorDimensions));
-  return edges.map((edge) => sourceData.find((item) => (item.canonicalId || item.id) === edge.targetId)).filter(Boolean);
+  const sourceData = await buildSearchIndexDocuments();
+  return buildRecommendationSet({
+    paper,
+    documents: sourceData,
+    userProfile,
+    limit,
+  });
+}
+
+export async function getCitationsById(id, limit = appConfig.citationExpansionLimit) {
+  const sourceData = await buildSearchIndexDocuments();
+  const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);
+  if (!paper) return [];
+  const graph = getDocumentGraph(id, limit);
+  return graph.citations
+    .map((edge) => sourceData.find((item) => (item.canonicalId || item.id) === edge.sourceId))
+    .filter(Boolean);
+}
+
+export async function getReferencesById(id, limit = appConfig.citationExpansionLimit) {
+  const sourceData = await buildSearchIndexDocuments();
+  const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);
+  if (!paper) return [];
+  const graph = getDocumentGraph(id, limit);
+  return graph.references
+    .map((edge) => sourceData.find((item) => (item.canonicalId || item.id) === edge.targetId))
+    .filter(Boolean);
 }

@@ -36,7 +36,7 @@
             <h3>보고서 / 논문 초안 업로드</h3>
             <p>동일 오리진의 <code>/api/similarity/analyze</code> 엔드포인트에 업로드하고, 실패 시 데모 결과를 표시합니다.</p>
             <div class="stack" style="margin-top: 1rem">
-              <input class="input" type="file" name="report" accept=".pdf,.doc,.docx" />
+              <input class="input" type="file" name="report" accept=".pdf,.doc,.docx,.hwp,.hwpx" />
               <div class="card">
                 <strong class="label">현재 파일</strong>
                 <div data-upload-name>업로드된 파일 없음</div>
@@ -67,6 +67,24 @@
             <h3>차별점</h3>
             <p data-novelty>
               Edge inference feedback loop와 국내 특허/KCI 우선 랭킹을 결합한 파이프라인 설계는 차별점으로 평가됩니다.
+            </p>
+            <div class="keyword-row" data-differentiators></div>
+          </article>
+          <article class="analysis-card">
+            <span class="section-eyebrow">Structure</span>
+            <h3>섹션 구조 비교</h3>
+            <p data-structure>
+              서론/방법/결과 흐름에서 어떤 구간이 비슷한지, 어떤 구간이 다른지 비교합니다.
+            </p>
+            <ul data-section-comparisons>
+              <li>섹션 비교 결과가 여기에 표시됩니다.</li>
+            </ul>
+          </article>
+          <article class="analysis-card">
+            <span class="section-eyebrow">Differentiation</span>
+            <h3>차별성 분석 요약</h3>
+            <p data-differentiation>
+              고유 키워드와 구조 차이를 기반으로 차별화 전략을 요약합니다.
             </p>
           </article>
           <article class="analysis-card">

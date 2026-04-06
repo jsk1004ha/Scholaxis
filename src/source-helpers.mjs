@@ -148,6 +148,39 @@ export function normalizeKeywordBag(query = '') {
   return unique(normalizeText(query).split(' ').filter((token) => token.length >= 2));
 }
 
+export function hasBrokenEncoding(text = '') {
+  const value = String(text || '');
+  if (!value.trim()) return false;
+  return /�/.test(value);
+}
+
+export function looksLikeNoise(text = '') {
+  const value = String(text || '').trim();
+  if (!value) return true;
+  if (/engjungsung|engjongsung|input text|현재 페이지|function\s*\(|document\.|window\.|var\s+|const\s+|return\s+/i.test(value)) {
+    return true;
+  }
+  if (/[{}[\];<>]|==|=>|\+\s*\d/.test(value)) return true;
+  const asciiWords = (value.match(/[A-Za-z]{10,}/g) || []).length;
+  const symbolCount = (value.match(/[=+_*\\/]/g) || []).length;
+  return asciiWords >= 3 || symbolCount >= 6;
+}
+
+export function matchesQueryText(text = '', query = '') {
+  const normalizedText = normalizeText(text);
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) return true;
+  if (normalizedText.includes(normalizedQuery)) return true;
+  if (normalizedText.replace(/\s+/g, '').includes(normalizedQuery.replace(/\s+/g, ''))) return true;
+  const queryTokens = normalizedQuery.split(' ').filter(Boolean);
+  const overlap = queryTokens.filter((token) => normalizedText.includes(token));
+  return overlap.length >= Math.max(1, Math.ceil(queryTokens.length / 2));
+}
+
+export function isUsableSearchText(text = '', query = '') {
+  return !hasBrokenEncoding(text) && !looksLikeNoise(text) && matchesQueryText(text, query);
+}
+
 export function expandQueryVariants(query = '') {
   const base = String(query || '').trim();
   if (!base) return [];

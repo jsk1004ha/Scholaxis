@@ -1,10 +1,12 @@
 import {
   analyzeSimilarity,
   clearCache,
+  fetchAdminOps,
   fetchAdminSummary,
   fetchLibrary,
   fetchMe,
   fetchPaper,
+  fetchProfile,
   fetchSavedSearches,
   fetchSearch,
   login,
@@ -12,6 +14,7 @@ import {
   register,
   removeLibraryItem,
   removeSavedSearch,
+  saveProfile,
   saveSearchRequest,
 } from './api.js';
 import { mockPapers, mockSources } from './mock-data.js';
@@ -27,6 +30,15 @@ function qsa(selector, parent = document) {
 function setText(selector, value) {
   const node = qs(selector);
   if (node) node.textContent = value;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function formatAuthors(authors = []) {
@@ -101,8 +113,9 @@ async function initResultsPage() {
   const params = new URLSearchParams(window.location.search);
   const searchPayload = await fetchSearch({
     q: params.get('q') || 'AI 반도체 설계 자동화',
-    region: params.get('region') || '국내,해외',
-    sourceType: params.get('sourceType') || '논문,특허,보고서',
+    region: params.get('region') || 'all',
+    sourceType: params.get('sourceType') || 'all',
+    sort: params.get('sort') || 'relevance',
   });
 
   setText('[data-query-label]', searchPayload.query);
@@ -118,12 +131,15 @@ async function initResultsPage() {
 
   const sourceRoot = qs('[data-source-list]');
   if (sourceRoot) {
-    sourceRoot.innerHTML = (searchPayload.filters?.sources ?? mockSources)
+    sourceRoot.innerHTML = (searchPayload.sourceStatus?.map((item) => item.source) ?? searchPayload.filters?.sources ?? mockSources)
       .map((source) => `<li>${source}</li>`)
       .join('');
   }
 
   resultsRoot.innerHTML = '';
+  if (searchPayload.error) {
+    resultsRoot.innerHTML = `<article class="card"><h3>검색 오류</h3><p>${escapeHtml(searchPayload.summary)}</p></article>`;
+  }
   (searchPayload.items ?? mockPapers).forEach((paper) => {
     resultsRoot.appendChild(createPaperCard(paper));
   });
@@ -134,9 +150,9 @@ async function initResultsPage() {
   const input = qs('input[name="q"]', form);
   if (input) input.value = searchPayload.query;
   const regionSelect = qs('select[name="region"]', form);
-  if (regionSelect) regionSelect.value = params.get('region') || '국내,해외';
+  if (regionSelect) regionSelect.value = params.get('region') || 'all';
   const typeSelect = qs('select[name="sourceType"]', form);
-  if (typeSelect) typeSelect.value = params.get('sourceType') || '논문,특허,보고서';
+  if (typeSelect) typeSelect.value = params.get('sourceType') || 'all';
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -214,6 +230,10 @@ async function initSimilarityPage() {
   const score = qs('[data-score]');
   const context = qs('[data-shared-context]');
   const novelty = qs('[data-novelty]');
+  const structure = qs('[data-structure]');
+  const differentiation = qs('[data-differentiation]');
+  const differentiators = qs('[data-differentiators]');
+  const sectionComparisons = qs('[data-section-comparisons]');
   const risk = qs('[data-risk]');
   const compared = qs('[data-compared-paper]');
   const recommendations = qs('[data-recommendations]');
@@ -226,6 +246,23 @@ async function initSimilarityPage() {
     if (score) score.textContent = `${result.similarityScore}%`;
     if (context) context.textContent = result.sharedContext;
     if (novelty) novelty.textContent = result.novelty;
+    if (structure) structure.textContent = result.structure || '섹션 비교 결과가 없습니다.';
+    if (differentiation) differentiation.textContent = result.differentiation || '차별성 분석 결과가 없습니다.';
+    if (differentiators) {
+      differentiators.innerHTML = (result.differentiators ?? []).length
+        ? result.differentiators.map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join('')
+        : '<span class="muted-copy">고유 키워드 없음</span>';
+    }
+    if (sectionComparisons) {
+      sectionComparisons.innerHTML = (result.sectionComparisons ?? []).length
+        ? result.sectionComparisons
+            .map(
+              (item) =>
+                `<li>${escapeHtml(item.inputSection)} → ${escapeHtml(item.matchedSection)} · ${escapeHtml(item.divergence)} (${escapeHtml(item.overlapScore)}%)</li>`,
+            )
+            .join('')
+        : '<li>섹션 비교 결과가 없습니다.</li>';
+    }
     if (risk) risk.textContent = result.risk;
     if (compared) {
       const href = `./detail.html?id=${encodeURIComponent(result.comparedPaperId)}`;
@@ -258,11 +295,74 @@ if (page === 'similarity') initSimilarityPage();
 
 async function initAdminPage() {
   const summary = qs('[data-admin-summary]');
-  if (!summary) return;
+  const alertsRoot = qs('[data-admin-alerts]');
+  const metricsRoot = qs('[data-admin-metrics]');
+  const requestsRoot = qs('[data-admin-requests]');
+  const similarityRoot = qs('[data-admin-similarity]');
+  const startupRoot = qs('[data-admin-startup]');
+  if (!summary || !alertsRoot || !metricsRoot || !requestsRoot || !similarityRoot || !startupRoot) return;
 
   const renderSummary = async () => {
-    const payload = await fetchAdminSummary();
-    summary.textContent = JSON.stringify(payload, null, 2);
+    const [summaryPayload, opsPayload] = await Promise.all([fetchAdminSummary(), fetchAdminOps()]);
+    summary.textContent = JSON.stringify(summaryPayload, null, 2);
+
+    startupRoot.innerHTML = `
+      <div class="stat-card"><span>Host</span><strong>${escapeHtml(opsPayload.startup.host)}</strong></div>
+      <div class="stat-card"><span>Port</span><strong>${escapeHtml(opsPayload.startup.port)}</strong></div>
+      <div class="stat-card"><span>Live Sources</span><strong>${opsPayload.startup.liveSourcesEnabled ? 'ON' : 'OFF'}</strong></div>
+      <div class="stat-card"><span>Source Timeout</span><strong>${escapeHtml(opsPayload.startup.sourceTimeoutMs)}ms</strong></div>
+    `;
+
+    metricsRoot.innerHTML = Object.entries(opsPayload.storage)
+      .filter(([key]) => key !== 'ready' && key !== 'dbPath')
+      .map(
+        ([key, value]) => `
+          <div class="stat-card">
+            <span>${escapeHtml(key)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </div>
+        `,
+      )
+      .join('');
+
+    alertsRoot.innerHTML = opsPayload.alerts
+      .map(
+        (alert) => `
+          <article class="alert-card alert-card--${escapeHtml(alert.level)}">
+            <strong>${escapeHtml(alert.title)}</strong>
+            <p>${escapeHtml(alert.detail)}</p>
+          </article>
+        `,
+      )
+      .join('');
+
+    requestsRoot.innerHTML =
+      opsPayload.recentRequests
+        .map(
+          (entry) => `
+            <tr>
+              <td>${escapeHtml(entry.method)}</td>
+              <td>${escapeHtml(entry.path)}</td>
+              <td>${escapeHtml(entry.status)}</td>
+              <td>${Math.round(Number(entry.durationMs || 0))}ms</td>
+              <td>${escapeHtml(entry.createdAt)}</td>
+            </tr>
+          `,
+        )
+        .join('') || '<tr><td colspan="5">최근 요청 없음</td></tr>';
+
+    similarityRoot.innerHTML =
+      opsPayload.recentSimilarityRuns
+        .map(
+          (entry) => `
+            <div class="timeline-item">
+              <strong>${escapeHtml(entry.title)}</strong>
+              <p>${escapeHtml(entry.riskLevel || 'unknown')} · score ${escapeHtml(entry.score)} · ${escapeHtml(entry.extractionMethod || 'n/a')}</p>
+              <span>${escapeHtml(entry.createdAt)}</span>
+            </div>
+          `,
+        )
+        .join('') || '<p class="muted-copy">유사도 실행 이력이 없습니다.</p>';
   };
 
   await renderSummary();
@@ -281,6 +381,7 @@ async function initLibraryPage() {
   const libraryRoot = qs('[data-library-items]');
   const searchesRoot = qs('[data-saved-searches]');
   const saveSearchForm = qs('[data-save-search-form]');
+  const profileForm = qs('[data-profile-form]');
 
   const refresh = async () => {
     const me = await fetchMe().catch(() => ({ user: null }));
@@ -289,7 +390,49 @@ async function initLibraryPage() {
     if (!me.user) {
       if (libraryRoot) libraryRoot.innerHTML = '<p>로그인 후 확인 가능</p>';
       if (searchesRoot) searchesRoot.innerHTML = '<p>로그인 후 확인 가능</p>';
+      if (profileForm) profileForm.innerHTML = '<p class="muted-copy">로그인 후 선호도/프로필을 편집할 수 있습니다.</p>';
       return;
+    }
+
+    const profilePayload = await fetchProfile().catch(() => ({ profile: null }));
+    const profile = profilePayload.profile || {
+      displayName: me.user.displayName || '',
+      researchInterests: [],
+      preferredSources: [],
+      defaultRegion: 'all',
+      alertOptIn: false,
+    };
+
+    if (profileForm) {
+      profileForm.innerHTML = `
+        <label>
+          표시 이름
+          <input class="input" name="displayName" value="${escapeHtml(profile.displayName || '')}" placeholder="연구자 이름" />
+        </label>
+        <label>
+          관심 분야
+          <input class="input" name="researchInterests" value="${escapeHtml((profile.researchInterests || []).join(', '))}" placeholder="예: 배터리 AI, 추천 시스템, OCR" />
+        </label>
+        <label>
+          선호 소스
+          <input class="input" name="preferredSources" value="${escapeHtml((profile.preferredSources || []).join(', '))}" placeholder="예: kci, dbpia, semantic_scholar" />
+        </label>
+        <label>
+          기본 지역
+          <select class="input" name="defaultRegion">
+            <option value="all" ${profile.defaultRegion === 'all' ? 'selected' : ''}>전체</option>
+            <option value="domestic" ${profile.defaultRegion === 'domestic' ? 'selected' : ''}>국내</option>
+            <option value="global" ${profile.defaultRegion === 'global' ? 'selected' : ''}>해외</option>
+          </select>
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" name="alertOptIn" ${profile.alertOptIn ? 'checked' : ''} />
+          운영 알림 수신
+        </label>
+        <div class="action-row">
+          <button class="button button--primary" type="submit">프로필 저장</button>
+        </div>
+      `;
     }
 
     const library = await fetchLibrary().catch(() => ({ items: [] }));
@@ -351,6 +494,19 @@ async function initLibraryPage() {
       label: formData.get('label'),
       queryText: formData.get('queryText'),
       filters: {},
+    });
+    await refresh();
+  });
+
+  profileForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(profileForm);
+    await saveProfile({
+      displayName: formData.get('displayName'),
+      researchInterests: String(formData.get('researchInterests') || ''),
+      preferredSources: String(formData.get('preferredSources') || ''),
+      defaultRegion: formData.get('defaultRegion'),
+      alertOptIn: formData.get('alertOptIn') === 'on',
     });
     await refresh();
   });

@@ -48,18 +48,18 @@
                 <div>
                   <label class="label" for="region">지역 우선순위</label>
                   <select class="select" id="region" name="region">
-                    <option value="국내,해외">국내 + 해외</option>
-                    <option value="국내">국내 우선</option>
-                    <option value="해외">해외 우선</option>
+                    <option value="all">국내 + 해외</option>
+                    <option value="domestic">국내 우선</option>
+                    <option value="global">해외 우선</option>
                   </select>
                 </div>
                 <div>
                   <label class="label" for="sourceType">자료 유형</label>
                   <select class="select" id="sourceType" name="sourceType">
-                    <option value="논문,특허,보고서">논문 + 특허 + 보고서</option>
-                    <option value="논문">논문</option>
-                    <option value="특허">특허</option>
-                    <option value="보고서">보고서</option>
+                    <option value="all">논문 + 특허 + 보고서</option>
+                    <option value="paper">논문</option>
+                    <option value="patent">특허</option>
+                    <option value="report">보고서</option>
                   </select>
                 </div>
                 <div>
@@ -67,7 +67,7 @@
                   <select class="select" id="sort" name="sort">
                     <option value="relevance">추천순</option>
                     <option value="latest">최신순</option>
-                    <option value="domestic">국내 우선</option>
+                    <option value="citation">인용순</option>
                   </select>
                 </div>
                 <button class="button button--primary" type="submit">탐색 시작</button>
