@@ -36,12 +36,18 @@ export const appConfig = {
   maxLiveResultsPerSource: readInt('SCHOLAXIS_MAX_LIVE_RESULTS_PER_SOURCE', 8),
   semanticScholarApiKey: process.env.SEMANTIC_SCHOLAR_API_KEY || '',
   dbpiaApiKey: process.env.DBPIA_API_KEY || '',
+  rissSearchUrl: process.env.RISS_SEARCH_URL || 'https://www.riss.kr/search/Search.do',
   kiprisPlusApiKey: process.env.KIPRIS_PLUS_API_KEY || '',
   kiprisPlusSearchUrl: process.env.KIPRIS_PLUS_SEARCH_URL || '',
+  kiprisPublicSearchUrl: process.env.KIPRIS_PUBLIC_SEARCH_URL || 'https://plus.kipris.or.kr/portal/search/clasList/List.do',
   kciSearchUrl: process.env.KCI_SEARCH_URL || '',
+  ntisSearchUrl: process.env.NTIS_SEARCH_URL || 'https://www.ntis.go.kr/ThSearchProjectList.do',
   scienceOnSearchUrl:
     process.env.SCIENCEON_SEARCH_URL ||
     'https://scienceon.kisti.re.kr/srch/selectPORSrchArticleList.do',
+  scienceFairUrl: process.env.SCIENCE_FAIR_URL || 'https://www.science.go.kr/mps/1079/bbs/423/moveBbsNttList.do',
+  studentInventionFairUrl: process.env.STUDENT_INVENTION_FAIR_URL || 'https://www.science.go.kr/mps/1075/bbs/424/moveBbsNttList.do',
+  rneReportUrl: process.env.RNE_REPORT_URL || 'http://www.rne.or.kr/gnuboard5/bbs/board.php?bo_table=rs_report',
   translationServiceUrl:
     process.env.SCHOLAXIS_TRANSLATION_SERVICE_URL ||
     ((process.env.SCHOLAXIS_TRANSLATION_PROVIDER || 'generic') === 'libretranslate'

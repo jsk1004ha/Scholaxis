@@ -30,7 +30,7 @@ function sourceDetailUrl(source, query = '') {
     case 'arxiv':
       return `https://export.arxiv.org/api/query?search_query=all:${encoded}`;
     case 'riss':
-      return `https://www.riss.kr/search/Search.do?query=${encoded}`;
+      return `${appConfig.rissSearchUrl}?query=${encoded}`;
     case 'scienceon':
       return `${appConfig.scienceOnSearchUrl}?page=1&searchKeyword=${encoded}&prefixQuery=&collectionQuery=&showQuery=${encoded}&resultCount=10&sortName=RANK&sortOrder=DESC`;
     case 'dbpia':
@@ -38,17 +38,17 @@ function sourceDetailUrl(source, query = '') {
         ? `http://api.dbpia.co.kr/v2/search/search.xml?key=${encodeURIComponent(appConfig.dbpiaApiKey)}&target=se&searchall=${encoded}&pagecount=10&pagenumber=1`
         : 'https://www.dbpia.co.kr/search/';
     case 'ntis':
-      return `https://www.ntis.go.kr/ThSearchProjectList.do?searchWord=${encoded}&dbt=project&sort=RANK%2FDESC`;
+      return `${appConfig.ntisSearchUrl}?searchWord=${encoded}&dbt=project&sort=RANK%2FDESC`;
     case 'science_fair':
-      return 'https://www.science.go.kr/mps/1079/bbs/423/moveBbsNttList.do';
+      return appConfig.scienceFairUrl;
     case 'student_invention_fair':
-      return 'https://www.science.go.kr/mps/1075/bbs/424/moveBbsNttList.do';
+      return appConfig.studentInventionFairUrl;
     case 'kipris':
-      return appConfig.kiprisPlusSearchUrl || 'https://plus.kipris.or.kr/portal/search/clasList/List.do';
+      return appConfig.kiprisPlusSearchUrl || appConfig.kiprisPublicSearchUrl;
     case 'kci':
       return appConfig.kciSearchUrl || 'https://www.kci.go.kr/kciportal/mobile/po/search/poTotalSearList.kci';
     case 'rne_report':
-      return 'http://www.rne.or.kr/gnuboard5/bbs/board.php?bo_table=rs_report';
+      return appConfig.rneReportUrl;
     default:
       return '';
   }
@@ -160,7 +160,7 @@ async function searchArxiv(query, limit) {
 }
 
 async function searchRiss(query, limit) {
-  const url = `https://www.riss.kr/search/Search.do?query=${encodeURIComponent(query)}`;
+  const url = `${appConfig.rissSearchUrl}?query=${encodeURIComponent(query)}`;
   const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
   const catalogMatches = [...html.matchAll(/<div class="catalog">([\s\S]*?)<\/div>\s*<\/div>\s*(?:<!--|$)/g)];
   const typeMap = {
@@ -447,7 +447,7 @@ async function searchDbpia(query, limit) {
 }
 
 async function searchNtis(query, limit) {
-  const url = `https://www.ntis.go.kr/ThSearchProjectList.do?searchWord=${encodeURIComponent(query)}&dbt=project&sort=RANK%2FDESC`;
+  const url = `${appConfig.ntisSearchUrl}?searchWord=${encodeURIComponent(query)}&dbt=project&sort=RANK%2FDESC`;
   const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
   const anchorRows = [...html.matchAll(/<a[^>]+(?:href|onclick)[^>]*>([\s\S]*?)<\/a>/g)]
     .map((match) => stripTags(match[1]))
@@ -486,8 +486,8 @@ async function searchNtis(query, limit) {
 async function searchScienceGo(source, query, limit) {
   const baseUrl =
     source === 'science_fair'
-      ? 'https://www.science.go.kr/mps/1079/bbs/423/moveBbsNttList.do'
-      : 'https://www.science.go.kr/mps/1075/bbs/424/moveBbsNttList.do';
+      ? appConfig.scienceFairUrl
+      : appConfig.studentInventionFairUrl;
   const html = await fetchText(baseUrl, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
   const rows = [...html.matchAll(/<tbody class="singlerow"[\s\S]*?onclick="fn_moveBbsNttDetail\('([^']+)'[^"]*"[\s\S]*?<\/tbody>/g)];
   const items = [];
@@ -575,7 +575,7 @@ export function extractRneReportDocumentsFromHtml(html, query = '') {
 }
 
 async function searchRneReports(query, limit) {
-  const baseUrl = 'http://www.rne.or.kr/gnuboard5/rs_report';
+  const baseUrl = appConfig.rneReportUrl.replace('/bbs/board.php?bo_table=rs_report', '/rs_report');
   const matched = [];
   const seen = new Set();
   const maxPages = 6;
