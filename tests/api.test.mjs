@@ -10,7 +10,7 @@ import { createRerankerBackendServer } from '../src/reranker-backend-server.mjs'
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
 import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
-import { buildCrossLingualQueryContext, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
+import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
 import { searchLiveSources } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
 import { extractKciDocumentsFromHtml, extractRneReportDocumentsFromHtml } from '../src/source-adapters.mjs';
@@ -897,6 +897,16 @@ test('query expansion stays generic when no translation backend is configured', 
   const context = await buildCrossLingualQueryContext('새로운 주제 검색');
   assert.equal(context.enabled, false);
   assert.equal(context.reason, 'translation-backend-not-configured');
+});
+
+test('query profile classifier surfaces source hints without term-translation hacks', () => {
+  const patent = classifyQueryProfile('KIPRIS 특허 침해 분석');
+  assert.ok(patent.requestedTypes.includes('patent'));
+  assert.ok(patent.sourceHints.includes('kipris'));
+
+  const humanities = classifyQueryProfile('한국사 교육 자료 비교');
+  assert.ok(humanities.domains.includes('education'));
+  assert.ok(humanities.sourceHints.includes('riss'));
 });
 
 test('vector backend server supports upsert and search', async () => {

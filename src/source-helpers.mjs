@@ -1,5 +1,5 @@
 import { appConfig } from './config.mjs';
-import { normalizeText, unique } from './vector-service.mjs';
+import { normalizeText, tokenize, unique } from './vector-service.mjs';
 
 export function makeAbortSignal(timeoutMs = appConfig.sourceTimeoutMs) {
   return AbortSignal.timeout(timeoutMs);
@@ -175,6 +175,54 @@ export function expandQueryVariants(query = '') {
   }
 
   return unique([base, normalized, compact, ...windows].filter(Boolean));
+}
+
+const QUERY_PROFILE_HINTS = {
+  patent: ['patent', '특허', 'kipris', '실용신안'],
+  report: ['report', '보고서', 'ntis', '과제', '성과'],
+  fair: ['science fair', 'student invention', '발명', '전람회', 'rne', 'r&e'],
+  humanities: ['문학', '역사', '철학', '예술', '미술', '연극', 'humanities', 'archaeology'],
+  education: ['교육', '학습', '수학 불안', '국어 교육', 'pedagogy', 'education'],
+  biomedical: ['bio', '의료', '유전자', '면역', '임플란트', 'medical', 'genetic', 'immun', 'clinical'],
+  engineering: ['반도체', '배터리', '드론', '센서', '로봇', 'semiconductor', 'battery', 'drone', 'robot', 'sensor'],
+  earth_space: ['기후', '산불', '우주', '위성', '홍수', '지진', 'climate', 'wildfire', 'space', 'satellite', 'flood', 'earthquake'],
+};
+
+export function classifyQueryProfile(query = '') {
+  const raw = String(query || '').trim();
+  const normalized = normalizeText(raw);
+  const tokens = unique(tokenize(raw));
+  const joined = [normalized, ...tokens].join(' ');
+  const has = (group) => QUERY_PROFILE_HINTS[group].some((hint) => joined.includes(normalizeText(hint)));
+
+  const types = [];
+  if (has('patent')) types.push('patent');
+  if (has('report')) types.push('report');
+  if (has('fair')) types.push('fair_entry');
+  if (!types.length) types.push('paper');
+
+  const domains = [];
+  for (const domain of ['humanities', 'education', 'biomedical', 'engineering', 'earth_space']) {
+    if (has(domain)) domains.push(domain);
+  }
+
+  const sourceHints = [];
+  if (types.includes('patent')) sourceHints.push('kipris');
+  if (types.includes('report')) sourceHints.push('ntis', 'rne_report');
+  if (types.includes('fair_entry')) sourceHints.push('science_fair', 'student_invention_fair', 'rne_report');
+  if (domains.includes('humanities') || domains.includes('education')) sourceHints.push('riss', 'kci', 'dbpia');
+  if (domains.includes('biomedical')) sourceHints.push('scienceon', 'semantic_scholar', 'riss');
+  if (domains.includes('engineering')) sourceHints.push('arxiv', 'semantic_scholar', 'kci', 'dbpia', 'kipris');
+  if (domains.includes('earth_space')) sourceHints.push('semantic_scholar', 'arxiv', 'scienceon', 'ntis');
+
+  const language = detectLanguage(raw);
+  return {
+    query: raw,
+    language,
+    requestedTypes: unique(types),
+    domains,
+    sourceHints: unique(sourceHints),
+  };
 }
 
 function detectLanguage(value = '') {

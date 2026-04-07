@@ -7,7 +7,7 @@ import { loadDocumentsFromPostgres, syncDocumentsToPostgres } from './postgres-s
 import { buildRecommendationSet } from './recommendation-service.mjs';
 import { rerankSearchEntries } from './reranker-service.mjs';
 import { searchLiveSources, sourceRegistrySummary } from './source-adapters.mjs';
-import { buildCrossLingualQueryContext, expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
+import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
 import { attachVectors, buildDenseVector, buildSparseVector, cosineSimilarity, normalizeText, sparseOverlapScore, tokenize, unique } from './vector-service.mjs';
 import { searchVectorCandidates, syncDocumentVectors } from './vector-index-service.mjs';
 
@@ -171,6 +171,25 @@ function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') 
     };
   }
   return { originalSources: selected, translatedSources: [] };
+}
+
+function rankSourcesByProfile(preferredSources = [], profile = null, direction = 'none') {
+  const selected = preferredSources.length ? preferredSources : [...GLOBAL_SOURCES, ...DOMESTIC_SOURCES];
+  const scored = selected.map((source) => {
+    let score = 0;
+    if (profile?.sourceHints?.includes(source)) score += 8;
+    if (profile?.requestedTypes?.includes('patent') && source === 'kipris') score += 6;
+    if (profile?.requestedTypes?.includes('report') && ['ntis', 'rne_report'].includes(source)) score += 6;
+    if (profile?.requestedTypes?.includes('fair_entry') && ['science_fair', 'student_invention_fair', 'rne_report'].includes(source)) score += 6;
+    if (direction === 'ko-to-en' && GLOBAL_SOURCES.has(source)) score += 4;
+    if (direction === 'en-to-ko' && DOMESTIC_SOURCES.has(source)) score += 4;
+    if (profile?.domains?.includes('humanities') && ['riss', 'kci', 'dbpia'].includes(source)) score += 5;
+    if (profile?.domains?.includes('education') && ['riss', 'kci', 'dbpia'].includes(source)) score += 5;
+    if (profile?.domains?.includes('earth_space') && ['semantic_scholar', 'arxiv', 'scienceon', 'ntis'].includes(source)) score += 4;
+    if (profile?.domains?.includes('engineering') && ['arxiv', 'semantic_scholar', 'kci', 'dbpia', 'kipris'].includes(source)) score += 4;
+    return { source, score };
+  });
+  return scored.sort((a, b) => b.score - a.score).map((item) => item.source);
 }
 
 function mergeLiveBundles(...bundles) {
@@ -398,6 +417,7 @@ async function executeSearchCatalog({
   autoLive = appConfig.autoLiveOnEmpty
 } = {}, onEvent = null) {
   const crossLingual = await buildCrossLingualQueryContext(q);
+  const queryProfile = classifyQueryProfile(q);
   const retrievalQuery = unique([q, crossLingual.translatedQuery].filter(Boolean)).join(' ').trim() || q;
   const queryTokens = buildQueryTokens(retrievalQuery);
   const queryTerms = unique(tokenize(retrievalQuery)).filter((token) => !SEARCH_STOPWORDS.has(token));
@@ -412,6 +432,7 @@ async function executeSearchCatalog({
     preferredSources,
     crossLingual: crossLingual.enabled,
     crossLingualBackend: crossLingual.backend,
+    queryProfile,
   };
 
   emitSearchEvent(onEvent, 'summary', {
@@ -468,7 +489,8 @@ async function executeSearchCatalog({
       message: `라이브 소스를 조회하고 있습니다.`,
       preferredSources
     });
-    const sourceSplit = splitSourcesForCrossLingual(preferredSources, crossLingual.direction);
+    const routedSources = rankSourcesByProfile(preferredSources, queryProfile, crossLingual.direction);
+    const sourceSplit = splitSourcesForCrossLingual(routedSources, crossLingual.direction);
     const originalLiveBundle = await searchLiveSources(q, sourceSplit.originalSources, appConfig.maxLiveResultsPerSource, {
       forceRefresh,
       overrideEnable: shouldAutoLive || live
@@ -531,7 +553,8 @@ async function executeSearchCatalog({
       }
 
       if (live || shouldAutoLive) {
-        const sourceSplit = splitSourcesForCrossLingual(preferredSources, crossLingual.direction);
+        const routedSources = rankSourcesByProfile(preferredSources, queryProfile, crossLingual.direction);
+        const sourceSplit = splitSourcesForCrossLingual(routedSources, crossLingual.direction);
         const liveFallbackOriginal = await searchLiveSources(fallbackQuery, sourceSplit.originalSources, appConfig.maxLiveResultsPerSource, {
           forceRefresh,
           overrideEnable: shouldAutoLive || live
@@ -637,6 +660,7 @@ async function executeSearchCatalog({
     liveSourceCount: liveBundle.documents.length,
     canonicalCount: mergedSourceData.length,
     crossLingual,
+    queryProfile,
     reformulationsTried,
     fallbackMode,
     reranking: {
