@@ -205,6 +205,54 @@ function candidateMatchesPaper(paper, candidate) {
   return [...paperTokens].some((token) => candidateTokens.has(token));
 }
 
+async function rankExploratoryCandidates({
+  query = '',
+  documents = [],
+  region = 'all',
+  sourceType = 'all',
+  limit = 6
+} = {}) {
+  const queryTokens = buildQueryTokens(query);
+  const queryTerms = unique(tokenize(query)).filter((token) => !SEARCH_STOPWORDS.has(token));
+  const queryVector = buildDenseVector(query, appConfig.vectorDimensions);
+  const querySparse = buildSparseVector(query);
+  const ranked = documents
+    .filter((item) => (region === 'all' ? true : item.region === region))
+    .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
+    .map((item) => ({
+      item,
+      scoreBundle: scoreDocument(item, queryTokens, queryVector, querySparse)
+    }));
+
+  const boosted = await rerankSearchEntries(
+    ranked
+      .sort((a, b) => b.scoreBundle.total - a.scoreBundle.total)
+      .slice(0, Math.max(limit * 3, 12)),
+    query,
+    null,
+    Math.max(limit, 6)
+  );
+
+  return boosted.entries
+    .filter((entry) => {
+      const searchableText = normalizeText([
+        entry.item.title,
+        entry.item.englishTitle,
+        entry.item.summary,
+        entry.item.abstract,
+        ...(entry.item.keywords || [])
+      ].filter(Boolean).join(' '));
+      const termOverlap = queryTerms.filter((token) => searchableText.includes(token)).length;
+      return (
+        termOverlap >= 1 ||
+        entry.scoreBundle.lexicalScore >= 8 ||
+        entry.scoreBundle.sparseScore >= 0.14 ||
+        entry.scoreBundle.denseScore >= 0.24
+      );
+    })
+    .slice(0, limit);
+}
+
 function describeGraphInsights(paper, graph, recommendations = []) {
   const referenceCount = graph.references?.length || 0;
   const citationCount = graph.citations?.length || 0;
@@ -516,6 +564,34 @@ async function executeSearchCatalog({
     }
   }
 
+  let fallbackMode = 'strict';
+  if (!rankedEntries.length) {
+    const exploratory = await rankExploratoryCandidates({
+      query: retrievalQuery,
+      documents: mergedSourceData,
+      region,
+      sourceType,
+      limit: 6
+    });
+    if (exploratory.length) {
+      rankedEntries = exploratory.map((entry) => ({
+        ...entry,
+        scoreBundle: {
+          ...entry.scoreBundle,
+          total: entry.scoreBundle.total,
+          rerankReason: entry.scoreBundle.rerankReason || '직접 일치 결과 부족으로 연관 후보를 제안합니다.'
+        }
+      }));
+      fallbackMode = 'exploratory';
+      emitSearchEvent(onEvent, 'progress', {
+        stage: 'fallback-exploratory',
+        query: q,
+        filters,
+        message: '직접 일치 결과가 부족해 의미적으로 가까운 연관 후보를 제안합니다.',
+      });
+    }
+  }
+
   const ranked = [...rankedEntries].sort((a, b) => {
     if (sort === 'latest') return (b.item.year || 0) - (a.item.year || 0) || b.scoreBundle.total - a.scoreBundle.total;
     if (sort === 'citation') return (b.item.citations || 0) - (a.item.citations || 0) || b.scoreBundle.total - a.scoreBundle.total;
@@ -529,7 +605,9 @@ async function executeSearchCatalog({
 
   const summary = q
     ? reranked.length
-      ? `“${q}”에 대해 ${reranked.length}건의 ${sourceTypeLabel[sourceType] || '자료'}를 찾았습니다. ${summarizeFilters({ region, sourceType, sort })} 기준 결과입니다.`
+      ? fallbackMode === 'exploratory'
+        ? `“${q}”의 직접 일치 결과가 부족해 ${reranked.length}건의 연관 ${sourceTypeLabel[sourceType] || '자료'}를 제안합니다. ${summarizeFilters({ region, sourceType, sort })} 기준입니다.`
+        : `“${q}”에 대해 ${reranked.length}건의 ${sourceTypeLabel[sourceType] || '자료'}를 찾았습니다. ${summarizeFilters({ region, sourceType, sort })} 기준 결과입니다.`
       : `“${q}”와 충분히 관련된 ${sourceTypeLabel[sourceType] || '자료'}를 찾지 못했습니다. 더 구체적인 키워드나 유사 표현으로 다시 시도해 보세요.`
     : `탐색 가능한 ${reranked.length}건의 자료를 불러왔습니다. ${summarizeFilters({ region, sourceType, sort })} 기준입니다.`;
 
@@ -537,6 +615,7 @@ async function executeSearchCatalog({
     ...normalizeSearchResult(item, index + 1, scoreBundle),
     rerankScore: Number((scoreBundle.rerankScore || 0).toFixed(4)),
     rerankReason: scoreBundle.rerankReason || '',
+    exploratory: fallbackMode === 'exploratory',
   }));
   const sourceStatus = mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses);
   persistDocuments(mergedSourceData);
@@ -559,6 +638,7 @@ async function executeSearchCatalog({
     canonicalCount: mergedSourceData.length,
     crossLingual,
     reformulationsTried,
+    fallbackMode,
     reranking: {
       ...rerankResult.diagnostics,
       applied: sort === 'relevance' ? rerankResult.diagnostics.applied : false,

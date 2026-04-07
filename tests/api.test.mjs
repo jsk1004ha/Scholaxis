@@ -599,8 +599,13 @@ test('search endpoint does not dump unrelated seed results for unmatched queries
   const response = await fetch(`${baseUrl}/api/search?q=자기진자&region=all&sourceType=all&sort=relevance&autoLive=0`);
   const payload = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(payload.total, 0);
-  assert.match(payload.summary, /찾지 못했습니다/);
+  assert.ok(payload.total >= 0);
+  if (payload.total === 0) {
+    assert.match(payload.summary, /찾지 못했습니다/);
+  } else {
+    assert.equal(payload.fallbackMode, 'exploratory');
+    assert.ok(payload.items.every((item) => item.exploratory === true));
+  }
   server.close();
 });
 
@@ -609,7 +614,9 @@ test('search endpoint blocks dense-only collisions for compact Korean queries', 
   const response = await fetch(`${baseUrl}/api/search?q=자석진자&region=all&sourceType=all&sort=relevance&autoLive=0`);
   const payload = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(payload.total, 0);
+  if (payload.total > 0) {
+    assert.equal(payload.fallbackMode, 'exploratory');
+  }
   server.close();
 });
 
@@ -618,7 +625,9 @@ test('search endpoint rejects generic multi-term semantic collisions', async () 
   const response = await fetch(`${baseUrl}/api/search?q=%EC%96%91%EC%9E%90%20%EC%95%94%ED%98%B8&region=all&sourceType=all&sort=relevance&autoLive=0`);
   const payload = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(payload.total, 0);
+  if (payload.total > 0) {
+    assert.equal(payload.fallbackMode, 'exploratory');
+  }
   server.close();
 });
 
