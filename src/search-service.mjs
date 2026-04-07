@@ -179,6 +179,53 @@ function candidateMatchesPaper(paper, candidate) {
   return [...paperTokens].some((token) => candidateTokens.has(token));
 }
 
+function describeGraphInsights(paper, graph, recommendations = []) {
+  const referenceCount = graph.references?.length || 0;
+  const citationCount = graph.citations?.length || 0;
+  const authorAffinityCount = graph.authorAffinity?.length || 0;
+  const topRecommendation = recommendations[0] || null;
+  return {
+    summary:
+      referenceCount || citationCount
+        ? `이 문헌은 참고문헌 ${referenceCount}건, 후속 인용 ${citationCount}건, 저자 연구 맵 ${authorAffinityCount}건과 연결됩니다.`
+        : '아직 직접 그래프 엣지는 적지만 키워드·저자·인용 신호를 기반으로 후속 읽기 후보를 확장할 수 있습니다.',
+    whyItMatters: [
+      referenceCount ? `선행 연구 축이 ${referenceCount}건으로 형성되어 관련 연구 검토 경로가 뚜렷합니다.` : null,
+      citationCount ? `후속 인용 축이 ${citationCount}건 있어 최근 영향 범위를 빠르게 파악할 수 있습니다.` : null,
+      authorAffinityCount ? `저자/기관 기반 연관 연구 ${authorAffinityCount}건이 있어 연구실 단위 추적에 유리합니다.` : null,
+      topRecommendation ? `가장 먼저 읽을 후보는 “${topRecommendation.title}”입니다.` : null,
+    ].filter(Boolean),
+  };
+}
+
+function buildComparisonMatrix(paper, recommendations = [], citations = [], references = []) {
+  const groups = [
+    ...recommendations.slice(0, 2).map((item) => ({ lane: '추천', item })),
+    ...citations.slice(0, 2).map((item) => ({ lane: '후속 인용', item })),
+    ...references.slice(0, 2).map((item) => ({ lane: '선행 참고', item })),
+  ];
+  return groups.map(({ lane, item }) => ({
+    lane,
+    id: item.canonicalId || item.id,
+    title: item.title,
+    year: item.year,
+    source: item.sourceLabel || item.source,
+    comparison: [
+      item.year && paper.year
+        ? item.year >= paper.year
+          ? '현재 문헌보다 최신 흐름을 보여줍니다.'
+          : '현재 문헌의 선행 배경을 보완합니다.'
+        : null,
+      (item.keywords || []).length && (paper.keywords || []).length
+        ? `공통 키워드 ${unique((item.keywords || []).filter((keyword) => (paper.keywords || []).includes(keyword))).slice(0, 3).join(', ') || '정보 없음'}`
+        : null,
+      item.organization && paper.organization && item.organization !== paper.organization
+        ? `기관/출처가 달라 비교 관점 확보에 유리합니다.`
+        : null,
+    ].filter(Boolean)
+  }));
+}
+
 
 function buildGraphEdgesFromResults(results = []) {
   if (!results.length) return [];
@@ -441,11 +488,20 @@ export async function getPaperById(id) {
   const related = (await searchCatalog({ q: paper.keywords.slice(0, 3).join(' '), sort: 'relevance', live: false })).results
     .filter((item) => item.id !== (paper.canonicalId || paper.id))
     .slice(0, 4);
+  const graph = getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit);
+  const recommendations = await buildRecommendationSet({
+    paper,
+    documents: sourceData,
+    userProfile: null,
+    limit: 4,
+  });
 
   return {
     ...paper,
     related,
-    graph: getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit),
+    graph,
+    recommendations,
+    explanation: describeGraphInsights(paper, graph, recommendations),
     metrics: {
       citations: paper.citations,
       references: 18 + (paper.keywords?.length || 0) * 3,
@@ -458,6 +514,9 @@ export async function getPaperById(id) {
 export async function expandPaperById(id) {
   const paper = await getPaperById(id);
   if (!paper) return null;
+  const citations = await getCitationsById(id, appConfig.citationExpansionLimit);
+  const references = await getReferencesById(id, appConfig.citationExpansionLimit);
+  const recommendations = await getRecommendationsById(id, 6, null);
 
   return {
     paper,
@@ -473,7 +532,9 @@ export async function expandPaperById(id) {
         source: item.source,
         year: item.year
       })),
-      recommendations: await getRecommendationsById(id, 6, null),
+      recommendations,
+      graphNarrative: describeGraphInsights(paper, paper.graph || {}, recommendations),
+      comparisonMatrix: buildComparisonMatrix(paper, recommendations, citations, references),
       graph: getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit),
       sourceStatus: listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source)),
       alternateSources: paper.alternateSources || [paper.source]

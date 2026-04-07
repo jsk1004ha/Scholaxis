@@ -63,6 +63,10 @@ export async function buildRecommendationSet({
           ? 0.04
           : 0;
       const freshnessBoost = candidate.year ? Math.max(0, (candidate.year - 2021) * 0.01) : 0;
+      const sourceDiversityPenalty =
+        candidate.source === paper.source ? 0.04 : 0;
+      const noveltyBoost =
+        keywordOverlap.length <= 2 && dense >= 0.18 ? 0.05 : 0;
       const score =
         dense * 0.36 +
         vectorBackendScore * 0.22 +
@@ -73,11 +77,24 @@ export async function buildRecommendationSet({
         graphBoost +
         preferredSourceBoost +
         preferredRegionBoost +
-        freshnessBoost;
+        freshnessBoost +
+        noveltyBoost -
+        sourceDiversityPenalty;
 
       return {
         ...candidate,
         recommendationScore: Number((score * 100).toFixed(2)),
+        recommendationRationale: {
+          keywordOverlap,
+          authorOverlap,
+          resolvedAuthorMatches,
+          interestOverlap,
+          referenceLinked: referenceTargets.has(candidateId),
+          citationLinked: citationSources.has(candidateId),
+          authorAffinityLinked: authorAffinityTargets.has(candidateId),
+          sourceDiversityPenalty,
+          noveltyBoost,
+        },
         explanation: [
           keywordOverlap.length ? `공통 키워드: ${keywordOverlap.slice(0, 4).join(', ')}` : null,
           authorOverlap.length ? `저자/조직 연결: ${authorOverlap.slice(0, 2).join(', ')}` : null,
@@ -86,6 +103,8 @@ export async function buildRecommendationSet({
           citationSources.has(candidateId) ? '인용 그래프에서 연결됨' : null,
           authorAffinityTargets.has(candidateId) ? '저자 연구 맵에서 가까운 후보' : null,
           interestOverlap.length ? `연구 관심사와 일치: ${interestOverlap.slice(0, 3).join(', ')}` : null,
+          noveltyBoost ? '같은 주제지만 기여 포인트가 달라 후속 읽기 가치가 높음' : null,
+          sourceDiversityPenalty ? '동일 소스 편향을 줄이도록 점수를 조정함' : null,
           userProfile?.preferredSources?.includes(candidate.source) ? `선호 소스(${candidate.source})` : null,
         ].filter(Boolean),
       };

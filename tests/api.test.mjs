@@ -405,6 +405,7 @@ test('recommendations endpoint returns data', async () => {
   assert.equal(response.status, 200);
   assert.ok(Array.isArray(payload.recommendations));
   assert.ok(payload.recommendations[0].recommendationScore >= payload.recommendations.at(-1).recommendationScore);
+  assert.ok(payload.recommendations[0].recommendationRationale);
   server.close();
 });
 
@@ -480,6 +481,8 @@ test('graph and postgres migration endpoints expose expected payload formats', a
   assert.equal(expansionResponse.status, 200);
   assert.ok(Array.isArray(expansionPayload.expansion.recommendations));
   assert.ok(expansionPayload.expansion.recommendations.length >= 1);
+  assert.ok(expansionPayload.expansion.graphNarrative);
+  assert.ok(Array.isArray(expansionPayload.expansion.comparisonMatrix));
 
   const migrationResponse = await fetch(`${baseUrl}/api/admin/postgres-migration`);
   const migrationText = await migrationResponse.text();
@@ -626,6 +629,9 @@ test('detail endpoint returns related materials and alternate source metadata', 
   assert.equal(response.status, 200);
   assert.ok(payload.id || payload.canonicalId);
   assert.ok(payload.related.length > 0);
+  assert.ok(payload.explanation);
+  assert.ok(Array.isArray(payload.explanation.whyItMatters));
+  assert.ok(Array.isArray(payload.recommendations));
   assert.ok(payload.metrics.alternateSourceCount >= 1);
   server.close();
 });

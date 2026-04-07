@@ -231,6 +231,8 @@ function toUiPaperDetail(item = {}) {
     sourceUrl: item.links?.detail || item.links?.original || '',
     novelty: item.novelty || item.summary || '',
     related: (item.related || []).map((related) => toUiPaperShape(related)),
+    recommendations: (item.recommendations || []).map((related) => toUiPaperShape(related)),
+    explanation: item.explanation || null,
     tags: item.keywords || [],
     metrics: item.metrics || paper.metrics,
   };

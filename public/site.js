@@ -255,6 +255,26 @@ async function initDetailPage() {
     });
   }
 
+  const explanationSummaryRoot = qs('[data-detail-explanation-summary]');
+  if (explanationSummaryRoot) {
+    explanationSummaryRoot.textContent = paper.explanation?.summary || '그래프 기반 설명이 아직 부족합니다.';
+  }
+
+  const explanationPointsRoot = qs('[data-detail-explanation-points]');
+  if (explanationPointsRoot) {
+    explanationPointsRoot.innerHTML = (paper.explanation?.whyItMatters || []).length
+      ? paper.explanation.whyItMatters.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
+      : '<li>추가 인용/추천 데이터가 쌓이면 더 풍부한 설명을 제공합니다.</li>';
+  }
+
+  const recommendationsRoot = qs('[data-detail-recommendations]');
+  if (recommendationsRoot) {
+    recommendationsRoot.innerHTML = '';
+    (paper.recommendations || []).forEach((candidate) => {
+      recommendationsRoot.appendChild(createPaperCard(candidate));
+    });
+  }
+
   const similarityLink = qs('[data-similarity-link]');
   if (similarityLink) {
     similarityLink.href = `./similarity.html?paperId=${encodeURIComponent(paper.id)}`;
