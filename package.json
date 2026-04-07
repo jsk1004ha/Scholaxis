@@ -19,6 +19,7 @@
     "worker": "node scripts/start-worker.mjs",
     "migrate:postgres": "node scripts/postgres-migrate.mjs",
     "translation-service": "node scripts/start-translation-service.mjs",
+    "reranker-service": "node scripts/start-reranker-service.mjs",
     "vector-service": "node scripts/start-vector-service.mjs",
     "graph-service": "node scripts/start-graph-service.mjs",
     "quality:search": "node scripts/search-quality-browser.mjs",

@@ -48,6 +48,11 @@ export const appConfig = {
       ? `http://${process.env.SCHOLAXIS_TRANSLATION_HOST || '127.0.0.1'}:${readInt('SCHOLAXIS_TRANSLATION_PORT', 5001)}/translate`
       : ''),
   translationApiKey: process.env.SCHOLAXIS_TRANSLATION_API_KEY || '',
+  rerankerProvider: process.env.SCHOLAXIS_RERANKER_PROVIDER || 'heuristic',
+  rerankerHost: process.env.SCHOLAXIS_RERANKER_HOST || '127.0.0.1',
+  rerankerPort: readInt('SCHOLAXIS_RERANKER_PORT', 8300),
+  rerankerAutostart: readBool('SCHOLAXIS_RERANKER_AUTOSTART', true),
+  rerankerStartupTimeoutMs: readInt('SCHOLAXIS_RERANKER_STARTUP_TIMEOUT_MS', 10000),
   rerankerServiceUrl: process.env.SCHOLAXIS_RERANKER_SERVICE_URL || '',
   rerankerApiKey: process.env.SCHOLAXIS_RERANKER_API_KEY || '',
   rerankerTopK: readInt('SCHOLAXIS_RERANKER_TOP_K', 12),

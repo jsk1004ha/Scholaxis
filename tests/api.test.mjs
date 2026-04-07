@@ -6,6 +6,7 @@ import { createServer, startServer } from '../src/server.mjs';
 import { createGraphBackendServer } from '../src/graph-backend-server.mjs';
 import { buildPostgresMigrationSql } from '../src/postgres-migration.mjs';
 import { getPostgresSchemaSql } from '../src/postgres-store.mjs';
+import { createRerankerBackendServer } from '../src/reranker-backend-server.mjs';
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
 import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
@@ -927,5 +928,43 @@ test('graph backend server supports upsert and neighbor queries', async () => {
   assert.equal(neighborResponse.status, 200);
   assert.equal(neighborPayload.edges[0].targetId, 'paper:b');
 
+  server.close();
+});
+
+test('reranker backend server reranks candidates', async () => {
+  const { server, baseUrl } = await startStandaloneServer(createRerankerBackendServer());
+
+  const response = await fetch(`${baseUrl}/rerank`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: 'battery safety multimodal ai',
+      translatedQuery: '',
+      topK: 2,
+      candidates: [
+        {
+          id: 'doc-1',
+          title: 'Battery safety multimodal ai',
+          englishTitle: 'Battery safety multimodal ai',
+          abstract: 'battery safety multimodal ai abstract',
+          summary: 'battery safety multimodal ai summary',
+          keywords: ['battery', 'safety'],
+          citations: 12
+        },
+        {
+          id: 'doc-2',
+          title: 'Classical literature theory',
+          englishTitle: 'Classical literature theory',
+          abstract: 'translation history and literature',
+          summary: 'humanities summary',
+          keywords: ['literature'],
+          citations: 1
+        }
+      ]
+    })
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.results[0].id, 'doc-1');
   server.close();
 });

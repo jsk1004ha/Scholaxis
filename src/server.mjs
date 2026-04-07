@@ -66,6 +66,7 @@ import {
 import { buildSimilarityReport } from './similarity-service.mjs';
 import { appConfig } from './config.mjs';
 import { getRerankerDiagnostics } from './reranker-service.mjs';
+import { ensureRerankerBackend, getRerankerRuntimeDiagnostics } from './reranker-runtime.mjs';
 import { ensureTranslationBackend, getTranslationDiagnostics } from './translation-runtime.mjs';
 import { getVectorBackendDiagnostics } from './vector-index-service.mjs';
 
@@ -309,6 +310,7 @@ export function createServer() {
             sourceRuntime,
             translation: getTranslationDiagnostics(),
             reranker: getRerankerDiagnostics(),
+            rerankerRuntime: getRerankerRuntimeDiagnostics(),
             storage: getStorageDiagnostics()
           }
         });
@@ -424,6 +426,7 @@ export function createServer() {
             postgres: await getPostgresDiagnostics(),
             translation: getTranslationDiagnostics(),
             reranker: getRerankerDiagnostics(),
+            rerankerRuntime: getRerankerRuntimeDiagnostics(),
             vectorBackend: getVectorBackendDiagnostics(),
             graphBackend: getGraphBackendDiagnostics(),
             parserMonitor: buildParserMonitorSummary(jobs),
@@ -722,6 +725,9 @@ export function startServer(
 ) {
   void ensureTranslationBackend().catch((error) => {
     console.warn(`[startup] translation backend bootstrap failed: ${error.message}`);
+  });
+  void ensureRerankerBackend().catch((error) => {
+    console.warn(`[startup] reranker backend bootstrap failed: ${error.message}`);
   });
   const server = createServer();
   const maxFallbackAttempts = Math.max(
