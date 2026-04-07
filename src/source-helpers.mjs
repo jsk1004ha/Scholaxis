@@ -187,20 +187,49 @@ function detectLanguage(value = '') {
   return 'other';
 }
 
+function resolveTranslationProvider() {
+  if (appConfig.translationProvider && appConfig.translationProvider !== 'generic') {
+    return appConfig.translationProvider;
+  }
+  const url = String(appConfig.translationServiceUrl || '').toLowerCase();
+  if (url.includes('libretranslate')) return 'libretranslate';
+  return 'generic';
+}
+
 async function translateWithBackend(text = '', source = 'auto', target = 'en') {
   if (!appConfig.translationServiceUrl) return '';
+  const provider = resolveTranslationProvider();
   const url = new URL(appConfig.translationServiceUrl);
+  let body = { text, source, target };
+  const headers = {
+    'content-type': 'application/json',
+    ...(appConfig.translationApiKey ? { authorization: `Bearer ${appConfig.translationApiKey}` } : {})
+  };
+
+  if (provider === 'libretranslate') {
+    body = {
+      q: text,
+      source,
+      target,
+      format: 'text',
+      ...(appConfig.translationApiKey ? { api_key: appConfig.translationApiKey } : {})
+    };
+    delete headers.authorization;
+  }
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(appConfig.translationApiKey ? { authorization: `Bearer ${appConfig.translationApiKey}` } : {})
-    },
-    body: JSON.stringify({ text, source, target })
+    headers,
+    body: JSON.stringify(body)
   });
   if (!response.ok) throw new Error(`translation backend request failed: ${response.status}`);
   const payload = await response.json();
-  return String(payload.translation || payload.text || '').trim();
+  return String(
+    payload.translation ||
+    payload.translatedText ||
+    payload.text ||
+    ''
+  ).trim();
 }
 
 export async function buildCrossLingualQueryContext(query = '') {
