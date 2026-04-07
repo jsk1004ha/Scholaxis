@@ -13,7 +13,7 @@ import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
 import { buildCrossLingualQueryContext, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
 import { searchLiveSources } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
-import { extractKciDocumentsFromHtml } from '../src/source-adapters.mjs';
+import { extractKciDocumentsFromHtml, extractRneReportDocumentsFromHtml } from '../src/source-adapters.mjs';
 import { dedupeDocuments } from '../src/dedup-service.mjs';
 import { extractPdfText } from '../src/pdf-text-extractor.mjs';
 import { extractDocxText } from '../src/docx-text-extractor.mjs';
@@ -754,6 +754,17 @@ test('kci parser extracts article metadata from public landing html', () => {
   assert.ok(docs.length >= 1);
   assert.equal(docs[0].source, 'kci');
   assert.match(docs[0].links.detail, /ART002988833/);
+});
+
+test('rne report parser extracts report titles from listing html', () => {
+  const html = `
+    <a href="http://www.rne.or.kr/gnuboard5/rs_report/2295">HPLC 데이터 기반 최적의 기울기 용리 Method 추천 AI 개발에 관한 연구</a>
+    <a href="http://www.rne.or.kr/gnuboard5/rs_report/2294">MOF가 포함된 키토산-리그닌 복합체 멤브레인 제작 및 활용 방안에 관한 연구</a>
+  `;
+  const docs = extractRneReportDocumentsFromHtml(html, 'HPLC 데이터');
+  assert.ok(docs.length >= 1);
+  assert.equal(docs[0].source, 'rne_report');
+  assert.match(docs[0].links.detail, /rs_report\/2295/);
 });
 
 

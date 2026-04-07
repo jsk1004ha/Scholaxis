@@ -47,6 +47,8 @@ function sourceDetailUrl(source, query = '') {
       return appConfig.kiprisPlusSearchUrl || 'https://plus.kipris.or.kr/portal/search/clasList/List.do';
     case 'kci':
       return appConfig.kciSearchUrl || 'https://www.kci.go.kr/kciportal/mobile/po/search/poTotalSearList.kci';
+    case 'rne_report':
+      return 'http://www.rne.or.kr/gnuboard5/bbs/board.php?bo_table=rs_report';
     default:
       return '';
   }
@@ -528,6 +530,73 @@ async function searchScienceGo(source, query, limit) {
   return items.slice(0, limit);
 }
 
+export function extractRneReportDocumentsFromHtml(html, query = '') {
+  const documents = [];
+  const seen = new Set();
+  const matches = [...html.matchAll(/<a[^>]+href="(http:\/\/www\.rne\.or\.kr\/gnuboard5\/rs_report\/\d+)"[^>]*>([\s\S]*?)<\/a>/g)];
+
+  for (const match of matches) {
+    const href = match[1];
+    const title = stripTags(match[2]);
+    if (!href || !title || title === '글쓰기') continue;
+    const idMatch = href.match(/\/(\d+)$/);
+    const reportId = idMatch?.[1];
+    if (!reportId || seen.has(reportId)) continue;
+    seen.add(reportId);
+
+    const searchable = `${title}`.toLowerCase();
+    if (query && !searchable.includes(String(query).toLowerCase()) && documents.length >= 12) continue;
+
+    documents.push(
+      buildDocument({
+        id: `rne_report:${reportId}`,
+        source: 'rne_report',
+        sourceLabel: 'R&E 보고서',
+        type: 'report',
+        title,
+        englishTitle: title,
+        authors: [],
+        organization: '과학영재 창의연구(R&E) 지원센터',
+        year: safeYear(title),
+        abstract: '',
+        summary: '과학영재 창의연구(R&E) 지원센터 중간성과공유회 보고서 목록에서 수집한 연구 제목입니다.',
+        keywords: normalizeKeywordBag(`${query} ${title}`).slice(0, 8),
+        highlights: ['R&E', '중간성과공유회 보고서'],
+        links: {
+          detail: href,
+          original: href
+        },
+        rawRecord: { href, title }
+      })
+    );
+  }
+
+  return documents;
+}
+
+async function searchRneReports(query, limit) {
+  const baseUrl = 'http://www.rne.or.kr/gnuboard5/rs_report';
+  const matched = [];
+  const seen = new Set();
+  const maxPages = 6;
+
+  for (let page = 1; page <= maxPages && matched.length < limit; page += 1) {
+    const url = page === 1 ? `${baseUrl}` : `${baseUrl}?page=${page}`;
+    const html = await fetchText(url, { timeoutMs: 12000, userAgent: BROWSERISH_USER_AGENT });
+    const docs = extractRneReportDocumentsFromHtml(html, query);
+    for (const doc of docs) {
+      if (seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      const searchable = normalizeText([doc.title, ...(doc.keywords || [])].join(' '));
+      const direct = !query || searchable.includes(normalizeText(query));
+      if (direct || matched.length < limit) matched.push(doc);
+      if (matched.length >= limit) break;
+    }
+  }
+
+  return matched.slice(0, limit);
+}
+
 export function extractKciDocumentsFromHtml(html, query, sourceUrl) {
   const documents = [];
   const seen = new Set();
@@ -759,6 +828,12 @@ const liveSourceRegistry = {
     coverage: '전국학생과학발명품경진대회',
     note: '공식 목록 페이지 파싱',
     search: (query, limit) => searchScienceGo('student_invention_fair', query, limit)
+  },
+  rne_report: {
+    type: 'crawl',
+    coverage: '과학영재 창의연구(R&E) 보고서',
+    note: '중간성과공유회 보고서 목록 페이지 파싱',
+    search: searchRneReports
   }
 };
 

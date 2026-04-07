@@ -69,6 +69,7 @@ export const appConfig = {
     'ntis',
     'kipris',
     'science_fair',
-    'student_invention_fair'
+    'student_invention_fair',
+    'rne_report'
   ]
 };
