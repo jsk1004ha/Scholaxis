@@ -787,7 +787,13 @@ test('postgres migration bundle includes pgvector schema and documents', () => {
   const sql = buildPostgresMigrationSql();
   assert.match(sql, /CREATE EXTENSION IF NOT EXISTS vector/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS documents/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS search_runs/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS similarity_runs/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS background_jobs/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS users/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS library_items/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS saved_searches/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS user_preferences/);
   assert.match(sql, /INSERT INTO documents/);
 });
 
@@ -795,8 +801,15 @@ test('postgres schema sql includes runtime tables', () => {
   const sql = getPostgresSchemaSql();
   assert.match(sql, /CREATE EXTENSION IF NOT EXISTS vector/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS documents/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS search_runs/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS similarity_runs/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS graph_edges/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS background_jobs/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS users/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS sessions/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS library_items/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS saved_searches/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS user_preferences/);
 });
 
 test('frontend search query normalization maps Korean option values to API values', () => {

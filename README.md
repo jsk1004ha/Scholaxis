@@ -211,11 +211,32 @@ npm run sync
 npm run scheduler
 npm run worker
 npm run migrate:postgres
+# or apply directly to a configured PostgreSQL target
+npm run migrate:postgres -- --apply
 npm run vector-service
 npm run graph-service
 npm run backup
 npm run restore -- <backup-file>
 ```
+
+### PostgreSQL + pgvector runtime mode
+
+Scholaxis can now run with PostgreSQL as the active persistence backend.
+
+Example:
+
+```bash
+export SCHOLAXIS_STORAGE_BACKEND=postgres
+export DATABASE_URL=postgres://user:password@localhost:5432/scholaxis
+npm run migrate:postgres -- --apply
+npm start
+```
+
+What this enables at runtime:
+- document/search/similarity persistence in PostgreSQL
+- auth/session/profile/library/saved-search persistence in PostgreSQL
+- background jobs and graph edges in PostgreSQL
+- pgvector-ready document embedding storage
 
 ---
 
@@ -238,6 +259,14 @@ Useful environment variables:
 - `SCHOLAXIS_MAX_LIVE_RESULTS_PER_SOURCE`
 - `SCHOLAXIS_SOURCE_CACHE_TTL_MS`
 - `SCHOLAXIS_DB_PATH`
+- `SCHOLAXIS_STORAGE_BACKEND`
+- `DATABASE_URL`
+- `PGHOST`
+- `PGPORT`
+- `PGDATABASE`
+- `PGUSER`
+- `PGPASSWORD`
+- `PSQL_BIN`
 - `SCHOLAXIS_USER_AGENT`
 
 ---
@@ -317,7 +346,6 @@ POST /api/cache/clear
 These are the major remaining roadmap items.
 
 ### Search / infra
-- full PostgreSQL + pgvector migration
 - dedicated vector DB
 - dedicated graph DB
 - production scheduler/worker separation
@@ -348,25 +376,19 @@ These are the major remaining roadmap items.
 ## 11. Recommended next milestones
 
 ### Milestone A
-Production data foundation
-- move SQLite → PostgreSQL
-- add pgvector
-- migrate search/storage APIs
-
-### Milestone B
 Research graph intelligence
 - richer graph edges
 - author graph
 - citation/reference graph
 - recommendation reranking
 
-### Milestone C
+### Milestone B
 Document intelligence
 - HWP/HWPX ingestion
 - OCR improvement
 - section-aware comparison
 
-### Milestone D
+### Milestone C
 User productization
 - polished library UI
 - saved search UX

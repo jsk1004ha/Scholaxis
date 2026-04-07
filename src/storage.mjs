@@ -3,6 +3,40 @@ import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import {
+  addLibraryItemInPostgresSync,
+  completeBackgroundJobInPostgresSync,
+  createSessionInPostgresSync,
+  createUserInPostgresSync,
+  deleteSessionByHashInPostgresSync,
+  enqueueBackgroundJobInPostgresSync,
+  failBackgroundJobInPostgresSync,
+  findLibraryItemByShareTokenInPostgresSync,
+  findSessionByHashInPostgresSync,
+  findUserByEmailInPostgresSync,
+  getPostgresStorageDiagnosticsSync,
+  getRecentRequestLogsFromPostgresSync,
+  getRecentSimilarityRunsFromPostgresSync,
+  getStoredDocumentsFromPostgresSync,
+  getUserProfileFromPostgresSync,
+  leaseNextBackgroundJobFromPostgresSync,
+  listBackgroundJobsFromPostgresSync,
+  listGraphEdgesFromPostgresSync,
+  listLibraryItemsFromPostgresSync,
+  listSavedSearchesFromPostgresSync,
+  persistDocumentsToPostgresSync,
+  persistGraphEdgesToPostgresSync,
+  persistRequestLogToPostgresSync,
+  persistSearchRunToPostgresSync,
+  persistSimilarityRunToPostgresSync,
+  postgresRuntimeReady,
+  removeLibraryItemInPostgresSync,
+  removeSavedSearchInPostgresSync,
+  replaceGraphEdgesForSourceInPostgresSync,
+  requeueBackgroundJobInPostgresSync,
+  saveSearchInPostgresSync,
+  updateUserProfileInPostgresSync
+} from './postgres-store.mjs';
 
 const dataDir = path.resolve('.data');
 mkdirSync(dataDir, { recursive: true });
@@ -11,6 +45,10 @@ let dbPath = path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 's
 const opened = openDatabase(dbPath);
 dbPath = opened.path;
 let db = opened.database;
+
+function usePostgresStorage() {
+  return postgresRuntimeReady();
+}
 
 function openDatabase(targetPath) {
   try {
@@ -225,6 +263,10 @@ const insertSimilarityRun = db.prepare(`
 `);
 
 export function persistDocuments(documents = []) {
+  if (usePostgresStorage()) {
+    persistDocumentsToPostgresSync(documents);
+    return;
+  }
   const timestamp = new Date().toISOString();
   for (const document of documents) {
     upsertDocument.run(
@@ -247,6 +289,10 @@ export function persistDocuments(documents = []) {
 }
 
 export function persistSearchRun({ query = '', filters = {}, total = 0, liveSourceCount = 0, canonicalCount = 0 } = {}) {
+  if (usePostgresStorage()) {
+    persistSearchRunToPostgresSync({ query, filters, total, liveSourceCount, canonicalCount });
+    return;
+  }
   insertSearchRun.run(
     query,
     JSON.stringify(filters),
@@ -258,6 +304,10 @@ export function persistSearchRun({ query = '', filters = {}, total = 0, liveSour
 }
 
 export function persistSimilarityRun({ title = '', extraction = null, report = null } = {}) {
+  if (usePostgresStorage()) {
+    persistSimilarityRunToPostgresSync({ title, extraction, report });
+    return;
+  }
   insertSimilarityRun.run(
     title,
     extraction?.method || '',
@@ -270,6 +320,13 @@ export function persistSimilarityRun({ title = '', extraction = null, report = n
 }
 
 export function getStorageDiagnostics() {
+  if (usePostgresStorage()) {
+    return {
+      ready: true,
+      dbPath: process.env.DATABASE_URL || process.env.PGHOST || 'postgres',
+      ...(getPostgresStorageDiagnosticsSync() || {})
+    };
+  }
   const [documentsCount] = db.prepare('SELECT COUNT(*) AS count FROM documents').all();
   const [searchRunsCount] = db.prepare('SELECT COUNT(*) AS count FROM search_runs').all();
   const [similarityRunsCount] = db.prepare('SELECT COUNT(*) AS count FROM similarity_runs').all();
@@ -532,6 +589,10 @@ const getAllDocumentsStmt = db.prepare(`
 `);
 
 export function persistGraphEdges(edges = []) {
+  if (usePostgresStorage()) {
+    persistGraphEdgesToPostgresSync(edges);
+    return;
+  }
   const timestamp = new Date().toISOString();
   for (const edge of edges) {
     insertGraphEdge.run(edge.sourceId, edge.targetId, edge.edgeType, edge.weight || 0, timestamp);
@@ -539,11 +600,18 @@ export function persistGraphEdges(edges = []) {
 }
 
 export function replaceGraphEdgesForSource(sourceId, edges = []) {
+  if (usePostgresStorage()) {
+    replaceGraphEdgesForSourceInPostgresSync(sourceId, edges);
+    return;
+  }
   deleteGraphEdgesBySourceStmt.run(sourceId);
   persistGraphEdges(edges);
 }
 
 export function listGraphEdges({ sourceId = null, targetId = null, edgeType = null, limit = 50 } = {}) {
+  if (usePostgresStorage()) {
+    return listGraphEdgesFromPostgresSync({ sourceId, targetId, edgeType, limit });
+  }
   return listGraphEdgesStmt.all(
     sourceId,
     sourceId,
@@ -560,6 +628,10 @@ export function getAllGraphEdges(limit = 5000) {
 }
 
 export function persistRequestLog({ method = '', path = '', status = 0, durationMs = 0 } = {}) {
+  if (usePostgresStorage()) {
+    persistRequestLogToPostgresSync({ method, path, status, durationMs });
+    return;
+  }
   insertRequestLog.run(method, path, status, durationMs, new Date().toISOString());
 }
 
@@ -594,10 +666,12 @@ function normalizeBackgroundJob(row) {
 }
 
 export function getRecentRequestLogs(limit = 20) {
+  if (usePostgresStorage()) return getRecentRequestLogsFromPostgresSync(limit);
   return db.prepare('SELECT method, path, status, duration_ms AS durationMs, created_at AS createdAt FROM request_logs ORDER BY id DESC LIMIT ?').all(limit);
 }
 
 export function getRecentSimilarityRuns(limit = 10) {
+  if (usePostgresStorage()) return getRecentSimilarityRunsFromPostgresSync(limit);
   return db
     .prepare(`
       SELECT
@@ -617,6 +691,7 @@ export function getRecentSimilarityRuns(limit = 10) {
 }
 
 export function listBackgroundJobs(limit = 50) {
+  if (usePostgresStorage()) return listBackgroundJobsFromPostgresSync(limit);
   return listBackgroundJobsStmt.all(limit).map(normalizeBackgroundJob);
 }
 
@@ -626,6 +701,9 @@ export function enqueueBackgroundJob({
   priority = 0,
   runAfter = new Date().toISOString()
 }) {
+  if (usePostgresStorage()) {
+    return enqueueBackgroundJobInPostgresSync({ jobType, payload, priority, runAfter });
+  }
   const now = new Date().toISOString();
   insertBackgroundJobStmt.run(
     jobType,
@@ -647,6 +725,9 @@ export function leaseNextBackgroundJob({
   now = new Date().toISOString(),
   leaseMs = 15000
 } = {}) {
+  if (usePostgresStorage()) {
+    return leaseNextBackgroundJobFromPostgresSync({ now, leaseMs });
+  }
   const candidate = leaseCandidateJobStmt.get(now);
   if (!candidate?.id) return null;
   const leasedUntil = new Date(Date.now() + leaseMs).toISOString();
@@ -655,18 +736,21 @@ export function leaseNextBackgroundJob({
 }
 
 export function completeBackgroundJob(id) {
+  if (usePostgresStorage()) return completeBackgroundJobInPostgresSync(id);
   const now = new Date().toISOString();
   completeJobStmt.run(now, now, id);
   return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
 }
 
 export function failBackgroundJob(id, error = '') {
+  if (usePostgresStorage()) return failBackgroundJobInPostgresSync(id, error);
   const now = new Date().toISOString();
   failJobStmt.run(String(error || ''), now, id);
   return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
 }
 
 export function requeueBackgroundJob(id, delayMs = 0) {
+  if (usePostgresStorage()) return requeueBackgroundJobInPostgresSync(id, delayMs);
   const now = new Date().toISOString();
   const runAfter = new Date(Date.now() + delayMs).toISOString();
   releaseJobStmt.run(now, runAfter, id);
@@ -674,6 +758,7 @@ export function requeueBackgroundJob(id, delayMs = 0) {
 }
 
 export function getStoredDocuments() {
+  if (usePostgresStorage()) return getStoredDocumentsFromPostgresSync();
   return getAllDocumentsStmt.all().map((row) => ({
     canonicalId: row.canonicalId,
     id: row.canonicalId,
@@ -694,23 +779,34 @@ export function getStoredDocuments() {
 }
 
 export function createUser({ email, displayName, passwordDigest }) {
+  if (usePostgresStorage()) return createUserInPostgresSync({ email, displayName, passwordDigest });
   createUserStmt.run(email, displayName, passwordDigest, new Date().toISOString());
   return findUserByEmail(email);
 }
 
 export function findUserByEmail(email) {
+  if (usePostgresStorage()) return findUserByEmailInPostgresSync(email);
   return findUserByEmailStmt.get(email) || null;
 }
 
 export function createSession({ userId, tokenHash, expiresAt }) {
+  if (usePostgresStorage()) {
+    createSessionInPostgresSync({ userId, tokenHash, expiresAt });
+    return;
+  }
   createSessionStmt.run(userId, tokenHash, new Date().toISOString(), expiresAt);
 }
 
 export function findSessionByHash(tokenHash) {
+  if (usePostgresStorage()) return findSessionByHashInPostgresSync(tokenHash);
   return findSessionStmt.get(tokenHash) || null;
 }
 
 export function deleteSessionByHash(tokenHash) {
+  if (usePostgresStorage()) {
+    deleteSessionByHashInPostgresSync(tokenHash);
+    return;
+  }
   deleteSessionStmt.run(tokenHash);
 }
 
@@ -734,6 +830,10 @@ export function addLibraryItem({
   shareToken = null,
   share = false
 }) {
+  if (usePostgresStorage()) {
+    addLibraryItemInPostgresSync({ userId, canonicalId, note, highlights, shareToken, share });
+    return;
+  }
   const nextShareToken = shareToken || (share ? randomUUID() : null);
   const timestamp = new Date().toISOString();
   addLibraryItemStmt.run(
@@ -748,14 +848,20 @@ export function addLibraryItem({
 }
 
 export function listLibraryItems(userId) {
+  if (usePostgresStorage()) return listLibraryItemsFromPostgresSync(userId);
   return listLibraryItemsStmt.all(userId).map(normalizeLibraryItem);
 }
 
 export function findLibraryItemByShareToken(shareToken) {
+  if (usePostgresStorage()) return findLibraryItemByShareTokenInPostgresSync(shareToken);
   return normalizeLibraryItem(getLibraryItemByShareTokenStmt.get(shareToken));
 }
 
 export function removeLibraryItem(userId, canonicalId) {
+  if (usePostgresStorage()) {
+    removeLibraryItemInPostgresSync(userId, canonicalId);
+    return;
+  }
   removeLibraryItemStmt.run(userId, canonicalId);
 }
 
@@ -769,6 +875,10 @@ export function saveSearch({
   lastNotifiedAt = null,
   lastResultCount = 0
 }) {
+  if (usePostgresStorage()) {
+    saveSearchInPostgresSync({ userId, label, queryText, filters, alertEnabled, alertFrequency, lastNotifiedAt, lastResultCount });
+    return;
+  }
   saveSearchStmt.run(
     userId,
     label,
@@ -783,6 +893,7 @@ export function saveSearch({
 }
 
 export function listSavedSearches(userId) {
+  if (usePostgresStorage()) return listSavedSearchesFromPostgresSync(userId);
   return listSavedSearchesStmt.all(userId).map((item) => ({
     ...item,
     filters: JSON.parse(item.filtersJson || '{}'),
@@ -794,6 +905,10 @@ export function listSavedSearches(userId) {
 }
 
 export function removeSavedSearch(userId, id) {
+  if (usePostgresStorage()) {
+    removeSavedSearchInPostgresSync(userId, id);
+    return;
+  }
   removeSavedSearchStmt.run(userId, id);
 }
 
@@ -814,6 +929,7 @@ function normalizeProfileRow(row) {
 }
 
 export function getUserProfile(userId) {
+  if (usePostgresStorage()) return getUserProfileFromPostgresSync(userId);
   return normalizeProfileRow(getUserProfileStmt.get(userId));
 }
 
@@ -826,6 +942,9 @@ export function updateUserProfile({
   alertOptIn = false,
   crossLanguageOptIn = false
 }) {
+  if (usePostgresStorage()) {
+    return updateUserProfileInPostgresSync({ userId, displayName, researchInterests, preferredSources, defaultRegion, alertOptIn, crossLanguageOptIn });
+  }
   if (displayName) {
     updateDisplayNameStmt.run(String(displayName).trim(), userId);
   }

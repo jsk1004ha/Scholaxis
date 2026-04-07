@@ -216,11 +216,32 @@ npm run sync
 npm run scheduler
 npm run worker
 npm run migrate:postgres
+# 설정된 PostgreSQL 대상으로 즉시 적용
+npm run migrate:postgres -- --apply
 npm run vector-service
 npm run graph-service
 npm run backup
 npm run restore -- <backup-file>
 ```
+
+### PostgreSQL + pgvector 실사용 모드
+
+이제 Scholaxis는 PostgreSQL을 실제 저장 백엔드로 사용할 수 있습니다.
+
+예시:
+
+```bash
+export SCHOLAXIS_STORAGE_BACKEND=postgres
+export DATABASE_URL=postgres://user:password@localhost:5432/scholaxis
+npm run migrate:postgres -- --apply
+npm start
+```
+
+현재 PostgreSQL 모드에서 동작하는 항목:
+- 문서 / 검색 / 유사도 실행 저장
+- 인증 / 세션 / 프로필 / 라이브러리 / 저장 검색 저장
+- background job / graph edge 저장
+- pgvector용 임베딩 저장 경로
 
 ---
 
@@ -336,7 +357,6 @@ POST /api/cache/clear
 ## 10. 아직 완전히 끝나지 않은 것
 
 ### 검색 / 인프라
-- PostgreSQL + pgvector 전환
 - 전용 vector DB
 - 전용 graph DB
 - production scheduler / worker 분리
@@ -366,18 +386,13 @@ POST /api/cache/clear
 
 ## 11. 다음 권장 마일스톤
 
-### A. 데이터 인프라 고도화
-- SQLite → PostgreSQL
-- pgvector 도입
-- 검색/저장 계층 이전
-
-### B. 그래프 인텔리전스 고도화
+### A. 그래프 인텔리전스 고도화
 - graph edge 강화
 - author graph
 - citation/reference graph
 - recommendation reranking
 
-### C. 문서 분석 고도화
+### B. 문서 분석 고도화
 - HWP/HWPX 지원
 - OCR 품질 개선
 - 섹션 기반 비교
