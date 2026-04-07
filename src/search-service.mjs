@@ -16,6 +16,8 @@ const SEARCH_STOPWORDS = new Set([
   '연구','분석','시스템','모델','기반','설계','예측','요약','문서','검색','자료','평가','결과',
   'analysis','research','system','model','based','design','prediction','summary','document','search','data','evaluation','results'
 ]);
+const GLOBAL_SOURCES = new Set(['semantic_scholar', 'arxiv']);
+const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'ntis', 'kipris', 'science_fair', 'student_invention_fair']);
 
 function classifySourceType(type) {
   if (['paper', 'thesis', 'patent', 'report', 'fair_entry'].includes(type)) return type;
@@ -125,6 +127,100 @@ function scoreDocument(document, queryTokens, queryVector, querySparse) {
 
 function summarizeFilters({ region, sourceType, sort }) {
   return `${regionLabel[region] || '전체'} · ${sourceTypeLabel[sourceType] || '전체'} · ${sort === 'latest' ? '최신순' : sort === 'citation' ? '인용순' : '관련도순'}`;
+}
+
+function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') {
+  const selected = preferredSources.length ? preferredSources : [...GLOBAL_SOURCES, ...DOMESTIC_SOURCES];
+  if (direction === 'ko-to-en') {
+    return {
+      originalSources: selected.filter((source) => !GLOBAL_SOURCES.has(source)),
+      translatedSources: selected.filter((source) => GLOBAL_SOURCES.has(source))
+    };
+  }
+  if (direction === 'en-to-ko') {
+    return {
+      originalSources: selected.filter((source) => !DOMESTIC_SOURCES.has(source)),
+      translatedSources: selected.filter((source) => DOMESTIC_SOURCES.has(source))
+    };
+  }
+  return { originalSources: selected, translatedSources: [] };
+}
+
+function mergeLiveBundles(...bundles) {
+  const documents = [];
+  const statuses = new Map();
+  for (const bundle of bundles.filter(Boolean)) {
+    documents.push(...(bundle.documents || []));
+    for (const status of bundle.statuses || []) {
+      const current = statuses.get(status.source) || {};
+      statuses.set(status.source, { ...current, ...status });
+    }
+  }
+  return {
+    documents,
+    statuses: [...statuses.values()]
+  };
+}
+
+function buildRerankScore(entry, query = '', crossLingual = null) {
+  const title = normalizeText([entry.item.title, entry.item.englishTitle].filter(Boolean).join(' '));
+  const summary = normalizeText([entry.item.abstract, entry.item.summary, ...(entry.item.keywords || [])].filter(Boolean).join(' '));
+  const baseTokens = unique(tokenize(query));
+  const translatedTokens = unique(tokenize(crossLingual?.translatedQuery || ''));
+  const exactTitle = query ? title.includes(normalizeText(query)) : false;
+  const titleCoverage = baseTokens.length ? baseTokens.filter((token) => title.includes(token)).length / baseTokens.length : 0;
+  const summaryCoverage = baseTokens.length ? baseTokens.filter((token) => summary.includes(token)).length / baseTokens.length : 0;
+  const translatedCoverage = translatedTokens.length
+    ? translatedTokens.filter((token) => title.includes(token) || summary.includes(token)).length / translatedTokens.length
+    : 0;
+  const citationBoost = Math.min((entry.item.citations || 0) / 250, 0.12);
+  return {
+    rerankScore:
+      (exactTitle ? 0.2 : 0) +
+      titleCoverage * 0.24 +
+      summaryCoverage * 0.18 +
+      translatedCoverage * 0.2 +
+      citationBoost,
+    rerankReason: [
+      exactTitle ? '제목 직접 일치' : null,
+      titleCoverage >= 0.34 ? '제목 핵심어 정합성 높음' : null,
+      summaryCoverage >= 0.28 ? '초록/요약 정합성 높음' : null,
+      translatedCoverage >= 0.3 ? '번역 질의와 교차언어 일치' : null,
+      citationBoost >= 0.04 ? '인용 신호 보강' : null,
+    ].filter(Boolean).join(' · ')
+  };
+}
+
+function rerankEntries(entries = [], query = '', crossLingual = null, topK = 12) {
+  const head = entries.slice(0, topK).map((entry) => {
+    const rerank = buildRerankScore(entry, query, crossLingual);
+    return {
+      ...entry,
+      scoreBundle: {
+        ...entry.scoreBundle,
+        rerankScore: rerank.rerankScore,
+        rerankReason: rerank.rerankReason,
+        total: entry.scoreBundle.total + rerank.rerankScore * 100,
+      }
+    };
+  }).sort((a, b) => b.scoreBundle.total - a.scoreBundle.total);
+  return [...head, ...entries.slice(topK)];
+}
+
+function uniqueById(items = []) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = item?.canonicalId || item?.id;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function candidateMatchesPaper(paper, candidate) {
+  const paperTokens = new Set(tokenize([paper.title, ...(paper.keywords || [])].join(' ')));
+  const candidateTokens = new Set(tokenize([candidate.title, ...(candidate.keywords || [])].join(' ')));
+  return [...paperTokens].some((token) => candidateTokens.has(token));
 }
 
 
@@ -295,10 +391,19 @@ async function executeSearchCatalog({
       message: `라이브 소스를 조회하고 있습니다.`,
       preferredSources
     });
-    liveBundle = await searchLiveSources(q, preferredSources, appConfig.maxLiveResultsPerSource, {
+    const sourceSplit = splitSourcesForCrossLingual(preferredSources, crossLingual.direction);
+    const originalLiveBundle = await searchLiveSources(q, sourceSplit.originalSources, appConfig.maxLiveResultsPerSource, {
       forceRefresh,
       overrideEnable: shouldAutoLive || live
     });
+    const translatedLiveBundle =
+      crossLingual.enabled && crossLingual.translatedQuery && sourceSplit.translatedSources.length
+        ? await searchLiveSources(crossLingual.translatedQuery, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
+            forceRefresh,
+            overrideEnable: shouldAutoLive || live
+          })
+        : { documents: [], statuses: [] };
+    liveBundle = mergeLiveBundles(originalLiveBundle, translatedLiveBundle);
     mergedSourceData = await buildSearchIndexDocuments(liveBundle.documents);
     rankedEntries = await attachVectorBoost(rankDocuments(mergedSourceData));
     emitSearchEvent(onEvent, 'progress', {
@@ -316,34 +421,43 @@ async function executeSearchCatalog({
     if (sort === 'citation') return (b.item.citations || 0) - (a.item.citations || 0) || b.scoreBundle.total - a.scoreBundle.total;
     return b.scoreBundle.total - a.scoreBundle.total || (b.item.year || 0) - (a.item.year || 0);
   });
+  const reranked = sort === 'relevance' ? rerankEntries(ranked, q, crossLingual, Math.min(12, ranked.length)) : ranked;
 
   const summary = q
-    ? ranked.length
-      ? `“${q}”에 대해 ${ranked.length}건의 ${sourceTypeLabel[sourceType] || '자료'}를 찾았습니다. ${summarizeFilters({ region, sourceType, sort })} 기준 결과입니다.`
+    ? reranked.length
+      ? `“${q}”에 대해 ${reranked.length}건의 ${sourceTypeLabel[sourceType] || '자료'}를 찾았습니다. ${summarizeFilters({ region, sourceType, sort })} 기준 결과입니다.`
       : `“${q}”와 충분히 관련된 ${sourceTypeLabel[sourceType] || '자료'}를 찾지 못했습니다. 더 구체적인 키워드나 유사 표현으로 다시 시도해 보세요.`
-    : `탐색 가능한 ${ranked.length}건의 자료를 불러왔습니다. ${summarizeFilters({ region, sourceType, sort })} 기준입니다.`;
+    : `탐색 가능한 ${reranked.length}건의 자료를 불러왔습니다. ${summarizeFilters({ region, sourceType, sort })} 기준입니다.`;
 
-  const results = ranked.map(({ item, scoreBundle }, index) => normalizeSearchResult(item, index + 1, scoreBundle));
+  const results = reranked.map(({ item, scoreBundle }, index) => ({
+    ...normalizeSearchResult(item, index + 1, scoreBundle),
+    rerankScore: Number((scoreBundle.rerankScore || 0).toFixed(4)),
+    rerankReason: scoreBundle.rerankReason || '',
+  }));
   const sourceStatus = mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses);
   persistDocuments(mergedSourceData);
   persistGraphEdges(buildGraphEdgesFromResults(results));
   await syncDocumentGraph(mergedSourceData);
   await syncDocumentVectors(mergedSourceData);
   await syncDocumentsToPostgres(mergedSourceData);
-  persistSearchRun({ query: q, filters, total: ranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
+  persistSearchRun({ query: q, filters, total: reranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
 
   const payload = {
     query: q,
     filters,
     summary,
-    total: ranked.length,
+    total: reranked.length,
     relatedQueries: getSearchSuggestions(q).suggestions.slice(0, 6),
     sourceStatus,
     items: results,
     results,
     liveSourceCount: liveBundle.documents.length,
     canonicalCount: mergedSourceData.length,
-    crossLingual
+    crossLingual,
+    reranking: {
+      applied: sort === 'relevance',
+      topK: Math.min(12, reranked.length)
+    }
   };
 
   emitSearchEvent(onEvent, 'results', payload);
@@ -399,6 +513,7 @@ export async function expandPaperById(id) {
         source: item.source,
         year: item.year
       })),
+      recommendations: await getRecommendationsById(id, 6, null),
       graph: getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit),
       sourceStatus: listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source)),
       alternateSources: paper.alternateSources || [paper.source]
@@ -513,9 +628,17 @@ export async function getCitationsById(id, limit = appConfig.citationExpansionLi
   const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);
   if (!paper) return [];
   const graph = getDocumentGraph(id, limit);
-  return graph.citations
+  const direct = graph.citations
     .map((edge) => sourceData.find((item) => (item.canonicalId || item.id) === edge.sourceId))
     .filter(Boolean);
+  if (direct.length >= limit) return direct.slice(0, limit);
+  const fallback = sourceData
+    .filter((candidate) => (candidate.canonicalId || candidate.id) !== id)
+    .filter((candidate) => (candidate.year || 0) >= (paper.year || 0))
+    .filter((candidate) => candidateMatchesPaper(paper, candidate))
+    .sort((a, b) => (b.citations || 0) - (a.citations || 0))
+    .slice(0, limit - direct.length);
+  return uniqueById([...direct, ...fallback]).slice(0, limit);
 }
 
 export async function getReferencesById(id, limit = appConfig.citationExpansionLimit) {
@@ -523,7 +646,15 @@ export async function getReferencesById(id, limit = appConfig.citationExpansionL
   const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);
   if (!paper) return [];
   const graph = getDocumentGraph(id, limit);
-  return graph.references
+  const direct = graph.references
     .map((edge) => sourceData.find((item) => (item.canonicalId || item.id) === edge.targetId))
     .filter(Boolean);
+  if (direct.length >= limit) return direct.slice(0, limit);
+  const fallback = sourceData
+    .filter((candidate) => (candidate.canonicalId || candidate.id) !== id)
+    .filter((candidate) => (candidate.year || 0) <= (paper.year || Number.MAX_SAFE_INTEGER))
+    .filter((candidate) => candidateMatchesPaper(paper, candidate))
+    .sort((a, b) => (b.citations || 0) - (a.citations || 0))
+    .slice(0, limit - direct.length);
+  return uniqueById([...direct, ...fallback]).slice(0, limit);
 }

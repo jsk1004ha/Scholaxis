@@ -474,6 +474,12 @@ test('graph and postgres migration endpoints expose expected payload formats', a
   assert.ok(graphPayload.graph.references.length >= 1);
   assert.equal(graphPayload.graph.references[0].sourceId, 'paper:seed-paper-global-quantum');
 
+  const expansionResponse = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum/expand`);
+  const expansionPayload = await expansionResponse.json();
+  assert.equal(expansionResponse.status, 200);
+  assert.ok(Array.isArray(expansionPayload.expansion.recommendations));
+  assert.ok(expansionPayload.expansion.recommendations.length >= 1);
+
   const migrationResponse = await fetch(`${baseUrl}/api/admin/postgres-migration`);
   const migrationText = await migrationResponse.text();
   assert.equal(migrationResponse.status, 200);
@@ -577,6 +583,8 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   assert.equal(response.status, 200);
   assert.equal(payload.filters.region, 'domestic');
   assert.ok(payload.results[0].id);
+  assert.equal(payload.reranking.applied, true);
+  assert.equal(payload.crossLingual.enabled, false);
   assert.ok(payload.canonicalCount >= 1);
   server.close();
 });
