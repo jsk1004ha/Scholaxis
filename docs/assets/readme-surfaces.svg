@@ -1,0 +1,81 @@
+<svg width="1200" height="620" viewBox="0 0 1200 620" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Scholaxis surface overview</title>
+  <desc id="desc">A visual overview of the main screens: home, results, detail, similarity, library, and admin.</desc>
+  <rect width="1200" height="620" rx="28" fill="#08111F"/>
+  <text x="50" y="68" fill="#E2E8F0" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">Scholaxis Surface Map</text>
+  <text x="50" y="102" fill="#94A3B8" font-size="18" font-family="Arial, Helvetica, sans-serif">Main user flow and the pages already implemented in public/</text>
+
+  <g>
+    <rect x="50" y="150" width="160" height="170" rx="18" fill="#1D4ED8"/>
+    <rect x="66" y="170" width="128" height="18" rx="9" fill="#BFDBFE" opacity="0.85"/>
+    <rect x="66" y="205" width="95" height="14" rx="7" fill="#DBEAFE" opacity="0.85"/>
+    <rect x="66" y="232" width="128" height="52" rx="12" fill="#EFF6FF" opacity="0.96"/>
+    <text x="76" y="306" fill="white" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700">Home</text>
+    <text x="76" y="332" fill="#DBEAFE" font-size="15" font-family="Arial, Helvetica, sans-serif">index.html</text>
+  </g>
+
+  <g>
+    <rect x="245" y="150" width="160" height="170" rx="18" fill="#0F766E"/>
+    <rect x="261" y="170" width="128" height="18" rx="9" fill="#99F6E4" opacity="0.85"/>
+    <rect x="261" y="205" width="110" height="14" rx="7" fill="#CCFBF1" opacity="0.85"/>
+    <rect x="261" y="232" width="56" height="56" rx="10" fill="#ECFEFF" opacity="0.96"/>
+    <rect x="327" y="232" width="62" height="12" rx="6" fill="#ECFEFF" opacity="0.96"/>
+    <rect x="327" y="254" width="62" height="12" rx="6" fill="#ECFEFF" opacity="0.92"/>
+    <rect x="327" y="276" width="62" height="12" rx="6" fill="#ECFEFF" opacity="0.88"/>
+    <text x="271" y="306" fill="white" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700">Results</text>
+    <text x="271" y="332" fill="#CCFBF1" font-size="15" font-family="Arial, Helvetica, sans-serif">results.html</text>
+  </g>
+
+  <g>
+    <rect x="440" y="150" width="160" height="170" rx="18" fill="#7C3AED"/>
+    <rect x="456" y="170" width="128" height="18" rx="9" fill="#DDD6FE" opacity="0.88"/>
+    <rect x="456" y="205" width="78" height="14" rx="7" fill="#EDE9FE" opacity="0.88"/>
+    <rect x="456" y="232" width="128" height="20" rx="10" fill="#F5F3FF" opacity="0.96"/>
+    <rect x="456" y="262" width="128" height="12" rx="6" fill="#F5F3FF" opacity="0.9"/>
+    <rect x="456" y="284" width="128" height="12" rx="6" fill="#F5F3FF" opacity="0.85"/>
+    <text x="466" y="306" fill="white" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700">Detail</text>
+    <text x="466" y="332" fill="#EDE9FE" font-size="15" font-family="Arial, Helvetica, sans-serif">detail.html</text>
+  </g>
+
+  <g>
+    <rect x="635" y="150" width="160" height="170" rx="18" fill="#B45309"/>
+    <rect x="651" y="170" width="128" height="18" rx="9" fill="#FCD34D" opacity="0.88"/>
+    <rect x="651" y="205" width="98" height="14" rx="7" fill="#FDE68A" opacity="0.88"/>
+    <rect x="651" y="232" width="128" height="52" rx="12" fill="#FFFBEB" opacity="0.96"/>
+    <text x="661" y="306" fill="white" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700">Similarity</text>
+    <text x="661" y="332" fill="#FEF3C7" font-size="15" font-family="Arial, Helvetica, sans-serif">similarity.html</text>
+  </g>
+
+  <g>
+    <rect x="830" y="150" width="160" height="170" rx="18" fill="#BE185D"/>
+    <rect x="846" y="170" width="128" height="18" rx="9" fill="#FBCFE8" opacity="0.88"/>
+    <rect x="846" y="205" width="76" height="14" rx="7" fill="#FCE7F3" opacity="0.88"/>
+    <rect x="846" y="232" width="128" height="18" rx="9" fill="#FFF1F2" opacity="0.96"/>
+    <rect x="846" y="258" width="128" height="18" rx="9" fill="#FFF1F2" opacity="0.9"/>
+    <rect x="846" y="284" width="128" height="18" rx="9" fill="#FFF1F2" opacity="0.84"/>
+    <text x="856" y="306" fill="white" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700">Library</text>
+    <text x="856" y="332" fill="#FCE7F3" font-size="15" font-family="Arial, Helvetica, sans-serif">library.html</text>
+  </g>
+
+  <g>
+    <rect x="1025" y="150" width="125" height="170" rx="18" fill="#475569"/>
+    <rect x="1039" y="170" width="97" height="18" rx="9" fill="#CBD5E1" opacity="0.88"/>
+    <rect x="1039" y="205" width="70" height="14" rx="7" fill="#E2E8F0" opacity="0.88"/>
+    <rect x="1039" y="232" width="97" height="14" rx="7" fill="#F8FAFC" opacity="0.96"/>
+    <rect x="1039" y="255" width="97" height="14" rx="7" fill="#F8FAFC" opacity="0.9"/>
+    <rect x="1039" y="278" width="97" height="14" rx="7" fill="#F8FAFC" opacity="0.84"/>
+    <text x="1040" y="306" fill="white" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700">Admin</text>
+    <text x="1040" y="332" fill="#E2E8F0" font-size="14" font-family="Arial, Helvetica, sans-serif">admin.html</text>
+  </g>
+
+  <path d="M210 235H245" stroke="#93C5FD" stroke-width="5" stroke-linecap="round"/>
+  <path d="M405 235H440" stroke="#5EEAD4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M600 235H635" stroke="#C4B5FD" stroke-width="5" stroke-linecap="round"/>
+  <path d="M795 235H830" stroke="#FCD34D" stroke-width="5" stroke-linecap="round"/>
+  <path d="M990 235H1025" stroke="#FDA4AF" stroke-width="5" stroke-linecap="round"/>
+
+  <rect x="85" y="402" width="1030" height="150" rx="24" fill="#111827" stroke="#334155"/>
+  <text x="115" y="448" fill="#F8FAFC" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">Primary flow</text>
+  <text x="115" y="486" fill="#CBD5E1" font-size="19" font-family="Arial, Helvetica, sans-serif">Home → Results → Detail is the main discovery flow.</text>
+  <text x="115" y="516" fill="#CBD5E1" font-size="19" font-family="Arial, Helvetica, sans-serif">Similarity, Library, and Admin are secondary but already implemented companion surfaces.</text>
+</svg>
