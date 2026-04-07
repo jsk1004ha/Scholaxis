@@ -25,6 +25,7 @@ import { extractPdfTextWithOcr, getOcrDiagnostics } from './ocr-service.mjs';
 import {
   expandPaperById,
   getCitationsById,
+  getPersonalizedRecommendations,
   getPaperById,
   getReferencesById,
   getSearchSuggestions,
@@ -45,6 +46,7 @@ import {
   createSession,
   createUser,
   deleteSessionByHash,
+  findLibraryItemByShareToken,
   findSessionByHash,
   findUserByEmail,
   getRecentRequestLogs,
@@ -133,6 +135,7 @@ function normalizeSimilarityCompat(report, overrides = {}) {
           ? '일부 핵심 표현이 겹칩니다. 비교 연구와의 차이를 명확히 서술하세요.'
           : '현재는 심각한 중복 위험이 높지 않지만, 관련 연구 대비 차별점을 유지하세요.',
     sectionComparisons: report.sectionComparisons || [],
+    semanticDiff: report.semanticDiff || { summary: '', insights: [] },
     differentiationAnalysis: report.differentiationAnalysis || null,
     recommendations: report.recommendations
   };
@@ -201,6 +204,17 @@ function buildAdminAlerts({ storage, ocr, sourceRuntime, recentRequests }) {
   }
 
   return alerts;
+}
+
+function buildParserMonitorSummary(jobs = []) {
+  const parserJobs = jobs.filter((job) => job.jobType === 'source-health-check');
+  const latest = parserJobs[0] || null;
+  return {
+    configured: true,
+    recentRuns: parserJobs.slice(0, 5),
+    lastStatus: latest?.status || 'idle',
+    recentFailureCount: parserJobs.filter((job) => job.status === 'failed').length
+  };
 }
 
 function writeSseEvent(res, event, payload) {
@@ -387,6 +401,7 @@ export function createServer() {
         const sourceRuntime = getSourceRuntimeDiagnostics();
         const storage = getStorageDiagnostics();
         const recentRequests = getRecentRequestLogs(20);
+        const jobs = listBackgroundJobs(20);
         return json(res, 200, {
           startup: {
             host: appConfig.host,
@@ -405,6 +420,7 @@ export function createServer() {
             postgres: await getPostgresDiagnostics(),
             vectorBackend: getVectorBackendDiagnostics(),
             graphBackend: getGraphBackendDiagnostics(),
+            parserMonitor: buildParserMonitorSummary(jobs),
             worker: {
               schedulerIntervalMs: appConfig.schedulerIntervalMs,
               workerPollMs: appConfig.workerPollMs,
@@ -413,7 +429,7 @@ export function createServer() {
           },
           recentRequests,
           recentSimilarityRuns: getRecentSimilarityRuns(10),
-          jobs: listBackgroundJobs(20)
+          jobs
         });
       }
 
@@ -529,9 +545,17 @@ export function createServer() {
                 .map((value) => value.trim())
                 .filter(Boolean),
           defaultRegion: body.defaultRegion || 'all',
-          alertOptIn: Boolean(body.alertOptIn)
+          alertOptIn: Boolean(body.alertOptIn),
+          crossLanguageOptIn: Boolean(body.crossLanguageOptIn)
         });
         return json(res, 200, { ok: true, profile });
+      }
+
+      if (pathname.startsWith('/api/library/shared/') && req.method === 'GET') {
+        const shareToken = decodeURIComponent(pathname.split('/')[4] || '');
+        const item = findLibraryItemByShareToken(shareToken);
+        if (!item) return notFound(res, 'Shared library item not found');
+        return json(res, 200, { item });
       }
 
       if (pathname === '/api/library' && req.method === 'GET') {
@@ -544,7 +568,13 @@ export function createServer() {
         const ctx = requireSession(req, res);
         if (!ctx) return;
         const body = await readJsonBody(req);
-        addLibraryItem({ userId: ctx.session.userId, canonicalId: body.canonicalId, note: body.note || '' });
+        addLibraryItem({
+          userId: ctx.session.userId,
+          canonicalId: body.canonicalId,
+          note: body.note || '',
+          highlights: Array.isArray(body.highlights) ? body.highlights : String(body.highlights || '').split(',').map((value) => value.trim()).filter(Boolean),
+          share: Boolean(body.share)
+        });
         return json(res, 200, { ok: true, items: listLibraryItems(ctx.session.userId) });
       }
 
@@ -569,9 +599,23 @@ export function createServer() {
           userId: ctx.session.userId,
           label: body.label || body.queryText || 'Saved search',
           queryText: body.queryText || '',
-          filters: body.filters || {}
+          filters: body.filters || {},
+          alertEnabled: Boolean(body.alertEnabled),
+          alertFrequency: body.alertFrequency || 'daily'
         });
         return json(res, 200, { ok: true, searches: listSavedSearches(ctx.session.userId) });
+      }
+
+      if (pathname === '/api/recommendations/feed' && req.method === 'GET') {
+        const ctx = requireSession(req, res);
+        if (!ctx) return;
+        const userProfile = getUserProfile(ctx.session.userId);
+        const libraryItems = listLibraryItems(ctx.session.userId);
+        return json(res, 200, await getPersonalizedRecommendations({
+          userProfile,
+          libraryItems,
+          limit: Number(searchParams.get('limit') || 8)
+        }));
       }
 
       if (pathname.startsWith('/api/saved-searches/') && req.method === 'DELETE') {

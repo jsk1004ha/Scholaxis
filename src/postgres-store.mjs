@@ -74,6 +74,51 @@ CREATE TABLE IF NOT EXISTS background_jobs (
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS users (
+  id BIGSERIAL PRIMARY KEY,
+  email TEXT UNIQUE,
+  display_name TEXT,
+  password_digest TEXT,
+  created_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT,
+  token_hash TEXT UNIQUE,
+  created_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS library_items (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT,
+  canonical_id TEXT,
+  note TEXT,
+  highlights_json JSONB,
+  share_token TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS saved_searches (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT,
+  label TEXT,
+  query_text TEXT,
+  filters_json JSONB,
+  alert_enabled BOOLEAN,
+  alert_frequency TEXT,
+  last_notified_at TIMESTAMPTZ,
+  last_result_count INTEGER,
+  created_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS user_preferences (
+  user_id BIGINT PRIMARY KEY,
+  research_interests_json JSONB,
+  preferred_sources_json JSONB,
+  default_region TEXT,
+  alert_opt_in BOOLEAN,
+  cross_language_opt_in BOOLEAN,
+  updated_at TIMESTAMPTZ
 );`.trim();
 }
 
@@ -192,7 +237,10 @@ FROM (
   SELECT
     (SELECT COUNT(*) FROM documents) AS documents,
     (SELECT COUNT(*) FROM graph_edges) AS graph_edges,
-    (SELECT COUNT(*) FROM background_jobs) AS background_jobs
+    (SELECT COUNT(*) FROM background_jobs) AS background_jobs,
+    (SELECT COUNT(*) FROM library_items) AS library_items,
+    (SELECT COUNT(*) FROM saved_searches) AS saved_searches,
+    (SELECT COUNT(*) FROM user_preferences) AS user_preferences
 ) t;`);
     return {
       enabled: true,

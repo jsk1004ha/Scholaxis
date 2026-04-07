@@ -40,8 +40,10 @@ and only secondarily for:
 
 Implemented:
 - unified search UI
+- streamed search UI via SSE
 - detail page
 - recommendation/related expansion
+- interest-aware recommendation feed
 - live-source fan-out
 - deduplication
 - vector + sparse retrieval signals
@@ -68,8 +70,12 @@ Implemented:
 - text similarity analysis
 - PDF extraction
 - DOCX extraction
+- HWPX extraction
+- heuristic HWP extraction
 - OCR fallback pipeline
 - multipart upload analysis endpoint
+- section-aware comparison
+- semantic diff style section highlights
 
 ### 2.4 Operational features
 
@@ -77,14 +83,19 @@ Implemented:
 - runtime health diagnostics
 - source status diagnostics
 - in-memory source cache
+- cache hot-query/prewarm observability
+- parser/source health background job scheduling
 - cache clear API
 - force-refresh search
 - SQLite persistence
+- PostgreSQL + pgvector migration SQL / readiness diagnostics
 - backup / restore scripts
 - admin summary API
 - local auth / session flow
 - library items
 - saved searches
+- saved-search alert metadata
+- library share token / highlights metadata
 
 ---
 
@@ -124,6 +135,7 @@ Stored entities include:
 - sessions
 - library items
 - saved searches
+- user preferences
 
 ---
 
@@ -133,6 +145,7 @@ Stored entities include:
 - `GET /api/health`
 - `GET /api/trends`
 - `GET /api/search`
+- `GET /api/search/stream`
 - `GET /api/search/suggestions`
 - `GET /api/sources/status`
 - `GET /api/papers/:id`
@@ -166,10 +179,12 @@ Stored entities include:
 - `PATCH /api/profile`
 - `GET /api/library`
 - `POST /api/library`
+- `GET /api/library/shared/:shareToken`
 - `DELETE /api/library/:canonicalId`
 - `GET /api/saved-searches`
 - `POST /api/saved-searches`
 - `DELETE /api/saved-searches/:id`
+- `GET /api/recommendations/feed`
 
 ---
 
@@ -193,6 +208,11 @@ npm run verify
 ### Batch / storage ops
 ```bash
 npm run sync
+npm run scheduler
+npm run worker
+npm run migrate:postgres
+npm run vector-service
+npm run graph-service
 npm run backup
 npm run restore -- <backup-file>
 ```
@@ -247,6 +267,7 @@ The server reports OCR readiness in:
 
 Implemented protections:
 - source result caching
+- hot-query cache prewarm jobs
 - force-refresh search
 - KIPRIS API-first + site-search fallback
 - DBpia API-first + public-search fallback

@@ -7,6 +7,7 @@ import {
   fetchMe,
   fetchPaper,
   fetchProfile,
+  fetchRecommendationFeed,
   fetchSavedSearches,
   fetchSearchStream,
   login,
@@ -14,6 +15,7 @@ import {
   register,
   removeLibraryItem,
   removeSavedSearch,
+  saveLibraryItem,
   saveProfile,
   saveSearchRequest,
 } from './api.js';
@@ -257,6 +259,21 @@ async function initDetailPage() {
   if (similarityLink) {
     similarityLink.href = `./similarity.html?paperId=${encodeURIComponent(paper.id)}`;
   }
+
+  qs('[data-save-library]')?.addEventListener('click', async () => {
+    const me = await fetchMe().catch(() => ({ user: null }));
+    if (!me.user) {
+      window.alert('로그인 후 라이브러리에 저장할 수 있습니다.');
+      return;
+    }
+    await saveLibraryItem({
+      canonicalId: paper.id,
+      note: `${paper.title} 저장`,
+      highlights: (paper.tags || []).slice(0, 4),
+      share: true,
+    });
+    window.alert('라이브러리에 저장했습니다.');
+  });
 }
 
 async function initSimilarityPage() {
@@ -270,6 +287,7 @@ async function initSimilarityPage() {
   const differentiation = qs('[data-differentiation]');
   const differentiators = qs('[data-differentiators]');
   const sectionComparisons = qs('[data-section-comparisons]');
+  const semanticDiff = qs('[data-semantic-diff]');
   const risk = qs('[data-risk]');
   const compared = qs('[data-compared-paper]');
   const recommendations = qs('[data-recommendations]');
@@ -298,6 +316,16 @@ async function initSimilarityPage() {
             )
             .join('')
         : '<li>섹션 비교 결과가 없습니다.</li>';
+    }
+    if (semanticDiff) {
+      semanticDiff.innerHTML = (result.semanticDiff?.insights ?? []).length
+        ? result.semanticDiff.insights
+            .map(
+              (item) =>
+                `<li><strong>${escapeHtml(item.section)}</strong>: ${escapeHtml(item.summary)}</li>`,
+            )
+            .join('')
+        : `<li>${escapeHtml(result.semanticDiff?.summary || '의미적 차이 분석 결과가 없습니다.')}</li>`;
     }
     if (risk) risk.textContent = result.risk;
     if (compared) {
@@ -416,6 +444,7 @@ async function initLibraryPage() {
   const authState = qs('[data-auth-state]');
   const libraryRoot = qs('[data-library-items]');
   const searchesRoot = qs('[data-saved-searches]');
+  const recommendationRoot = qs('[data-recommendation-feed]');
   const saveSearchForm = qs('[data-save-search-form]');
   const profileForm = qs('[data-profile-form]');
 
@@ -426,6 +455,7 @@ async function initLibraryPage() {
     if (!me.user) {
       if (libraryRoot) libraryRoot.innerHTML = '<p>로그인 후 확인 가능</p>';
       if (searchesRoot) searchesRoot.innerHTML = '<p>로그인 후 확인 가능</p>';
+      if (recommendationRoot) recommendationRoot.innerHTML = '<p>로그인 후 개인화 추천 확인 가능</p>';
       if (profileForm) profileForm.innerHTML = '<p class="muted-copy">로그인 후 선호도/프로필을 편집할 수 있습니다.</p>';
       return;
     }
@@ -437,6 +467,7 @@ async function initLibraryPage() {
       preferredSources: [],
       defaultRegion: 'all',
       alertOptIn: false,
+      crossLanguageOptIn: false,
     };
 
     if (profileForm) {
@@ -465,6 +496,10 @@ async function initLibraryPage() {
           <input type="checkbox" name="alertOptIn" ${profile.alertOptIn ? 'checked' : ''} />
           운영 알림 수신
         </label>
+        <label class="checkbox-row">
+          <input type="checkbox" name="crossLanguageOptIn" ${profile.crossLanguageOptIn ? 'checked' : ''} />
+          다국어 교차 검색 기반 추천 허용
+        </label>
         <div class="action-row">
           <button class="button button--primary" type="submit">프로필 저장</button>
         </div>
@@ -480,6 +515,8 @@ async function initLibraryPage() {
               <div class="card">
                 <strong>${item.canonicalId}</strong>
                 <p>${item.note || ''}</p>
+                <p class="muted-copy">${(item.highlights || []).length ? `하이라이트: ${item.highlights.join(', ')}` : '하이라이트 없음'}</p>
+                <p class="muted-copy">${item.shareToken ? `공유 토큰: ${item.shareToken}` : '공유 비활성'}</p>
                 <button class="button button--ghost" data-remove-library="${item.canonicalId}">삭제</button>
               </div>
             `,
@@ -496,11 +533,28 @@ async function initLibraryPage() {
               <div class="card">
                 <strong>${item.label}</strong>
                 <p>${item.queryText}</p>
+                <p class="muted-copy">${item.alertEnabled ? `알림 주기: ${item.alertFrequency}` : '알림 꺼짐'}</p>
                 <button class="button button--ghost" data-remove-search="${item.id}">삭제</button>
               </div>
             `,
           )
           .join('') || '<p>저장 검색 없음</p>';
+    }
+
+    const feed = await fetchRecommendationFeed(6).catch(() => ({ items: [] }));
+    if (recommendationRoot) {
+      recommendationRoot.innerHTML =
+        (feed.items || [])
+          .map(
+            (item) => `
+              <div class="card">
+                <strong>${escapeHtml(item.title)}</strong>
+                <p>${escapeHtml((item.explanation || []).join(' · ') || item.summary || '')}</p>
+                <span class="muted-copy">추천 점수 ${escapeHtml(item.recommendationScore)}</span>
+              </div>
+            `,
+          )
+          .join('') || '<p>개인화 추천이 아직 없습니다.</p>';
     }
   };
 
@@ -529,6 +583,8 @@ async function initLibraryPage() {
     await saveSearchRequest({
       label: formData.get('label'),
       queryText: formData.get('queryText'),
+      alertEnabled: formData.get('alertEnabled') === 'on',
+      alertFrequency: formData.get('alertFrequency') || 'daily',
       filters: {},
     });
     await refresh();
@@ -543,6 +599,7 @@ async function initLibraryPage() {
       preferredSources: String(formData.get('preferredSources') || ''),
       defaultRegion: formData.get('defaultRegion'),
       alertOptIn: formData.get('alertOptIn') === 'on',
+      crossLanguageOptIn: formData.get('crossLanguageOptIn') === 'on',
     });
     await refresh();
   });

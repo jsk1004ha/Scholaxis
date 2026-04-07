@@ -47,9 +47,21 @@
             <form data-save-search-form class="stack">
               <input class="input" name="label" placeholder="label" />
               <input class="input" name="queryText" placeholder="query" />
+              <label class="checkbox-row">
+                <input type="checkbox" name="alertEnabled" />
+                저장 검색 알림 활성화
+              </label>
+              <select class="input" name="alertFrequency">
+                <option value="daily">daily</option>
+                <option value="weekly">weekly</option>
+              </select>
               <button class="button button--primary" type="submit">검색 저장</button>
             </form>
             <div data-saved-searches></div>
+          </article>
+          <article class="card">
+            <h2>관심사 기반 자동 추천</h2>
+            <div data-recommendation-feed></div>
           </article>
         </section>
       </main>

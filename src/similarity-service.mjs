@@ -231,6 +231,42 @@ function buildDifferentiationAnalysis(textTokens = [], paper = {}, strongest = n
   };
 }
 
+function buildSemanticDiff(inputSections = [], strongest = null, sectionComparisons = []) {
+  if (!inputSections.length || !strongest) {
+    return {
+      summary: '섹션 간 의미 차이를 분석할 정보가 아직 부족합니다.',
+      insights: []
+    };
+  }
+
+  const matchedSections = strongest.itemSections || [];
+  const insights = sectionComparisons.map((comparison) => {
+    const inputSection = inputSections.find((section) => section.label === comparison.inputSection);
+    const matchedSection = matchedSections.find((section) => section.label === comparison.matchedSection);
+    const inputTokens = inputSection?.tokens || [];
+    const matchedTokens = matchedSection?.tokens || [];
+    const uniqueToInput = inputTokens.filter((token) => !matchedTokens.includes(token)).slice(0, 5);
+    const uniqueToMatch = matchedTokens.filter((token) => !inputTokens.includes(token)).slice(0, 5);
+    return {
+      section: comparison.inputSection,
+      matchedSection: comparison.matchedSection,
+      summary:
+        comparison.overlapScore >= 60
+          ? `${comparison.inputSection}은 ${comparison.matchedSection}과 문제의식은 비슷하지만 ${uniqueToInput.slice(0, 2).join(', ') || '적용 맥락'} 측면에서 차별점이 있습니다.`
+          : `${comparison.inputSection}은 ${comparison.matchedSection}과 비교해 ${uniqueToInput.slice(0, 3).join(', ') || '핵심 주장'}에 더 무게를 두며 의미적 방향이 다릅니다.`,
+      uniqueToInput,
+      uniqueToMatch
+    };
+  });
+
+  return {
+    summary: insights.length
+      ? `${insights[0].section}부터 ${insights[0].matchedSection} 대비 의미적 차이를 설명할 수 있습니다.`
+      : '의미적 차이 분석 결과가 없습니다.',
+    insights
+  };
+}
+
 export function buildSimilarityReport({ title = '업로드 문서', text = '' } = {}) {
   const textTokens = unique(tokenize(text));
   const textVector = buildDenseVector(text, appConfig.vectorDimensions);
@@ -246,6 +282,10 @@ export function buildSimilarityReport({ title = '업로드 문서', text = '' } 
       noveltySignals: [],
       topMatches: [],
       sectionComparisons: [],
+      semanticDiff: {
+        summary: '차별점 분석을 위해 더 긴 초록/본문이 필요합니다.',
+        insights: []
+      },
       differentiationAnalysis: {
         strengthLevel: 'weak',
         uniqueTerms: [],
@@ -295,6 +335,7 @@ export function buildSimilarityReport({ title = '업로드 문서', text = '' } 
   const sharedThemes = unique(ranked.flatMap((item) => item.sharedKeywords)).slice(0, 8);
   const score = strongest.score;
   const sectionComparisons = compareSectionStructures(inputSections, strongest.itemSections || []);
+  const semanticDiff = buildSemanticDiff(inputSections, strongest, sectionComparisons);
   const differentiationAnalysis = buildDifferentiationAnalysis(textTokens, strongest, strongest, sectionComparisons);
 
   return {
@@ -309,6 +350,7 @@ export function buildSimilarityReport({ title = '업로드 문서', text = '' } 
       sparseScore: Number(sparse.toFixed(4))
     })),
     sectionComparisons,
+    semanticDiff,
     differentiationAnalysis,
     recommendations:
       score >= 82

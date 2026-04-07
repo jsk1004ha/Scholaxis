@@ -205,6 +205,8 @@ test('auth and library flow works end-to-end', async () => {
     body: JSON.stringify({
       canonicalId: 'paper:seed-paper-global-quantum',
       note: 'important',
+      highlights: ['핵심 주장', '실험 포인트'],
+      share: true,
     }),
   });
   const libraryAddPayload = await libraryAddResponse.json();
@@ -222,6 +224,8 @@ test('auth and library flow works end-to-end', async () => {
       label: '배터리 검색',
       queryText: '배터리 AI',
       filters: { region: 'domestic' },
+      alertEnabled: true,
+      alertFrequency: 'weekly',
     }),
   });
   const savedSearchPayload = await savedSearchResponse.json();
@@ -237,7 +241,14 @@ test('auth and library flow works end-to-end', async () => {
   const libraryPayload = await libraryResponse.json();
   assert.equal(libraryResponse.status, 200);
   assert.equal(libraryPayload.items[0].note, 'important');
+  assert.deepEqual(libraryPayload.items[0].highlights, ['핵심 주장', '실험 포인트']);
+  assert.ok(libraryPayload.items[0].shareToken);
   assert.ok(libraryPayload.items[0].createdAt);
+
+  const sharedLibraryResponse = await fetch(`${baseUrl}/api/library/shared/${libraryPayload.items[0].shareToken}`);
+  const sharedLibraryPayload = await sharedLibraryResponse.json();
+  assert.equal(sharedLibraryResponse.status, 200);
+  assert.equal(sharedLibraryPayload.item.canonicalId, 'paper:seed-paper-global-quantum');
 
   const savedSearchListResponse = await fetch(`${baseUrl}/api/saved-searches`, {
     headers: { cookie },
@@ -246,6 +257,8 @@ test('auth and library flow works end-to-end', async () => {
   assert.equal(savedSearchListResponse.status, 200);
   assert.equal(savedSearchListPayload.searches[0].label, '배터리 검색');
   assert.deepEqual(savedSearchListPayload.searches[0].filters, { region: 'domestic' });
+  assert.equal(savedSearchListPayload.searches[0].alertEnabled, true);
+  assert.equal(savedSearchListPayload.searches[0].alertFrequency, 'weekly');
 
   const deleteSavedSearchResponse = await fetch(
     `${baseUrl}/api/saved-searches/${savedSearchListPayload.searches[0].id}`,
@@ -360,6 +373,7 @@ test('profile endpoint saves user preferences', async () => {
       preferredSources: ['kci', 'dbpia'],
       defaultRegion: 'domestic',
       alertOptIn: true,
+      crossLanguageOptIn: true,
     }),
   });
   const updatePayload = await updateResponse.json();
@@ -375,6 +389,7 @@ test('profile endpoint saves user preferences', async () => {
   assert.equal(profileResponse.status, 200);
   assert.equal(profilePayload.profile.defaultRegion, 'domestic');
   assert.equal(profilePayload.profile.alertOptIn, true);
+  assert.equal(profilePayload.profile.crossLanguageOptIn, true);
   assert.deepEqual(profilePayload.profile.researchInterests, ['OCR', '추천 시스템']);
 
   server.close();
@@ -389,6 +404,45 @@ test('recommendations endpoint returns data', async () => {
   assert.equal(response.status, 200);
   assert.ok(Array.isArray(payload.recommendations));
   assert.ok(payload.recommendations[0].recommendationScore >= payload.recommendations.at(-1).recommendationScore);
+  server.close();
+});
+
+test('personalized recommendation feed uses profile and library context', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const email = `feed-${Date.now()}@example.com`;
+  const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: 'test-password', displayName: 'Feed Tester' }),
+  });
+  const cookie = registerResponse.headers.get('set-cookie');
+  assert.ok(cookie);
+
+  await fetch(`${baseUrl}/api/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({
+      researchInterests: ['graph', 'battery'],
+      preferredSources: ['semantic_scholar'],
+      defaultRegion: 'global',
+      crossLanguageOptIn: true,
+    }),
+  });
+
+  await fetch(`${baseUrl}/api/library`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ canonicalId: 'paper:seed-paper-global-quantum', note: 'seed library item' }),
+  });
+
+  const response = await fetch(`${baseUrl}/api/recommendations/feed`, {
+    headers: { cookie },
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(payload.items));
+  assert.ok(payload.items.length >= 1);
+  assert.ok(Array.isArray(payload.items[0].explanation));
   server.close();
 });
 
@@ -466,6 +520,7 @@ test('admin ops endpoint returns startup, alerts, and similarity runs', async ()
   assert.ok(payload.runtime.postgres);
   assert.ok(payload.runtime.vectorBackend);
   assert.ok(payload.runtime.graphBackend);
+  assert.ok(payload.runtime.parserMonitor);
   assert.ok(payload.runtime.worker);
   assert.ok(Array.isArray(payload.jobs));
 
@@ -492,6 +547,7 @@ test('admin infra and jobs endpoints expose search infrastructure controls', asy
   assert.equal(scheduleResponse.status, 200);
   assert.ok(Array.isArray(schedulePayload.jobs));
   assert.ok(schedulePayload.jobs.length >= 1);
+  assert.ok(schedulePayload.jobs.some((job) => job.jobType === 'source-health-check'));
 
   const jobsResponse = await fetch(`${baseUrl}/api/admin/jobs`);
   const jobsPayload = await jobsResponse.json();
@@ -499,6 +555,18 @@ test('admin infra and jobs endpoints expose search infrastructure controls', asy
   assert.ok(Array.isArray(jobsPayload.jobs));
   assert.ok(jobsPayload.jobs.length >= 1);
 
+  server.close();
+});
+
+test('search stream endpoint emits summary, progress, results, and done events', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/search/stream?q=배터리%20AI&region=all&sourceType=all&sort=relevance&autoLive=0`);
+  const text = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(text, /event: summary/);
+  assert.match(text, /event: progress/);
+  assert.match(text, /event: results/);
+  assert.match(text, /event: done/);
   server.close();
 });
 
@@ -580,12 +648,12 @@ test('similarity report returns matches and recommendations', async () => {
   assert.ok(payload.differentiationAnalysis.strengthLevel);
   assert.ok(Array.isArray(payload.differentiationAnalysis.lowOverlapSections));
   assert.ok(Array.isArray(payload.differentiationAnalysis.strategyRecommendations));
+  assert.ok(payload.semanticDiff);
+  assert.ok(Array.isArray(payload.semanticDiff.insights));
   assert.ok(payload.topMatches[0].denseScore >= 0);
   assert.ok(payload.topMatches[0].sparseScore >= 0);
   server.close();
 });
-
-test.todo('search stream endpoint emits summary, progress, results, and done events');
 
 
 
@@ -603,6 +671,11 @@ test('hwp extractor returns best-effort text with warning', async () => {
   const extraction = await extractHwpText(Buffer.from('테스트 HWP 텍스트'));
   assert.match(extraction.text, /테스트 HWP 텍스트/);
   assert.ok(extraction.warnings.includes('binary-hwp-best-effort-only'));
+});
+
+test('hwp extractor can recover utf16-encoded korean text heuristically', async () => {
+  const extraction = await extractHwpText(Buffer.from('국문 보고서 테스트', 'utf16le'));
+  assert.match(extraction.text, /국문 보고서 테스트/);
 });
 
 test('pdf extractor pulls simple text from a PDF buffer', async () => {

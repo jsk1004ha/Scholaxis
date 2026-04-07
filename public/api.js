@@ -335,6 +335,10 @@ export async function saveLibraryItem(payload) {
   });
 }
 
+export async function fetchSharedLibraryItem(shareToken) {
+  return requestJson(`/api/library/shared/${encodeURIComponent(shareToken)}`);
+}
+
 export async function removeLibraryItem(canonicalId) {
   return requestJson(`/api/library/${encodeURIComponent(canonicalId)}`, { method: 'DELETE' });
 }
@@ -353,4 +357,8 @@ export async function saveSearchRequest(payload) {
 
 export async function removeSavedSearch(id) {
   return requestJson(`/api/saved-searches/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchRecommendationFeed(limit = 8) {
+  return requestJson(`/api/recommendations/feed?limit=${encodeURIComponent(limit)}`);
 }

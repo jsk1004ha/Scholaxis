@@ -39,6 +39,11 @@ export function buildPostgresMigrationSql() {
     'CREATE TABLE IF NOT EXISTS graph_edges (source_id TEXT, target_id TEXT, edge_type TEXT, weight DOUBLE PRECISION, created_at TIMESTAMPTZ);',
     'CREATE INDEX IF NOT EXISTS idx_graph_edges_source_type ON graph_edges(source_id, edge_type);',
     'CREATE TABLE IF NOT EXISTS background_jobs (id BIGSERIAL PRIMARY KEY, job_type TEXT, status TEXT, payload_json JSONB, priority INTEGER, attempts INTEGER, last_error TEXT, run_after TIMESTAMPTZ, leased_until TIMESTAMPTZ, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ, completed_at TIMESTAMPTZ);',
+    'CREATE TABLE IF NOT EXISTS users (id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE, display_name TEXT, password_digest TEXT, created_at TIMESTAMPTZ);',
+    'CREATE TABLE IF NOT EXISTS sessions (id BIGSERIAL PRIMARY KEY, user_id BIGINT, token_hash TEXT UNIQUE, created_at TIMESTAMPTZ, expires_at TIMESTAMPTZ);',
+    'CREATE TABLE IF NOT EXISTS library_items (id BIGSERIAL PRIMARY KEY, user_id BIGINT, canonical_id TEXT, note TEXT, highlights_json JSONB, share_token TEXT, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);',
+    'CREATE TABLE IF NOT EXISTS saved_searches (id BIGSERIAL PRIMARY KEY, user_id BIGINT, label TEXT, query_text TEXT, filters_json JSONB, alert_enabled BOOLEAN, alert_frequency TEXT, last_notified_at TIMESTAMPTZ, last_result_count INTEGER, created_at TIMESTAMPTZ);',
+    'CREATE TABLE IF NOT EXISTS user_preferences (user_id BIGINT PRIMARY KEY, research_interests_json JSONB, preferred_sources_json JSONB, default_region TEXT, alert_opt_in BOOLEAN, cross_language_opt_in BOOLEAN, updated_at TIMESTAMPTZ);',
   ];
 
   for (const document of documents) {

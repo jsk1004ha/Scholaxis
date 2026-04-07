@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -135,7 +136,10 @@ db.exec(`
     user_id INTEGER,
     canonical_id TEXT,
     note TEXT,
+    highlights_json TEXT,
+    share_token TEXT,
     created_at TEXT,
+    updated_at TEXT,
     UNIQUE(user_id, canonical_id)
   );
 
@@ -145,6 +149,10 @@ db.exec(`
     label TEXT,
     query_text TEXT,
     filters_json TEXT,
+    alert_enabled INTEGER,
+    alert_frequency TEXT,
+    last_notified_at TEXT,
+    last_result_count INTEGER,
     created_at TEXT
   );
 
@@ -154,9 +162,27 @@ db.exec(`
     preferred_sources_json TEXT,
     default_region TEXT,
     alert_opt_in INTEGER,
+    cross_language_opt_in INTEGER,
     updated_at TEXT
   );
 `);
+
+function ensureColumn(table, columnDefinition) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDefinition}`);
+  } catch (error) {
+    if (!/duplicate column name/i.test(String(error?.message || ''))) throw error;
+  }
+}
+
+ensureColumn('library_items', 'highlights_json TEXT');
+ensureColumn('library_items', 'share_token TEXT');
+ensureColumn('library_items', 'updated_at TEXT');
+ensureColumn('saved_searches', 'alert_enabled INTEGER DEFAULT 0');
+ensureColumn('saved_searches', "alert_frequency TEXT DEFAULT 'daily'");
+ensureColumn('saved_searches', 'last_notified_at TEXT');
+ensureColumn('saved_searches', 'last_result_count INTEGER DEFAULT 0');
+ensureColumn('user_preferences', 'cross_language_opt_in INTEGER DEFAULT 0');
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_graph_edges_source_type ON graph_edges(source_id, edge_type);
@@ -306,25 +332,59 @@ const findSessionStmt = db.prepare(`
 `);
 const deleteSessionStmt = db.prepare(`DELETE FROM sessions WHERE token_hash = ?`);
 const addLibraryItemStmt = db.prepare(`
-  INSERT INTO library_items (user_id, canonical_id, note, created_at)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(user_id, canonical_id) DO UPDATE SET note=excluded.note
+  INSERT INTO library_items (user_id, canonical_id, note, highlights_json, share_token, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(user_id, canonical_id) DO UPDATE SET
+    note=excluded.note,
+    highlights_json=excluded.highlights_json,
+    share_token=COALESCE(excluded.share_token, library_items.share_token),
+    updated_at=excluded.updated_at
 `);
 const listLibraryItemsStmt = db.prepare(`
-  SELECT canonical_id AS canonicalId, note, created_at AS createdAt
+  SELECT
+    canonical_id AS canonicalId,
+    note,
+    highlights_json AS highlightsJson,
+    share_token AS shareToken,
+    created_at AS createdAt,
+    updated_at AS updatedAt
   FROM library_items
   WHERE user_id = ?
   ORDER BY id DESC
+`);
+const getLibraryItemByShareTokenStmt = db.prepare(`
+  SELECT
+    user_id AS userId,
+    canonical_id AS canonicalId,
+    note,
+    highlights_json AS highlightsJson,
+    share_token AS shareToken,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+  FROM library_items
+  WHERE share_token = ?
 `);
 const removeLibraryItemStmt = db.prepare(`
   DELETE FROM library_items WHERE user_id = ? AND canonical_id = ?
 `);
 const saveSearchStmt = db.prepare(`
-  INSERT INTO saved_searches (user_id, label, query_text, filters_json, created_at)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT INTO saved_searches (
+    user_id, label, query_text, filters_json,
+    alert_enabled, alert_frequency, last_notified_at, last_result_count, created_at
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const listSavedSearchesStmt = db.prepare(`
-  SELECT id, label, query_text AS queryText, filters_json AS filtersJson, created_at AS createdAt
+  SELECT
+    id,
+    label,
+    query_text AS queryText,
+    filters_json AS filtersJson,
+    alert_enabled AS alertEnabled,
+    alert_frequency AS alertFrequency,
+    last_notified_at AS lastNotifiedAt,
+    last_result_count AS lastResultCount,
+    created_at AS createdAt
   FROM saved_searches
   WHERE user_id = ?
   ORDER BY id DESC
@@ -344,13 +404,15 @@ const upsertUserPreferencesStmt = db.prepare(`
     preferred_sources_json,
     default_region,
     alert_opt_in,
+    cross_language_opt_in,
     updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     research_interests_json=excluded.research_interests_json,
     preferred_sources_json=excluded.preferred_sources_json,
     default_region=excluded.default_region,
     alert_opt_in=excluded.alert_opt_in,
+    cross_language_opt_in=excluded.cross_language_opt_in,
     updated_at=excluded.updated_at
 `);
 const getUserProfileStmt = db.prepare(`
@@ -363,6 +425,7 @@ const getUserProfileStmt = db.prepare(`
     p.preferred_sources_json AS preferredSourcesJson,
     p.default_region AS defaultRegion,
     p.alert_opt_in AS alertOptIn,
+    p.cross_language_opt_in AS crossLanguageOptIn,
     p.updated_at AS updatedAt
   FROM users u
   LEFT JOIN user_preferences p ON p.user_id = u.id
@@ -651,26 +714,82 @@ export function deleteSessionByHash(tokenHash) {
   deleteSessionStmt.run(tokenHash);
 }
 
-export function addLibraryItem({ userId, canonicalId, note = '' }) {
-  addLibraryItemStmt.run(userId, canonicalId, note, new Date().toISOString());
+function normalizeLibraryItem(row) {
+  if (!row) return null;
+  return {
+    canonicalId: row.canonicalId,
+    note: row.note || '',
+    highlights: JSON.parse(row.highlightsJson || '[]'),
+    shareToken: row.shareToken || null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt || row.createdAt
+  };
+}
+
+export function addLibraryItem({
+  userId,
+  canonicalId,
+  note = '',
+  highlights = [],
+  shareToken = null,
+  share = false
+}) {
+  const nextShareToken = shareToken || (share ? randomUUID() : null);
+  const timestamp = new Date().toISOString();
+  addLibraryItemStmt.run(
+    userId,
+    canonicalId,
+    note,
+    JSON.stringify(Array.isArray(highlights) ? highlights : []),
+    nextShareToken,
+    timestamp,
+    timestamp
+  );
 }
 
 export function listLibraryItems(userId) {
-  return listLibraryItemsStmt.all(userId);
+  return listLibraryItemsStmt.all(userId).map(normalizeLibraryItem);
+}
+
+export function findLibraryItemByShareToken(shareToken) {
+  return normalizeLibraryItem(getLibraryItemByShareTokenStmt.get(shareToken));
 }
 
 export function removeLibraryItem(userId, canonicalId) {
   removeLibraryItemStmt.run(userId, canonicalId);
 }
 
-export function saveSearch({ userId, label, queryText, filters = {} }) {
-  saveSearchStmt.run(userId, label, queryText, JSON.stringify(filters), new Date().toISOString());
+export function saveSearch({
+  userId,
+  label,
+  queryText,
+  filters = {},
+  alertEnabled = false,
+  alertFrequency = 'daily',
+  lastNotifiedAt = null,
+  lastResultCount = 0
+}) {
+  saveSearchStmt.run(
+    userId,
+    label,
+    queryText,
+    JSON.stringify(filters),
+    alertEnabled ? 1 : 0,
+    alertFrequency || 'daily',
+    lastNotifiedAt,
+    Number(lastResultCount || 0),
+    new Date().toISOString()
+  );
 }
 
 export function listSavedSearches(userId) {
   return listSavedSearchesStmt.all(userId).map((item) => ({
     ...item,
-    filters: JSON.parse(item.filtersJson || '{}')
+    filters: JSON.parse(item.filtersJson || '{}'),
+    alertEnabled: Boolean(item.alertEnabled),
+    alertFrequency: item.alertFrequency || 'daily',
+    lastNotifiedAt: item.lastNotifiedAt || null,
+    lastResultCount: Number(item.lastResultCount || 0)
   }));
 }
 
@@ -689,6 +808,7 @@ function normalizeProfileRow(row) {
     preferredSources: JSON.parse(row.preferredSourcesJson || '[]'),
     defaultRegion: row.defaultRegion || 'all',
     alertOptIn: Boolean(row.alertOptIn),
+    crossLanguageOptIn: Boolean(row.crossLanguageOptIn),
     updatedAt: row.updatedAt || null
   };
 }
@@ -703,7 +823,8 @@ export function updateUserProfile({
   researchInterests = [],
   preferredSources = [],
   defaultRegion = 'all',
-  alertOptIn = false
+  alertOptIn = false,
+  crossLanguageOptIn = false
 }) {
   if (displayName) {
     updateDisplayNameStmt.run(String(displayName).trim(), userId);
@@ -715,6 +836,7 @@ export function updateUserProfile({
     JSON.stringify(Array.isArray(preferredSources) ? preferredSources : []),
     defaultRegion || 'all',
     alertOptIn ? 1 : 0,
+    crossLanguageOptIn ? 1 : 0,
     new Date().toISOString()
   );
 

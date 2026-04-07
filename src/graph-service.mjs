@@ -5,7 +5,7 @@ import {
   persistGraphEdges,
   replaceGraphEdgesForSource,
 } from './storage.mjs';
-import { cosineSimilarity, tokenize, unique } from './vector-service.mjs';
+import { cosineSimilarity, normalizeText, tokenize, unique } from './vector-service.mjs';
 
 function canonicalId(document) {
   return document.canonicalId || document.id;
@@ -18,16 +18,53 @@ function keywordOverlapScore(left = [], right = []) {
   return overlap.length / Math.max(1, Math.max(leftSet.size, rightSet.size));
 }
 
+function organizationKey(value = '') {
+  return unique(tokenize(normalizeText(value)))
+    .slice(0, 3)
+    .join(':');
+}
+
+function authorIdentityKey(author = '', document = {}) {
+  const normalizedAuthor = normalizeText(author).replace(/\s+/g, '');
+  if (!normalizedAuthor) return '';
+  const orgKey = organizationKey(document.organization || '');
+  return orgKey ? `${normalizedAuthor}::${orgKey}` : normalizedAuthor;
+}
+
 function buildAuthorEdges(document) {
   const docId = canonicalId(document);
   return (document.authors || []).flatMap((author) => {
-    const authorId = `author:${String(author).trim().toLowerCase()}`;
+    const authorId = `author:${authorIdentityKey(author, document)}`;
     if (!String(author || '').trim()) return [];
     return [
       { sourceId: docId, targetId: authorId, edgeType: 'authored_by', weight: 1 },
       { sourceId: authorId, targetId: docId, edgeType: 'author_document', weight: 1 },
     ];
   });
+}
+
+function deriveAuthorAffinityCandidates(document, documents = [], limit = 4) {
+  const baseId = canonicalId(document);
+  const baseAuthors = new Set((document.authors || []).map((author) => authorIdentityKey(author, document)).filter(Boolean));
+  const baseOrg = organizationKey(document.organization || '');
+  return documents
+    .filter((candidate) => canonicalId(candidate) !== baseId)
+    .map((candidate) => {
+      const candidateAuthors = new Set((candidate.authors || []).map((author) => authorIdentityKey(author, candidate)).filter(Boolean));
+      const sharedAuthors = [...baseAuthors].filter((author) => candidateAuthors.has(author));
+      const sharedOrg = baseOrg && baseOrg === organizationKey(candidate.organization || '');
+      const keywordOverlap = keywordOverlapScore(document.keywords || [], candidate.keywords || []);
+      const dense = cosineSimilarity(document.vector || [], candidate.vector || []);
+      const score =
+        sharedAuthors.length * 0.55 +
+        (sharedOrg ? 0.18 : 0) +
+        keywordOverlap * 0.17 +
+        dense * 0.1;
+      return { candidate, score, sharedAuthors, sharedOrg };
+    })
+    .filter((entry) => entry.score > 0.2)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
 
 function deriveReferenceCandidates(document, documents = [], limit = appConfig.citationExpansionLimit) {
@@ -66,6 +103,17 @@ export function deriveGraphEdges(documents = []) {
         sourceId: targetId,
         targetId: docId,
         edgeType: 'cited_by',
+        weight: Number(entry.score.toFixed(4)),
+      });
+    }
+
+    const authorAffinity = deriveAuthorAffinityCandidates(document, documents);
+    for (const entry of authorAffinity) {
+      const targetId = canonicalId(entry.candidate);
+      edges.push({
+        sourceId: docId,
+        targetId,
+        edgeType: 'author_affinity',
         weight: Number(entry.score.toFixed(4)),
       });
     }
@@ -111,6 +159,7 @@ export function getDocumentGraph(documentId, limit = 12) {
     references: listGraphEdges({ sourceId: documentId, edgeType: 'references', limit }),
     citations: listGraphEdges({ targetId: documentId, edgeType: 'references', limit }),
     authors: listGraphEdges({ sourceId: documentId, edgeType: 'authored_by', limit }),
+    authorAffinity: listGraphEdges({ sourceId: documentId, edgeType: 'author_affinity', limit }),
     similar: listGraphEdges({ sourceId: documentId, edgeType: 'similar', limit }),
   };
 }
@@ -121,6 +170,7 @@ export function getGraphBackendDiagnostics() {
     serviceUrl: appConfig.graphServiceUrl || '',
     totalEdges: getAllGraphEdges(5000).length,
     supportsAuthorGraph: true,
+    supportsAuthorResolution: true,
     supportsCitationGraph: true,
     supportsReferenceGraph: true,
   };

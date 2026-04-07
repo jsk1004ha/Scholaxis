@@ -407,6 +407,96 @@ export async function getRecommendationsById(id, limit = 5, userProfile = null) 
   });
 }
 
+export async function getPersonalizedRecommendations({
+  userProfile = null,
+  libraryItems = [],
+  limit = 8
+} = {}) {
+  const sourceData = await buildSearchIndexDocuments();
+  const libraryIds = new Set((libraryItems || []).map((item) => item.canonicalId).filter(Boolean));
+  const aggregated = new Map();
+
+  for (const item of (libraryItems || []).slice(0, 5)) {
+    const paper = sourceData.find((candidate) => (candidate.canonicalId || candidate.id) === item.canonicalId);
+    if (!paper) continue;
+    const recommendations = await buildRecommendationSet({
+      paper,
+      documents: sourceData,
+      userProfile,
+      limit: Math.max(limit, 6),
+    });
+    for (const recommendation of recommendations) {
+      const key = recommendation.canonicalId || recommendation.id;
+      if (!key || libraryIds.has(key)) continue;
+      const current = aggregated.get(key) || {
+        ...recommendation,
+        explanation: [],
+        recommendationScore: 0
+      };
+      current.recommendationScore += Number(recommendation.recommendationScore || 0);
+      current.explanation = unique([...(current.explanation || []), ...(recommendation.explanation || [])]);
+      aggregated.set(key, current);
+    }
+  }
+
+  const interestTerms = unique(tokenize((userProfile?.researchInterests || []).join(' ')));
+  for (const candidate of sourceData) {
+    const candidateId = candidate.canonicalId || candidate.id;
+    if (!candidateId || libraryIds.has(candidateId)) continue;
+    const interestOverlap = interestTerms.filter((term) =>
+      [candidate.title, candidate.summary, ...(candidate.keywords || [])].join(' ').toLowerCase().includes(term)
+    );
+    if (!interestOverlap.length && aggregated.has(candidateId)) continue;
+    const current = aggregated.get(candidateId) || {
+      ...candidate,
+      explanation: [],
+      recommendationScore: 0
+    };
+    current.recommendationScore +=
+      interestOverlap.length * 9 +
+      (userProfile?.preferredSources?.includes(candidate.source) ? 6 : 0) +
+      (userProfile?.defaultRegion && userProfile.defaultRegion === candidate.region ? 4 : 0) +
+      Math.max(0, (candidate.year || 2020) - 2020) * 0.8;
+    if (interestOverlap.length) {
+      current.explanation = unique([...(current.explanation || []), `관심사 기반 추천: ${interestOverlap.slice(0, 3).join(', ')}`]);
+    }
+    aggregated.set(candidateId, current);
+  }
+
+  const fallback = sourceData
+    .filter((candidate) => !libraryIds.has(candidate.canonicalId || candidate.id))
+    .slice(0, limit)
+    .map((candidate) => ({
+      ...candidate,
+      recommendationScore:
+        (userProfile?.preferredSources?.includes(candidate.source) ? 12 : 0) +
+        Math.max(0, (candidate.year || 2020) - 2020),
+      explanation: ['기본 추천 피드'],
+    }));
+
+  const items = (aggregated.size ? [...aggregated.values()] : fallback)
+    .sort((a, b) => b.recommendationScore - a.recommendationScore)
+    .slice(0, limit)
+    .map((item, index) => ({
+      ...normalizeSearchResult(attachVectors(item, appConfig.vectorDimensions), index + 1, {
+        lexicalScore: 0,
+        denseScore: 0,
+        sparseScore: 0,
+        total: Number(item.recommendationScore || 0)
+      }),
+      recommendationScore: Number((item.recommendationScore || 0).toFixed(2)),
+      explanation: item.explanation || []
+    }));
+
+  return {
+    total: items.length,
+    summary: items.length
+      ? '관심 분야와 저장한 문헌을 바탕으로 다음에 읽을 자료를 추천했습니다.'
+      : '개인화 추천을 생성하려면 관심 분야나 라이브러리 항목을 추가해 주세요.',
+    items
+  };
+}
+
 export async function getCitationsById(id, limit = appConfig.citationExpansionLimit) {
   const sourceData = await buildSearchIndexDocuments();
   const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);

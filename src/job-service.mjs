@@ -42,6 +42,11 @@ export function enqueueRecurringInfraJobs() {
       payload: { topic: 'seed-catalog' },
       priority: 5,
     }),
+    enqueueBackgroundJob({
+      jobType: 'source-health-check',
+      payload: { query: hotQueries[0]?.query || trendingTopics[0] || 'AI research' },
+      priority: 5,
+    }),
     ...trendingTopics.slice(0, 4).map((topic, index) =>
       enqueueBackgroundJob({
         jobType: 'live-search-sync',
@@ -117,6 +122,25 @@ async function runCachePrewarm(payload = {}) {
   }
 }
 
+async function runSourceHealthCheck(payload = {}) {
+  const query = payload.query || trendingTopics[0] || 'AI research';
+  const result = await searchCatalog({
+    q: query,
+    live: appConfig.enableLiveSources,
+    autoLive: appConfig.autoLiveOnEmpty,
+    forceRefresh: true,
+  });
+  const failingSources = (result.sourceStatus || [])
+    .filter((item) => ['error', 'timeout'].includes(String(item.status || '').toLowerCase()));
+  return {
+    ok: failingSources.length === 0,
+    query,
+    total: result.total,
+    failingSources: failingSources.map((item) => item.source),
+    sourceCount: (result.sourceStatus || []).length,
+  };
+}
+
 export async function runBackgroundJob(job) {
   switch (job.jobType) {
     case 'graph-refresh':
@@ -127,6 +151,8 @@ export async function runBackgroundJob(job) {
       return runCitationRefresh(job.payload);
     case 'cache-prewarm':
       return runCachePrewarm(job.payload);
+    case 'source-health-check':
+      return runSourceHealthCheck(job.payload);
     default:
       return { ok: true, skipped: true, jobType: job.jobType };
   }
