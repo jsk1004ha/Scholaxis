@@ -26,5 +26,6 @@
     "backup": "node scripts/backup-sqlite.mjs",
     "restore": "node scripts/restore-sqlite.mjs",
     "verify": "npm run typecheck && npm run lint && npm test && npm run smoke"
-  }
+  },
+  "license": "Apache-2.0"
 }

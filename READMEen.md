@@ -398,7 +398,6 @@ Recommended workflow:
 
 ## License
 
-There is currently no `LICENSE` file at the repository root.
-That means the project does not yet have an explicitly documented license policy.
+This project is distributed under the **Apache License 2.0** (`Apache-2.0`) as documented in the repository-root `LICENSE` file.
 
-Before redistribution or reuse, define the license policy first.
+If you redistribute or modify the project, keep the required notices and mark your changes as required by Apache 2.0.
