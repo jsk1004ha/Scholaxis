@@ -139,9 +139,9 @@ export function looksLikeNoise(text = '') {
     return true;
   }
   if (/[{}[\];<>]|==|=>|\+\s*\d/.test(value)) return true;
-  const asciiWords = (value.match(/[A-Za-z]{10,}/g) || []).length;
   const symbolCount = (value.match(/[=+_*\\/]/g) || []).length;
-  return asciiWords >= 3 || symbolCount >= 6;
+  const codeLikeLines = (value.match(/[A-Za-z_]+\([^)]*\)|[A-Za-z_]+\.[A-Za-z_]+|<\/?[A-Za-z]+>/g) || []).length;
+  return symbolCount >= 6 || codeLikeLines >= 3;
 }
 
 export function matchesQueryText(text = '', query = '') {

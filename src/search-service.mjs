@@ -130,6 +130,32 @@ function summarizeFilters({ region, sourceType, sort }) {
   return `${regionLabel[region] || '전체'} · ${sourceTypeLabel[sourceType] || '전체'} · ${sort === 'latest' ? '최신순' : sort === 'citation' ? '인용순' : '관련도순'}`;
 }
 
+function buildFallbackQueries(query = '', crossLingual = null) {
+  const normalized = normalizeText(query);
+  const tokens = unique(tokenize(query));
+  const informative = tokens.filter((token) => !SEARCH_STOPWORDS.has(token));
+  const longest = [...informative].sort((a, b) => b.length - a.length).slice(0, 3);
+  const variants = [
+    normalized,
+    normalized.replace(/\s+/g, ''),
+    informative.join(' '),
+    informative.slice(0, 2).join(' '),
+    longest.join(' '),
+    crossLingual?.translatedQuery || '',
+  ].filter(Boolean);
+
+  if (informative.length >= 3) {
+    for (let index = 0; index <= informative.length - 2; index += 1) {
+      variants.push(informative.slice(index, index + 2).join(' '));
+    }
+  }
+
+  return unique(variants)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => item !== query.trim());
+}
+
 function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') {
   const selected = preferredSources.length ? preferredSources : [...GLOBAL_SOURCES, ...DOMESTIC_SOURCES];
   if (direction === 'ko-to-en') {
@@ -419,6 +445,77 @@ async function executeSearchCatalog({
     });
   }
 
+  let reformulationsTried = [];
+  if (!rankedEntries.length) {
+    const fallbackQueries = buildFallbackQueries(q, crossLingual);
+    for (const fallbackQuery of fallbackQueries.slice(0, 6)) {
+      reformulationsTried.push(fallbackQuery);
+      const fallbackTokens = buildQueryTokens(fallbackQuery);
+      const fallbackTerms = unique(tokenize(fallbackQuery)).filter((token) => !SEARCH_STOPWORDS.has(token));
+      const fallbackVector = buildDenseVector(fallbackQuery, appConfig.vectorDimensions);
+      const fallbackSparse = buildSparseVector(fallbackQuery);
+
+      function rankFallbackDocuments(documents = []) {
+        return documents
+          .filter((item) => (region === 'all' ? true : item.region === region))
+          .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
+          .map((item) => ({ item, scoreBundle: scoreDocument(item, fallbackTokens, fallbackVector, fallbackSparse) }));
+      }
+
+      const localFallback = await attachVectorBoost(rankFallbackDocuments(mergedSourceData));
+      if (localFallback.length) {
+        rankedEntries = localFallback.map((entry) => ({
+          ...entry,
+          scoreBundle: {
+            ...entry.scoreBundle,
+            total: entry.scoreBundle.total + 5,
+            rerankReason: `재질의 fallback: ${fallbackQuery}`
+          }
+        }));
+        emitSearchEvent(onEvent, 'progress', {
+          stage: 'fallback-local',
+          query: q,
+          filters,
+          message: `결과가 없어 재질의 “${fallbackQuery}”로 후보를 다시 찾았습니다.`,
+          reformulation: fallbackQuery
+        });
+        break;
+      }
+
+      if (live || shouldAutoLive) {
+        const sourceSplit = splitSourcesForCrossLingual(preferredSources, crossLingual.direction);
+        const liveFallbackOriginal = await searchLiveSources(fallbackQuery, sourceSplit.originalSources, appConfig.maxLiveResultsPerSource, {
+          forceRefresh,
+          overrideEnable: shouldAutoLive || live
+        });
+        const liveFallbackTranslated =
+          crossLingual.enabled && crossLingual.translatedQuery && sourceSplit.translatedSources.length
+            ? await searchLiveSources(crossLingual.translatedQuery, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
+                forceRefresh,
+                overrideEnable: shouldAutoLive || live
+              })
+            : { documents: [], statuses: [] };
+        const fallbackBundle = mergeLiveBundles(liveFallbackOriginal, liveFallbackTranslated);
+        if (fallbackBundle.documents.length) {
+          liveBundle = mergeLiveBundles(liveBundle, fallbackBundle);
+          mergedSourceData = await buildSearchIndexDocuments(liveBundle.documents);
+          rankedEntries = await attachVectorBoost(rankFallbackDocuments(mergedSourceData));
+          if (rankedEntries.length) {
+            emitSearchEvent(onEvent, 'progress', {
+              stage: 'fallback-live',
+              query: q,
+              filters,
+              message: `재질의 “${fallbackQuery}”와 라이브 소스를 결합해 후보를 찾았습니다.`,
+              reformulation: fallbackQuery,
+              liveSourceCount: fallbackBundle.documents.length
+            });
+            break;
+          }
+        }
+      }
+    }
+  }
+
   const ranked = [...rankedEntries].sort((a, b) => {
     if (sort === 'latest') return (b.item.year || 0) - (a.item.year || 0) || b.scoreBundle.total - a.scoreBundle.total;
     if (sort === 'citation') return (b.item.citations || 0) - (a.item.citations || 0) || b.scoreBundle.total - a.scoreBundle.total;
@@ -461,6 +558,7 @@ async function executeSearchCatalog({
     liveSourceCount: liveBundle.documents.length,
     canonicalCount: mergedSourceData.length,
     crossLingual,
+    reformulationsTried,
     reranking: {
       ...rerankResult.diagnostics,
       applied: sort === 'relevance' ? rerankResult.diagnostics.applied : false,
