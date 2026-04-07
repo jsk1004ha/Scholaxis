@@ -65,6 +65,7 @@ import {
 } from './storage.mjs';
 import { buildSimilarityReport } from './similarity-service.mjs';
 import { appConfig } from './config.mjs';
+import { ensureTranslationBackend, getTranslationDiagnostics } from './translation-runtime.mjs';
 import { getVectorBackendDiagnostics } from './vector-index-service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -305,6 +306,7 @@ export function createServer() {
           runtime: {
             ocr,
             sourceRuntime,
+            translation: getTranslationDiagnostics(),
             storage: getStorageDiagnostics()
           }
         });
@@ -418,6 +420,7 @@ export function createServer() {
             ocr,
             sourceRuntime,
             postgres: await getPostgresDiagnostics(),
+            translation: getTranslationDiagnostics(),
             vectorBackend: getVectorBackendDiagnostics(),
             graphBackend: getGraphBackendDiagnostics(),
             parserMonitor: buildParserMonitorSummary(jobs),
@@ -714,6 +717,9 @@ export function startServer(
   host = appConfig.host,
   options = {}
 ) {
+  void ensureTranslationBackend().catch((error) => {
+    console.warn(`[startup] translation backend bootstrap failed: ${error.message}`);
+  });
   const server = createServer();
   const maxFallbackAttempts = Math.max(
     0,

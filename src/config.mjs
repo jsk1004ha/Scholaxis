@@ -10,6 +10,11 @@ function readInt(name, defaultValue) {
 }
 
 export const appConfig = {
+  translationProvider: process.env.SCHOLAXIS_TRANSLATION_PROVIDER || 'generic',
+  translationHost: process.env.SCHOLAXIS_TRANSLATION_HOST || '127.0.0.1',
+  translationPort: readInt('SCHOLAXIS_TRANSLATION_PORT', 5001),
+  translationAutostart: readBool('SCHOLAXIS_TRANSLATION_AUTOSTART', true),
+  translationStartupTimeoutMs: readInt('SCHOLAXIS_TRANSLATION_STARTUP_TIMEOUT_MS', 20000),
   host: process.env.HOST || '127.0.0.1',
   portFallbackAttempts: readInt('SCHOLAXIS_PORT_FALLBACK_ATTEMPTS', 10),
   storageBackend: process.env.SCHOLAXIS_STORAGE_BACKEND || 'sqlite',
@@ -37,8 +42,11 @@ export const appConfig = {
   scienceOnSearchUrl:
     process.env.SCIENCEON_SEARCH_URL ||
     'https://scienceon.kisti.re.kr/srch/selectPORSrchArticleList.do',
-  translationProvider: process.env.SCHOLAXIS_TRANSLATION_PROVIDER || 'generic',
-  translationServiceUrl: process.env.SCHOLAXIS_TRANSLATION_SERVICE_URL || '',
+  translationServiceUrl:
+    process.env.SCHOLAXIS_TRANSLATION_SERVICE_URL ||
+    ((process.env.SCHOLAXIS_TRANSLATION_PROVIDER || 'generic') === 'libretranslate'
+      ? `http://${process.env.SCHOLAXIS_TRANSLATION_HOST || '127.0.0.1'}:${readInt('SCHOLAXIS_TRANSLATION_PORT', 5001)}/translate`
+      : ''),
   translationApiKey: process.env.SCHOLAXIS_TRANSLATION_API_KEY || '',
   userAgent:
     process.env.SCHOLAXIS_USER_AGENT ||
