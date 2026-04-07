@@ -42,6 +42,7 @@ export function buildPostgresMigrationSql() {
     'CREATE INDEX IF NOT EXISTS idx_graph_edges_source_type ON graph_edges(source_id, edge_type);',
     'CREATE INDEX IF NOT EXISTS idx_graph_edges_target_type ON graph_edges(target_id, edge_type);',
     'CREATE TABLE IF NOT EXISTS background_jobs (id BIGSERIAL PRIMARY KEY, job_type TEXT, status TEXT, payload_json JSONB, priority INTEGER, attempts INTEGER, last_error TEXT, run_after TIMESTAMPTZ, leased_until TIMESTAMPTZ, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ, completed_at TIMESTAMPTZ);',
+    'CREATE TABLE IF NOT EXISTS request_logs (id BIGSERIAL PRIMARY KEY, method TEXT, path TEXT, status INTEGER, duration_ms DOUBLE PRECISION, created_at TIMESTAMPTZ);',
     'CREATE TABLE IF NOT EXISTS users (id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE, display_name TEXT, password_digest TEXT, created_at TIMESTAMPTZ);',
     'CREATE TABLE IF NOT EXISTS sessions (id BIGSERIAL PRIMARY KEY, user_id BIGINT, token_hash TEXT UNIQUE, created_at TIMESTAMPTZ, expires_at TIMESTAMPTZ);',
     'CREATE TABLE IF NOT EXISTS library_items (id BIGSERIAL PRIMARY KEY, user_id BIGINT, canonical_id TEXT, note TEXT, highlights_json JSONB, share_token TEXT, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);',

@@ -17,8 +17,14 @@ const [{ buildPostgresMigrationSql }, { getPostgresSchemaSql }] = await Promise.
   import('../src/postgres-store.mjs')
 ]);
 
+function buildPsqlArgs(sql) {
+  const args = ['-X', '-v', 'ON_ERROR_STOP=1', '-c', sql];
+  if (process.env.DATABASE_URL) return [process.env.DATABASE_URL, ...args];
+  return args;
+}
+
 async function runPsql(sql) {
-  const { stdout } = await execFileAsync(process.env.PSQL_BIN || 'psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-c', sql], {
+  const { stdout } = await execFileAsync(process.env.PSQL_BIN || 'psql', buildPsqlArgs(sql), {
     env: process.env,
     maxBuffer: 16 * 1024 * 1024
   });

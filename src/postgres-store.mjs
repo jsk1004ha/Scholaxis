@@ -17,17 +17,21 @@ function hasConnectionConfig() {
   );
 }
 
-async function runPsql(sql) {
+function buildPsqlArgs(sql) {
   const args = ['-X', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-c', sql];
-  const { stdout } = await execFileAsync(process.env.PSQL_BIN || 'psql', args, {
+  if (process.env.DATABASE_URL) return [process.env.DATABASE_URL, ...args];
+  return args;
+}
+
+async function runPsql(sql) {
+  const { stdout } = await execFileAsync(process.env.PSQL_BIN || 'psql', buildPsqlArgs(sql), {
     env: process.env,
   });
   return stdout.trim();
 }
 
 function runPsqlSync(sql) {
-  const args = ['-X', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-c', sql];
-  return execFileSync(process.env.PSQL_BIN || 'psql', args, {
+  return execFileSync(process.env.PSQL_BIN || 'psql', buildPsqlArgs(sql), {
     env: process.env,
     encoding: 'utf8',
   }).trim();
@@ -130,6 +134,14 @@ CREATE TABLE IF NOT EXISTS background_jobs (
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS request_logs (
+  id BIGSERIAL PRIMARY KEY,
+  method TEXT,
+  path TEXT,
+  status INTEGER,
+  duration_ms DOUBLE PRECISION,
+  created_at TIMESTAMPTZ
 );
 CREATE TABLE IF NOT EXISTS users (
   id BIGSERIAL PRIMARY KEY,
