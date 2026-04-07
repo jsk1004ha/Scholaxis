@@ -48,14 +48,15 @@ async function checkTranslationBackend() {
 }
 
 function candidateCommands() {
+  const localUserBinary = `${process.env.HOME || ''}/.local/bin/libretranslate`;
   return [
     {
-      command: 'libretranslate',
+      command: localUserBinary,
       args: ['--host', appConfig.translationHost, '--port', String(appConfig.translationPort)],
     },
     {
-      command: 'python3',
-      args: ['-m', 'libretranslate', '--host', appConfig.translationHost, '--port', String(appConfig.translationPort)],
+      command: 'libretranslate',
+      args: ['--host', appConfig.translationHost, '--port', String(appConfig.translationPort)],
     },
   ];
 }
