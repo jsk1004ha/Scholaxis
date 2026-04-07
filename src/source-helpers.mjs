@@ -1,28 +1,6 @@
 import { appConfig } from './config.mjs';
 import { normalizeText, unique } from './vector-service.mjs';
 
-const QUERY_TRANSLATIONS = {
-  배터리: ['battery'],
-  열폭주: ['thermal runaway'],
-  반도체: ['semiconductor'],
-  설명가능ai: ['explainable ai', 'xai'],
-  설명가능: ['explainable'],
-  인공지능: ['artificial intelligence', 'ai'],
-  연구탐색: ['research discovery', 'scholarly search'],
-  특허: ['patent'],
-  보고서: ['report'],
-  논문: ['paper'],
-  학생발명: ['student invention'],
-  전람회: ['science fair'],
-  결로: ['condensation'],
-  터널: ['tunnel'],
-  시계열: ['time series'],
-  기후: ['climate'],
-  정책: ['policy'],
-  바이오: ['bio'],
-  양자: ['quantum']
-};
-
 export function makeAbortSignal(timeoutMs = appConfig.sourceTimeoutMs) {
   return AbortSignal.timeout(timeoutMs);
 }
@@ -186,16 +164,114 @@ export function expandQueryVariants(query = '') {
   if (!base) return [];
 
   const normalized = normalizeText(base);
+  const compact = normalized.replace(/\s+/g, '');
   const tokens = normalized.split(' ').filter(Boolean);
-  const translated = [];
+  const windows = [];
 
-  for (const token of tokens) {
-    if (QUERY_TRANSLATIONS[token]) translated.push(...QUERY_TRANSLATIONS[token]);
-    if (token === 'ai') translated.push('artificial intelligence');
+  if (tokens.length >= 2) {
+    for (let index = 0; index < tokens.length - 1; index += 1) {
+      windows.push(tokens.slice(index, index + 2).join(' '));
+    }
   }
 
-  const joinedEnglish = translated.join(' ').trim();
-  return unique([base, normalized, joinedEnglish].filter(Boolean));
+  return unique([base, normalized, compact, ...windows].filter(Boolean));
+}
+
+function detectLanguage(value = '') {
+  if (!String(value || '').trim()) return 'none';
+  const hasKorean = /[가-힣]/.test(value);
+  const hasLatin = /[A-Za-z]/.test(value);
+  if (hasKorean && hasLatin) return 'mixed';
+  if (hasKorean) return 'ko';
+  if (hasLatin) return 'en';
+  return 'other';
+}
+
+async function translateWithBackend(text = '', source = 'auto', target = 'en') {
+  if (!appConfig.translationServiceUrl) return '';
+  const url = new URL(appConfig.translationServiceUrl);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(appConfig.translationApiKey ? { authorization: `Bearer ${appConfig.translationApiKey}` } : {})
+    },
+    body: JSON.stringify({ text, source, target })
+  });
+  if (!response.ok) throw new Error(`translation backend request failed: ${response.status}`);
+  const payload = await response.json();
+  return String(payload.translation || payload.text || '').trim();
+}
+
+export async function buildCrossLingualQueryContext(query = '') {
+  const base = String(query || '').trim();
+  if (!base) {
+    return {
+      enabled: false,
+      originalQuery: '',
+      language: 'none',
+      direction: 'none',
+      translatedQuery: '',
+      variants: [],
+      backend: appConfig.translationServiceUrl ? 'http' : 'disabled',
+      reason: 'empty-query'
+    };
+  }
+
+  const normalized = normalizeText(base);
+  const language = detectLanguage(base);
+  const variants = expandQueryVariants(base);
+  if (!appConfig.translationServiceUrl) {
+    return {
+      enabled: false,
+      originalQuery: base,
+      language,
+      direction: 'none',
+      translatedQuery: '',
+      variants,
+      backend: 'disabled',
+      reason: 'translation-backend-not-configured'
+    };
+  }
+
+  if (language === 'ko') {
+    const translatedQuery = await translateWithBackend(base, 'ko', 'en');
+    return {
+      enabled: Boolean(translatedQuery),
+      originalQuery: base,
+      language,
+      direction: translatedQuery ? 'ko-to-en' : 'none',
+      translatedQuery,
+      variants: unique([...variants, translatedQuery].filter(Boolean)),
+      backend: 'http',
+      reason: translatedQuery ? '' : 'translation-empty'
+    };
+  }
+
+  if (language === 'en') {
+    const translatedQuery = await translateWithBackend(base, 'en', 'ko');
+    return {
+      enabled: Boolean(translatedQuery),
+      originalQuery: base,
+      language,
+      direction: translatedQuery ? 'en-to-ko' : 'none',
+      translatedQuery,
+      variants: unique([...variants, translatedQuery].filter(Boolean)),
+      backend: 'http',
+      reason: translatedQuery ? '' : 'translation-empty'
+    };
+  }
+
+  return {
+    enabled: false,
+    originalQuery: base,
+    language,
+    direction: 'none',
+    translatedQuery: '',
+    variants,
+    backend: 'http',
+    reason: language === 'mixed' ? 'mixed-language-query' : 'unsupported-language'
+  };
 }
 
 export function mergeSourceStatuses(staticStatuses = [], runtimeStatuses = []) {

@@ -37,6 +37,8 @@ export const appConfig = {
   scienceOnSearchUrl:
     process.env.SCIENCEON_SEARCH_URL ||
     'https://scienceon.kisti.re.kr/srch/selectPORSrchArticleList.do',
+  translationServiceUrl: process.env.SCHOLAXIS_TRANSLATION_SERVICE_URL || '',
+  translationApiKey: process.env.SCHOLAXIS_TRANSLATION_API_KEY || '',
   userAgent:
     process.env.SCHOLAXIS_USER_AGENT ||
     'ScholaxisResearchBot/0.3 (+https://example.local; contact=local-demo)',

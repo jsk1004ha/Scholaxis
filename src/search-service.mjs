@@ -6,7 +6,7 @@ import { getDocumentGraph, syncDocumentGraph } from './graph-service.mjs';
 import { loadDocumentsFromPostgres, syncDocumentsToPostgres } from './postgres-store.mjs';
 import { buildRecommendationSet } from './recommendation-service.mjs';
 import { searchLiveSources, sourceRegistrySummary } from './source-adapters.mjs';
-import { expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
+import { buildCrossLingualQueryContext, expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
 import { attachVectors, buildDenseVector, buildSparseVector, cosineSimilarity, normalizeText, sparseOverlapScore, tokenize, unique } from './vector-service.mjs';
 import { searchVectorCandidates, syncDocumentVectors } from './vector-index-service.mjs';
 
@@ -224,20 +224,30 @@ async function executeSearchCatalog({
   forceRefresh = false,
   autoLive = appConfig.autoLiveOnEmpty
 } = {}, onEvent = null) {
-  const queryTokens = buildQueryTokens(q);
-  const queryTerms = unique(tokenize(q)).filter((token) => !SEARCH_STOPWORDS.has(token));
-  const rawQueryTermCount = unique(tokenize(q)).length;
-  const queryVector = buildDenseVector(q, appConfig.vectorDimensions);
-  const querySparse = buildSparseVector(q);
+  const crossLingual = await buildCrossLingualQueryContext(q);
+  const retrievalQuery = unique([q, crossLingual.translatedQuery].filter(Boolean)).join(' ').trim() || q;
+  const queryTokens = buildQueryTokens(retrievalQuery);
+  const queryTerms = unique(tokenize(retrievalQuery)).filter((token) => !SEARCH_STOPWORDS.has(token));
+  const rawQueryTermCount = unique(tokenize(retrievalQuery)).length;
+  const queryVector = buildDenseVector(retrievalQuery, appConfig.vectorDimensions);
+  const querySparse = buildSparseVector(retrievalQuery);
   const shouldAutoLive = Boolean(q.trim()) && autoLive && !live;
-  const filters = { region, sourceType, sort, preferredSources };
+  const filters = {
+    region,
+    sourceType,
+    sort,
+    preferredSources,
+    crossLingual: crossLingual.enabled,
+    crossLingualBackend: crossLingual.backend,
+  };
 
   emitSearchEvent(onEvent, 'summary', {
     query: q,
     filters,
     summary: q
       ? `“${q}” 검색을 시작합니다. 로컬 인덱스와 라이브 소스를 순차적으로 확인합니다.`
-      : `기본 탐색 결과를 준비하고 있습니다.`
+      : `기본 탐색 결과를 준비하고 있습니다.`,
+    crossLingual
   });
 
   function rankDocuments(documents = []) {
@@ -250,7 +260,7 @@ async function executeSearchCatalog({
   async function attachVectorBoost(entries = []) {
     const documents = entries.map((entry) => entry.item);
     const vectorHits = await searchVectorCandidates({
-      query: q,
+      query: retrievalQuery,
       documents,
       limit: appConfig.recommendationCandidateLimit,
     });
@@ -263,7 +273,7 @@ async function executeSearchCatalog({
           total: scoreBundle.total + (vectorHitScores.get(item.canonicalId || item.id) || 0) * 10,
         },
       }))
-      .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, q));
+      .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, retrievalQuery));
   }
 
   let liveBundle = { documents: [], statuses: [] };
@@ -332,7 +342,8 @@ async function executeSearchCatalog({
     items: results,
     results,
     liveSourceCount: liveBundle.documents.length,
-    canonicalCount: mergedSourceData.length
+    canonicalCount: mergedSourceData.length,
+    crossLingual
   };
 
   emitSearchEvent(onEvent, 'results', payload);

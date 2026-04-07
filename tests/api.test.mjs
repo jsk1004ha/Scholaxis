@@ -9,7 +9,7 @@ import { getPostgresSchemaSql } from '../src/postgres-store.mjs';
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
 import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
-import { hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
+import { buildCrossLingualQueryContext, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
 import { searchLiveSources } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
 import { extractKciDocumentsFromHtml } from '../src/source-adapters.mjs';
@@ -851,6 +851,16 @@ test('source helper rejects broken-encoding and code-noise titles', () => {
   assert.equal(looksLikeNoise('588 + engJungsung[jung] * 28 + engJongsung[jong] + 44032);'), true);
   assert.equal(isUsableSearchText('자석 진자를 이용한 발전 장치', '자석진자'), true);
   assert.equal(isUsableSearchText('현재 페이지에 input text 입력창이 하나라서 별다른 처리는 하지않음', '자석진자'), false);
+});
+
+test('query expansion stays generic when no translation backend is configured', async () => {
+  const variants = expandQueryVariants('새로운 주제 검색');
+  assert.ok(variants.includes('새로운 주제 검색'));
+  assert.ok(!variants.includes('new topic search'));
+
+  const context = await buildCrossLingualQueryContext('새로운 주제 검색');
+  assert.equal(context.enabled, false);
+  assert.equal(context.reason, 'translation-backend-not-configured');
 });
 
 test('vector backend server supports upsert and search', async () => {
