@@ -48,6 +48,9 @@ export const appConfig = {
       ? `http://${process.env.SCHOLAXIS_TRANSLATION_HOST || '127.0.0.1'}:${readInt('SCHOLAXIS_TRANSLATION_PORT', 5001)}/translate`
       : ''),
   translationApiKey: process.env.SCHOLAXIS_TRANSLATION_API_KEY || '',
+  rerankerServiceUrl: process.env.SCHOLAXIS_RERANKER_SERVICE_URL || '',
+  rerankerApiKey: process.env.SCHOLAXIS_RERANKER_API_KEY || '',
+  rerankerTopK: readInt('SCHOLAXIS_RERANKER_TOP_K', 12),
   userAgent:
     process.env.SCHOLAXIS_USER_AGENT ||
     'ScholaxisResearchBot/0.3 (+https://example.local; contact=local-demo)',

@@ -65,6 +65,7 @@ import {
 } from './storage.mjs';
 import { buildSimilarityReport } from './similarity-service.mjs';
 import { appConfig } from './config.mjs';
+import { getRerankerDiagnostics } from './reranker-service.mjs';
 import { ensureTranslationBackend, getTranslationDiagnostics } from './translation-runtime.mjs';
 import { getVectorBackendDiagnostics } from './vector-index-service.mjs';
 
@@ -307,6 +308,7 @@ export function createServer() {
             ocr,
             sourceRuntime,
             translation: getTranslationDiagnostics(),
+            reranker: getRerankerDiagnostics(),
             storage: getStorageDiagnostics()
           }
         });
@@ -421,6 +423,7 @@ export function createServer() {
             sourceRuntime,
             postgres: await getPostgresDiagnostics(),
             translation: getTranslationDiagnostics(),
+            reranker: getRerankerDiagnostics(),
             vectorBackend: getVectorBackendDiagnostics(),
             graphBackend: getGraphBackendDiagnostics(),
             parserMonitor: buildParserMonitorSummary(jobs),

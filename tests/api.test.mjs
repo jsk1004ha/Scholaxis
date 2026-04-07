@@ -584,6 +584,7 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   assert.equal(payload.filters.region, 'domestic');
   assert.ok(payload.results[0].id);
   assert.equal(payload.reranking.applied, true);
+  assert.ok(['heuristic', 'http'].includes(payload.reranking.backend));
   assert.equal(payload.crossLingual.enabled, false);
   assert.ok(payload.canonicalCount >= 1);
   server.close();

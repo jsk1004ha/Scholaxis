@@ -5,6 +5,7 @@ import { getStoredDocuments, persistDocuments, persistGraphEdges, persistSearchR
 import { getDocumentGraph, syncDocumentGraph } from './graph-service.mjs';
 import { loadDocumentsFromPostgres, syncDocumentsToPostgres } from './postgres-store.mjs';
 import { buildRecommendationSet } from './recommendation-service.mjs';
+import { rerankSearchEntries } from './reranker-service.mjs';
 import { searchLiveSources, sourceRegistrySummary } from './source-adapters.mjs';
 import { buildCrossLingualQueryContext, expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
 import { attachVectors, buildDenseVector, buildSparseVector, cosineSimilarity, normalizeText, sparseOverlapScore, tokenize, unique } from './vector-service.mjs';
@@ -160,51 +161,6 @@ function mergeLiveBundles(...bundles) {
     documents,
     statuses: [...statuses.values()]
   };
-}
-
-function buildRerankScore(entry, query = '', crossLingual = null) {
-  const title = normalizeText([entry.item.title, entry.item.englishTitle].filter(Boolean).join(' '));
-  const summary = normalizeText([entry.item.abstract, entry.item.summary, ...(entry.item.keywords || [])].filter(Boolean).join(' '));
-  const baseTokens = unique(tokenize(query));
-  const translatedTokens = unique(tokenize(crossLingual?.translatedQuery || ''));
-  const exactTitle = query ? title.includes(normalizeText(query)) : false;
-  const titleCoverage = baseTokens.length ? baseTokens.filter((token) => title.includes(token)).length / baseTokens.length : 0;
-  const summaryCoverage = baseTokens.length ? baseTokens.filter((token) => summary.includes(token)).length / baseTokens.length : 0;
-  const translatedCoverage = translatedTokens.length
-    ? translatedTokens.filter((token) => title.includes(token) || summary.includes(token)).length / translatedTokens.length
-    : 0;
-  const citationBoost = Math.min((entry.item.citations || 0) / 250, 0.12);
-  return {
-    rerankScore:
-      (exactTitle ? 0.2 : 0) +
-      titleCoverage * 0.24 +
-      summaryCoverage * 0.18 +
-      translatedCoverage * 0.2 +
-      citationBoost,
-    rerankReason: [
-      exactTitle ? '제목 직접 일치' : null,
-      titleCoverage >= 0.34 ? '제목 핵심어 정합성 높음' : null,
-      summaryCoverage >= 0.28 ? '초록/요약 정합성 높음' : null,
-      translatedCoverage >= 0.3 ? '번역 질의와 교차언어 일치' : null,
-      citationBoost >= 0.04 ? '인용 신호 보강' : null,
-    ].filter(Boolean).join(' · ')
-  };
-}
-
-function rerankEntries(entries = [], query = '', crossLingual = null, topK = 12) {
-  const head = entries.slice(0, topK).map((entry) => {
-    const rerank = buildRerankScore(entry, query, crossLingual);
-    return {
-      ...entry,
-      scoreBundle: {
-        ...entry.scoreBundle,
-        rerankScore: rerank.rerankScore,
-        rerankReason: rerank.rerankReason,
-        total: entry.scoreBundle.total + rerank.rerankScore * 100,
-      }
-    };
-  }).sort((a, b) => b.scoreBundle.total - a.scoreBundle.total);
-  return [...head, ...entries.slice(topK)];
 }
 
 function uniqueById(items = []) {
@@ -421,7 +377,11 @@ async function executeSearchCatalog({
     if (sort === 'citation') return (b.item.citations || 0) - (a.item.citations || 0) || b.scoreBundle.total - a.scoreBundle.total;
     return b.scoreBundle.total - a.scoreBundle.total || (b.item.year || 0) - (a.item.year || 0);
   });
-  const reranked = sort === 'relevance' ? rerankEntries(ranked, q, crossLingual, Math.min(12, ranked.length)) : ranked;
+  const rerankResult =
+    sort === 'relevance'
+      ? await rerankSearchEntries(ranked, q, crossLingual, appConfig.rerankerTopK)
+      : { entries: ranked, diagnostics: { backend: 'none', applied: false, topK: 0 } };
+  const reranked = rerankResult.entries;
 
   const summary = q
     ? reranked.length
@@ -455,8 +415,8 @@ async function executeSearchCatalog({
     canonicalCount: mergedSourceData.length,
     crossLingual,
     reranking: {
-      applied: sort === 'relevance',
-      topK: Math.min(12, reranked.length)
+      ...rerankResult.diagnostics,
+      applied: sort === 'relevance' ? rerankResult.diagnostics.applied : false,
     }
   };
 
