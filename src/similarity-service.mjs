@@ -132,22 +132,43 @@ function compareSectionStructures(inputSections = [], matchSections = []) {
     const best = matchSections
       .map((matchSection) => {
         const overlap = section.tokens.filter((token) => matchSection.tokens.includes(token));
+        const exactSectionMatch = section.key === matchSection.key;
+        const labelFamilyMatch =
+          section.key !== 'body' &&
+          matchSection.key !== 'body' &&
+          (section.label === matchSection.label || exactSectionMatch);
         const score =
           sparseOverlapScore(
             Object.fromEntries(section.tokens.map((token) => [token, 1])),
             Object.fromEntries(matchSection.tokens.map((token) => [token, 1]))
-          ) * 0.65 +
-          (overlap.length / Math.max(1, section.tokens.length)) * 0.35;
-        return { matchSection, overlap, score };
+          ) * 0.45 +
+          (overlap.length / Math.max(1, section.tokens.length)) * 0.2 +
+          (overlap.length / Math.max(1, matchSection.tokens.length)) * 0.17 +
+          (exactSectionMatch ? 0.18 : labelFamilyMatch ? 0.1 : 0);
+        return {
+          matchSection,
+          overlap,
+          score,
+          matchedBy: exactSectionMatch ? 'section-key' : labelFamilyMatch ? 'section-family' : 'token-overlap'
+        };
       })
       .sort((a, b) => b.score - a.score)[0];
 
     return {
       inputSection: section.label,
+      inputSectionKey: section.key,
       matchedSection: best?.matchSection?.label || '직접 대응 섹션 없음',
+      matchedSectionKey: best?.matchSection?.key || '',
       overlapScore: Number(((best?.score || 0) * 100).toFixed(2)),
       sharedTerms: (best?.overlap || []).slice(0, 6),
-      divergence: best?.score >= 0.55 ? '구조적으로 유사' : best?.score >= 0.3 ? '부분적으로 유사' : '구조 차이가 큼'
+      divergence: best?.score >= 0.55 ? '구조적으로 유사' : best?.score >= 0.3 ? '부분적으로 유사' : '구조 차이가 큼',
+      matchedBy: best?.matchedBy || 'none',
+      sectionConfidence:
+        best?.score >= 0.72
+          ? 'high'
+          : best?.score >= 0.42
+            ? 'moderate'
+            : 'low',
     };
   });
 }
@@ -210,13 +231,74 @@ function buildSemanticDiff(inputSections = [], strongest = null, sectionComparis
   };
 }
 
+function buildSimilarityConfidence({
+  text = '',
+  textTokens = [],
+  inputSections = [],
+  strongest = null,
+  sectionComparisons = [],
+  extraction = null,
+} = {}) {
+  const extractionScore = Number.isFinite(extraction?.confidence) ? extraction.confidence : 84;
+  const inputLengthScore = Math.min(100, Math.round((Math.min(text.length, 2400) / 2400) * 100));
+  const tokenCoverageScore = Math.min(100, Math.round((Math.min(textTokens.length, 160) / 160) * 100));
+  const matchedSections = sectionComparisons.filter((section) => section.overlapScore >= 35);
+  const structureScore = Math.min(
+    100,
+    Math.round(
+      ((inputSections.length >= 2 ? 28 : inputSections.length ? 14 : 0) +
+        matchedSections.length * 14 +
+        sectionComparisons.filter((section) => section.matchedBy === 'section-key').length * 18) *
+        1.2,
+    ),
+  );
+  const matchEvidenceScore = strongest
+    ? Math.min(
+        100,
+        Math.round(strongest.score * 0.72 + Math.min((strongest.sharedKeywords || []).length, 5) * 5),
+      )
+    : 0;
+  const score = Math.round(
+    extractionScore * 0.34 +
+      inputLengthScore * 0.18 +
+      tokenCoverageScore * 0.16 +
+      structureScore * 0.18 +
+      matchEvidenceScore * 0.14,
+  );
+  const label = score >= 76 ? 'high' : score >= 52 ? 'moderate' : 'low';
+
+  return {
+    score,
+    label,
+    reasons: [
+      extraction
+        ? `추출 방식 ${extraction.method} (${extraction.structured ? '구조 보존' : '비구조 추출'})`
+        : '직접 입력 텍스트 기준 분석',
+      inputSections.length ? `입력 섹션 ${inputSections.length}개를 비교했습니다.` : '입력 섹션 구조가 약합니다.',
+      matchedSections.length ? `구조 대응 섹션 ${matchedSections.length}개를 확보했습니다.` : '직접 대응 섹션이 제한적입니다.',
+      strongest ? `상위 비교 문헌 score ${strongest.score}%` : '상위 비교 문헌을 확정하지 못했습니다.',
+    ].filter(Boolean),
+    warnings: [
+      extraction?.warnings?.length ? `추출 경고: ${extraction.warnings.join(', ')}` : null,
+      extraction && extractionScore < 55 ? '파일 추출 신뢰도가 낮아 결론 confidence를 낮춰 해석해야 합니다.' : null,
+      inputSections.length < 2 ? '입력 문서에서 섹션 구조가 충분히 추출되지 않았습니다.' : null,
+      !matchedSections.length ? '구조적으로 직접 대응되는 비교 섹션이 부족합니다.' : null,
+    ].filter(Boolean),
+    structureCoverage: {
+      inputSections: inputSections.length,
+      matchedSections: matchedSections.length,
+      comparedSections: sectionComparisons.length,
+    },
+  };
+}
+
 function relationshipLabel(score = 0) {
   if (score >= 84) return 'same_topic';
   if (score >= 62) return 'related';
   return 'uncertain';
 }
 
-export async function buildSimilarityReport({ title = '업로드 문서', text = '' } = {}) {
+export async function buildSimilarityReport({ title = '업로드 문서', text = '', extraction = null } = {}) {
   const catalog = await buildSimilarityCatalog();
   const textTokens = unique(tokenize(text));
   const textVector = await embedText(text);
@@ -242,6 +324,20 @@ export async function buildSimilarityReport({ title = '업로드 문서', text =
         lowOverlapSections: [],
         summary: '차별점 분석을 위해 더 긴 초록/본문이 필요합니다.',
         strategyRecommendations: ['초록 또는 본문 일부를 2~3문단 이상 입력해 주세요.']
+      },
+      confidence: {
+        score: Number.isFinite(extraction?.confidence) ? extraction.confidence : 18,
+        label: 'low',
+        reasons: [extraction ? `추출 방식 ${extraction.method}` : '직접 입력 텍스트 기준 분석'],
+        warnings: [
+          extraction?.warnings?.length ? `추출 경고: ${extraction.warnings.join(', ')}` : null,
+          '입력 텍스트가 너무 짧아 비교 confidence가 낮습니다.',
+        ].filter(Boolean),
+        structureCoverage: {
+          inputSections: inputSections.length,
+          matchedSections: 0,
+          comparedSections: 0,
+        },
       },
       recommendations: [
         '초록 또는 본문 일부를 2~3문단 이상 입력해 주세요.',
@@ -292,6 +388,14 @@ export async function buildSimilarityReport({ title = '업로드 문서', text =
   const semanticDiff = buildSemanticDiff(inputSections, strongest, sectionComparisons);
   const differentiationAnalysis = buildDifferentiationAnalysis(textTokens, strongest, sectionComparisons);
   const relationship = relationshipLabel(score);
+  const confidence = buildSimilarityConfidence({
+    text,
+    textTokens,
+    inputSections,
+    strongest,
+    sectionComparisons,
+    extraction,
+  });
 
   return {
     title,
@@ -301,10 +405,10 @@ export async function buildSimilarityReport({ title = '업로드 문서', text =
     score,
     sameTopicStatement:
       relationship === 'same_topic'
-        ? '주제와 접근 방식이 매우 가까워 사실상 같은 문제군으로 보는 것이 안전합니다.'
+        ? `주제와 접근 방식이 매우 가까워 사실상 같은 문제군으로 보는 것이 안전합니다.${confidence.label === 'low' ? ' 다만 추출/구조 근거가 약해 confidence는 낮습니다.' : confidence.label === 'moderate' ? ' 다만 구조 근거가 부분적으로만 확보되어 confidence는 중간 수준입니다.' : ''}`
         : relationship === 'related'
-          ? '같은 문제 영역의 관련 연구로 보이지만 동일 문서 수준으로 단정할 정도는 아닙니다.'
-          : '유사성이 약하거나 불확실하여 동일 주제라고 단정하기 어렵습니다.',
+          ? `같은 문제 영역의 관련 연구로 보이지만 동일 문서 수준으로 단정할 정도는 아닙니다.${confidence.label === 'low' ? ' 특히 추출 신뢰도가 낮아 과신하지 않는 것이 안전합니다.' : ''}`
+          : `유사성이 약하거나 불확실하여 동일 주제라고 단정하기 어렵습니다.${confidence.label === 'low' ? ' 추출/구조 근거도 제한적입니다.' : ''}`,
     sharedThemes,
     noveltySignals,
     topMatches: ranked.map(({ itemTokens, dense, sparse, itemSections, methods, ...match }) => ({
@@ -317,6 +421,7 @@ export async function buildSimilarityReport({ title = '업로드 문서', text =
     sectionComparisons,
     semanticDiff,
     differentiationAnalysis,
+    confidence,
     recommendations:
       score >= 84
         ? [

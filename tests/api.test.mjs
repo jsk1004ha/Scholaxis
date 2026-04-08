@@ -733,6 +733,8 @@ test('similarity report returns matches and recommendations', async () => {
   assert.ok(payload.recommendations.length > 0);
   assert.ok(Array.isArray(payload.sectionComparisons));
   assert.ok(payload.sectionComparisons.length > 0);
+  assert.ok(payload.sectionComparisons[0].matchedBy);
+  assert.ok(payload.sectionComparisons[0].sectionConfidence);
   assert.ok(payload.differentiationAnalysis);
   assert.ok(payload.differentiationAnalysis.summary);
   assert.ok(payload.differentiationAnalysis.strengthLevel);
@@ -740,6 +742,10 @@ test('similarity report returns matches and recommendations', async () => {
   assert.ok(Array.isArray(payload.differentiationAnalysis.strategyRecommendations));
   assert.ok(payload.semanticDiff);
   assert.ok(Array.isArray(payload.semanticDiff.insights));
+  assert.ok(payload.confidence);
+  assert.ok(['high', 'moderate', 'low'].includes(payload.confidence.label));
+  assert.ok(Array.isArray(payload.confidence.reasons));
+  assert.ok(Array.isArray(payload.confidence.warnings));
   assert.ok(payload.topMatches[0].denseScore >= 0);
   assert.ok(payload.topMatches[0].sparseScore >= 0);
   assert.equal(typeof payload.verdict, 'string');
@@ -876,6 +882,32 @@ test('similarity analyze accepts multipart PDF uploads', async () => {
   assert.equal(response.status, 200);
   assert.ok(payload.extraction);
   assert.match(payload.extraction.preview, /Hello PDF world/);
+  assert.ok(['high', 'moderate', 'low'].includes(payload.extraction.confidenceLabel));
+  assert.ok(payload.confidence);
+  server.close();
+});
+
+test('similarity analyze accepts multipart DOCX uploads with structured extraction confidence', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const form = new FormData();
+  form.set('title', 'DOCX 업로드 테스트');
+  form.set(
+    'report',
+    new Blob([await sampleDocxBuffer()], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+    'sample.docx',
+  );
+
+  const response = await fetch(`${baseUrl}/api/similarity/analyze`, {
+    method: 'POST',
+    body: form
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(payload.extraction);
+  assert.equal(payload.extraction.structured, true);
+  assert.ok(payload.extraction.confidence >= 80);
+  assert.equal(payload.extraction.degraded, false);
+  assert.ok(payload.confidence);
   server.close();
 });
 
@@ -893,7 +925,30 @@ test('similarity analyze accepts multipart HWPX uploads', async () => {
   assert.equal(response.status, 200);
   assert.ok(payload.extraction);
   assert.match(payload.extraction.preview, /안녕하세요 HWPX 세계/);
+  assert.equal(payload.extraction.structured, true);
+  assert.ok(payload.extraction.confidence >= 80);
   assert.ok(Array.isArray(payload.sectionComparisons));
+  server.close();
+});
+
+test('similarity analyze marks binary HWP extraction as degraded when confidence is limited', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const form = new FormData();
+  form.set('title', 'HWP 업로드 테스트');
+  form.set('report', new Blob([Buffer.from('테스트 HWP 텍스트')], { type: 'application/x-hwp' }), 'sample.hwp');
+
+  const response = await fetch(`${baseUrl}/api/similarity/analyze`, {
+    method: 'POST',
+    body: form
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(payload.extraction);
+  assert.equal(payload.extraction.degraded, true);
+  assert.ok(payload.extraction.confidence < 55);
+  assert.ok(payload.extraction.warnings.includes('binary-hwp-best-effort-only'));
+  assert.ok(payload.confidence);
+  assert.ok(['high', 'moderate', 'low'].includes(payload.confidence.label));
   server.close();
 });
 

@@ -577,6 +577,7 @@ async function initSimilarityPage() {
       risk.textContent = [
         result.risk,
         result.topicVerdict,
+        result.confidence ? `confidence ${result.confidence.label || 'unknown'} ${result.confidence.score || 0}%` : '',
         result.relationship ? `관계: ${result.relationship}` : ''
       ].filter(Boolean).join(' · ');
     }
@@ -596,7 +597,7 @@ async function initSimilarityPage() {
     }
     if (extractionSummary) {
       extractionSummary.textContent = result.extraction
-        ? `${result.extraction.method || 'text'} · ${result.extraction.extractedCharacters || 0}자 추출${result.extraction.warnings?.length ? ` · 경고: ${result.extraction.warnings.join(', ')}` : ''}`
+        ? `${result.extraction.method || 'text'} · ${result.extraction.extractedCharacters || 0}자 추출 · 추출 confidence ${result.extraction.confidenceLabel || 'unknown'} ${result.extraction.confidence || 0}%${result.extraction.structured ? ' · 구조 보존' : ''}${result.extraction.degraded ? ' · degraded' : ''}${result.extraction.warnings?.length ? ` · 경고: ${result.extraction.warnings.join(', ')}` : ''}${result.confidence ? ` · 결론 confidence ${result.confidence.label || 'unknown'} ${result.confidence.score || 0}%` : ''}`
         : '직접 입력 텍스트 또는 업로드 문서를 기준으로 분석했습니다.';
     }
     if (topMatches) {

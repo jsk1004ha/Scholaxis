@@ -162,13 +162,15 @@ function normalizeSimilarityCompat(report, overrides = {}) {
     recommendations: report.recommendations,
     topMatches: report.topMatches || [],
     extraction: report.extraction || null,
+    confidence: report.confidence || null,
   };
 }
 
 async function buildSimilarityFromRequest(body, fallbackTitle = '업로드 문서') {
   const report = await buildSimilarityReport({
     title: body.title || body.reportName || fallbackTitle,
-    text: body.text || body.content || body.extractedText || ''
+    text: body.text || body.content || body.extractedText || '',
+    extraction: body.extraction || null,
   });
 
   return {
@@ -290,7 +292,8 @@ async function buildSimilarityFromMultipart(fields) {
   const payload = await buildSimilarityFromRequest(
     {
       title,
-      text: extractedText || `${title} research manuscript scholarly similarity analysis`
+      text: extractedText || `${title} research manuscript scholarly similarity analysis`,
+      extraction,
     },
     title
   );
@@ -300,7 +303,16 @@ async function buildSimilarityFromMultipart(fields) {
       method: extraction.method,
       warnings: extraction.warnings,
       extractedCharacters: (extraction.text || '').length,
-      preview: (extraction.text || '').slice(0, 240)
+      preview: (extraction.text || '').slice(0, 240),
+      confidence: extraction.confidence ?? 0,
+      confidenceLabel:
+        (extraction.confidence ?? 0) >= 76
+          ? 'high'
+          : (extraction.confidence ?? 0) >= 52
+            ? 'moderate'
+            : 'low',
+      degraded: (extraction.confidence ?? 0) < 55 || Boolean(extraction.warnings?.length),
+      structured: Boolean(extraction.structured),
     };
   }
 
