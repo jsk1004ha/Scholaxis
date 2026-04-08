@@ -192,6 +192,14 @@ npm start
 npm run verify
 ```
 
+검색 품질 회귀 점검만 빠르게 돌리고 싶다면:
+```bash
+npm run quality:search
+npm run quality:search:quick
+```
+
+`quality:search` 는 한국어/영어/혼합 exact-title·broad·narrow·source-filtered·random-topic 시나리오를 반복 검증하고 `.omx/reports/` 아래에 JSON/Markdown 리포트를 남깁니다.
+
 ### 5) 자주 쓰는 보조 명령
 ```bash
 npm run sync
@@ -203,6 +211,8 @@ npm run translation-service
 npm run reranker-service
 npm run vector-service
 npm run graph-service
+npm run quality:search
+npm run quality:search:quick
 npm run typecheck
 npm run backup
 npm run restore -- <backup-file>

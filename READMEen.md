@@ -191,6 +191,14 @@ If `PORT` is unset, Scholaxis uses `3000`. If that port is already occupied, the
 npm run verify
 ```
 
+If you want to run only the search-quality regression harness:
+```bash
+npm run quality:search
+npm run quality:search:quick
+```
+
+`quality:search` repeats Korean, English, and mixed exact-title, broad, narrow, source-filtered, and random-topic checks, then writes JSON/Markdown evidence into `.omx/reports/`.
+
 ### 5) Frequently used helper commands
 ```bash
 npm run sync
@@ -202,6 +210,8 @@ npm run translation-service
 npm run reranker-service
 npm run vector-service
 npm run graph-service
+npm run quality:search
+npm run quality:search:quick
 npm run typecheck
 npm run backup
 npm run restore -- <backup-file>
