@@ -258,6 +258,7 @@ function toUiPaperDetail(item = {}) {
     graph: item.graph || {},
     sourceStatus: item.sourceStatus || [],
     alternateSources: item.alternateSources || [],
+    detailHealth: item.detailHealth || null,
     tags: item.keywords || [],
     metrics: item.metrics || paper.metrics,
   };
