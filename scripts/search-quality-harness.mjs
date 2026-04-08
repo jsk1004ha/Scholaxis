@@ -23,8 +23,27 @@ export const REQUIRED_QUALITY_LABELS = Object.freeze([
 
 export const DEFAULT_QUALITY_FIXTURE_PATH = path.resolve('tests/fixtures/search-quality-cases.json');
 
+const SOURCE_ALIASES = new Map([
+  ['kci', 'kci'],
+  ['dbpia', 'dbpia'],
+  ['arxiv', 'arxiv'],
+  ['semantic scholar', 'semantic_scholar'],
+  ['semanticscholar', 'semantic_scholar'],
+  ['kipris', 'kipris'],
+  ['ntis', 'ntis'],
+  ['학생발명품경진대회', 'student_invention_fair'],
+  ['학생 발명품 경진대회', 'student_invention_fair'],
+  ['student invention fair', 'student_invention_fair'],
+  ['science fair', 'student_invention_fair'],
+]);
+
 function normalizeLooseText(value = '') {
   return normalizeText(String(value || '')) || String(value || '').trim().toLowerCase();
+}
+
+function normalizeSourceValue(value = '') {
+  const normalized = normalizeLooseText(value);
+  return SOURCE_ALIASES.get(normalized) || normalized;
 }
 
 function unique(values = []) {
@@ -150,7 +169,7 @@ function normalizeResultCandidate(candidate = {}) {
     summary: candidate.summary || candidate.abstract || '',
     keywords: Array.isArray(candidate.keywords) ? candidate.keywords.map((item) => String(item)) : [],
     highlights: Array.isArray(candidate.highlights) ? candidate.highlights.map((item) => String(item)) : [],
-    source: String(candidate.source || '').toLowerCase(),
+    source: normalizeSourceValue(candidate.source || ''),
     type: String(candidate.type || candidate.sourceType || '').toLowerCase(),
     region: String(candidate.region || '').toLowerCase(),
     score: Number(candidate.score || 0),
@@ -169,7 +188,7 @@ function includesAllFragments(text, fragments = []) {
 
 function candidateMatchesExpectations(candidate, expectations = {}) {
   if (!candidate) return false;
-  if (expectations.source && candidate.source !== normalizeLooseText(expectations.source)) return false;
+  if (expectations.source && candidate.source !== normalizeSourceValue(expectations.source)) return false;
   if (expectations.type && candidate.type !== normalizeLooseText(expectations.type)) return false;
   if (expectations.region && candidate.region !== normalizeLooseText(expectations.region)) return false;
 

@@ -3,14 +3,22 @@
     {
       "id": "ko-exact-title-battery",
       "query": "차세대 배터리 열폭주 예측을 위한 멀티모달 AI 진단 프레임워크",
-      "labels": ["korean", "exact_title", "narrow_technical"],
-      "filters": { "sourceType": "paper" },
+      "labels": [
+        "korean",
+        "exact_title",
+        "narrow_technical"
+      ],
+      "filters": {
+        "sourceType": "paper"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 1,
         "source": "kci",
         "type": "paper",
-        "titleIncludes": ["차세대 배터리 열폭주 예측"]
+        "titleIncludes": [
+          "차세대 배터리 열폭주 예측"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-paper-ko-energy-ai",
@@ -21,14 +29,21 @@
     {
       "id": "en-exact-title-graph",
       "query": "Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval",
-      "labels": ["english", "exact_title"],
-      "filters": { "sourceType": "paper" },
+      "labels": [
+        "english",
+        "exact_title"
+      ],
+      "filters": {
+        "sourceType": "paper"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 1,
         "source": "arxiv",
         "type": "paper",
-        "titleIncludes": ["Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval"]
+        "titleIncludes": [
+          "Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-paper-global-quantum",
@@ -39,14 +54,22 @@
     {
       "id": "mixed-thermal-runaway",
       "query": "배터리 thermal runaway multimodal",
-      "labels": ["mixed_language", "narrow_technical"],
-      "filters": { "sourceType": "paper" },
+      "labels": [
+        "mixed_language",
+        "narrow_technical"
+      ],
+      "filters": {
+        "sourceType": "paper"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
         "source": "kci",
         "type": "paper",
-        "titleIncludes": ["배터리", "열폭주"]
+        "titleIncludes": [
+          "배터리",
+          "열폭주"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-paper-ko-energy-ai",
@@ -56,13 +79,20 @@
     {
       "id": "ko-broad-battery-safety",
       "query": "배터리 안전성",
-      "labels": ["korean", "broad_topic"],
-      "filters": { "sourceType": "paper" },
+      "labels": [
+        "korean",
+        "broad_topic"
+      ],
+      "filters": {
+        "sourceType": "paper"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
         "type": "paper",
-        "titleIncludes": ["배터리"]
+        "titleIncludes": [
+          "배터리"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-paper-ko-energy-ai",
@@ -72,14 +102,22 @@
     {
       "id": "en-narrow-semiconductor-xai",
       "query": "semiconductor xai",
-      "labels": ["english", "narrow_technical"],
-      "filters": { "sourceType": "paper" },
+      "labels": [
+        "english",
+        "narrow_technical"
+      ],
+      "filters": {
+        "sourceType": "paper"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
         "source": "dbpia",
         "type": "paper",
-        "titleIncludes": ["반도체", "결함 분석"]
+        "titleIncludes": [
+          "반도체",
+          "결함 분석"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-paper-ko-semiconductor",
@@ -89,14 +127,23 @@
     {
       "id": "source-filter-patent-edge-medical",
       "query": "의료영상 실시간 판독",
-      "labels": ["korean", "source_filtered"],
-      "filters": { "region": "domestic", "sourceType": "patent" },
+      "labels": [
+        "korean",
+        "source_filtered"
+      ],
+      "filters": {
+        "region": "domestic",
+        "sourceType": "patent"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
         "source": "kipris",
         "type": "patent",
-        "titleIncludes": ["의료영상", "실시간"]
+        "titleIncludes": [
+          "의료영상",
+          "실시간"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-patent-ko-edge-medical",
@@ -106,14 +153,21 @@
     {
       "id": "source-filter-report-biofoundry",
       "query": "biofoundry strategy",
-      "labels": ["english", "source_filtered"],
-      "filters": { "sourceType": "report" },
+      "labels": [
+        "english",
+        "source_filtered"
+      ],
+      "filters": {
+        "sourceType": "report"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
         "source": "ntis",
         "type": "report",
-        "titleIncludes": ["바이오 파운드리"]
+        "titleIncludes": [
+          "바이오 파운드리"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-report-ko-bio",
@@ -123,14 +177,20 @@
     {
       "id": "source-filter-fair-entry",
       "query": "science fair invention",
-      "labels": ["english", "source_filtered"],
-      "filters": { "sourceType": "fair_entry" },
+      "labels": [
+        "english",
+        "source_filtered"
+      ],
+      "filters": {
+        "sourceType": "fair_entry"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
-        "source": "student_invention_fair",
         "type": "fair_entry",
-        "titleIncludes": ["휴대용 전압 공급장치"]
+        "titleIncludes": [
+          "휴대용 전압 공급장치"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-fair-student-energy",
@@ -140,14 +200,22 @@
     {
       "id": "ko-crosslingual-graph",
       "query": "학술 그래프 검색",
-      "labels": ["korean", "mixed_language", "broad_topic"],
-      "filters": { "sourceType": "paper" },
+      "labels": [
+        "korean",
+        "mixed_language",
+        "broad_topic"
+      ],
+      "filters": {
+        "sourceType": "paper"
+      },
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
         "source": "arxiv",
         "type": "paper",
-        "titleIncludes": ["Quantum Neural Architectures"]
+        "titleIncludes": [
+          "Quantum Neural Architectures"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-paper-global-quantum",
@@ -157,13 +225,17 @@
     {
       "id": "en-crosslingual-portable-voltage",
       "query": "portable voltage supply",
-      "labels": ["english", "mixed_language"],
+      "labels": [
+        "english",
+        "mixed_language"
+      ],
       "expectations": {
         "minTotal": 1,
         "maxAcceptedRank": 3,
-        "source": "student_invention_fair",
         "type": "fair_entry",
-        "titleIncludes": ["휴대용 전압 공급장치"]
+        "titleIncludes": [
+          "휴대용 전압 공급장치"
+        ]
       },
       "provenance": {
         "canonicalId": "seed-fair-student-energy",

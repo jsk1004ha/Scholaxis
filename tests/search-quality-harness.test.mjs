@@ -53,15 +53,18 @@ test('search quality harness validates deterministic seeded regressions against 
   ].includes(item.id));
 
   const { server, baseUrl } = await startTestServer();
-  for (const testCase of cases) {
-    const response = await fetch(buildSearchQualityUrl(baseUrl, testCase));
-    const payload = await response.json();
-    const verdict = evaluateSearchQualityCase(testCase, payload);
-    assert.equal(response.status, 200);
-    assert.equal(verdict.verdict, 'relevant', `${testCase.id} => ${verdict.reason}`);
-    assert.ok(verdict.matchedExpectationRank && verdict.matchedExpectationRank <= (testCase.expectations.maxAcceptedRank || 1));
+  try {
+    for (const testCase of cases) {
+      const response = await fetch(buildSearchQualityUrl(baseUrl, testCase));
+      const payload = await response.json();
+      const verdict = evaluateSearchQualityCase(testCase, payload);
+      assert.equal(response.status, 200);
+      assert.equal(verdict.verdict, 'relevant', `${testCase.id} => ${verdict.reason}`);
+      assert.ok(verdict.matchedExpectationRank && verdict.matchedExpectationRank <= (testCase.expectations.maxAcceptedRank || 1));
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
-  server.close();
 });
 
 test('search quality summary counts verdicts by label', () => {
