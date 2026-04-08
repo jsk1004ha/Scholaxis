@@ -684,6 +684,12 @@ test('detail endpoint returns related materials and alternate source metadata', 
   assert.ok(payload.metrics.references >= 0);
   assert.ok(Array.isArray(payload.graphPaths));
   assert.ok(payload.graphPaths.length >= 1);
+  assert.ok(payload.detailHealth);
+  assert.ok(['healthy', 'degraded', 'unavailable'].includes(payload.detailHealth.status));
+  assert.ok(Array.isArray(payload.detailHealth.metadata));
+  assert.ok(Array.isArray(payload.detailHealth.links));
+  assert.ok(Array.isArray(payload.detailHealth.sections));
+  assert.ok(payload.detailHealth.sections.some((section) => section.key === 'graph'));
   server.close();
 });
 
@@ -698,6 +704,9 @@ test('detail expansion endpoint returns graph narrative and comparison matrix', 
   assert.ok(Array.isArray(payload.expansion.comparisonMatrix));
   assert.ok(Array.isArray(payload.expansion.graph?.references));
   assert.equal(typeof payload.expansion.graphNarrative?.summary, 'string');
+  assert.ok(payload.expansion.detailHealth);
+  assert.ok(Array.isArray(payload.expansion.detailHealth.warnings));
+  assert.ok(payload.expansion.detailHealth.sections.some((section) => section.key === 'recommendations'));
   server.close();
 });
 

@@ -44,6 +44,22 @@ function setLink(anchor, href) {
   anchor.setAttribute('aria-disabled', 'true');
 }
 
+function detailHealthTone(status = '') {
+  if (status === 'healthy') return 'success';
+  if (status === 'degraded') return 'warning';
+  return 'critical';
+}
+
+function detailHealthLabel(status = '') {
+  if (status === 'healthy') return '정상';
+  if (status === 'degraded') return '부분 제한';
+  return '제한';
+}
+
+function findDetailSection(paper, key) {
+  return (paper?.detailHealth?.sections || []).find((section) => section.key === key) || null;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -242,6 +258,7 @@ async function initDetailPage() {
     setText('[data-detail-insight]', '선택된 문서 ID가 없습니다.');
     setText('[data-detail-source]', '문서 선택 필요');
     setText('[data-detail-badge]', 'No document');
+    setText('[data-detail-health-summary]', '문서 ID가 없어 상세 상태를 계산할 수 없습니다.');
     return;
   }
   let paper;
@@ -257,6 +274,7 @@ async function initDetailPage() {
     setText('[data-detail-badge]', 'Load failed');
     setText('[data-detail-novelty]', '소스 기반 상세 데이터가 없어 원문 링크와 그래프를 표시하지 못했습니다.');
     setText('[data-detail-source-links]', String(error?.message || 'detail-load-failed'));
+    setText('[data-detail-health-summary]', '상세 응답을 불러오지 못해 전체 화면이 degraded 상태입니다.');
     return;
   }
 
@@ -272,10 +290,33 @@ async function initDetailPage() {
   setText('[data-metric-impact]', String(paper.metrics?.impact ?? paper.metrics?.insightScore ?? '-'));
   setText('[data-metric-velocity]', String(paper.metrics?.velocity ?? paper.metrics?.freshness ?? '-'));
   setText('[data-detail-novelty]', paper.novelty || paper.summary || '기여 요약이 아직 없습니다.');
+  setText(
+    '[data-detail-health-summary]',
+    paper.detailHealth
+      ? `${detailHealthLabel(paper.detailHealth.status)} · 완성도 ${paper.detailHealth.score}% · ${paper.detailHealth.summary}`
+      : '상세 상태를 계산하지 못했습니다.',
+  );
 
   const tagsRoot = qs('[data-detail-tags]');
   if (tagsRoot) {
     tagsRoot.innerHTML = (paper.tags ?? []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('');
+  }
+
+  const metadataRoot = qs('[data-detail-metadata]');
+  if (metadataRoot) {
+    metadataRoot.innerHTML = (paper.detailHealth?.metadata || []).length
+      ? paper.detailHealth.metadata
+          .map(
+            (item) =>
+              `<li><strong>${escapeHtml(item.label)}</strong> · ${escapeHtml(item.value || '미확보')}${item.status === 'missing' ? ' · 확인 필요' : ''}</li>`,
+          )
+          .join('')
+      : '<li>메타데이터 스냅샷을 아직 계산하지 못했습니다.</li>';
+  }
+
+  const linkHealthRoot = qs('[data-detail-link-health]');
+  if (linkHealthRoot) {
+    linkHealthRoot.textContent = paper.detailHealth?.linkSummary || '원문/상세 링크 상태를 계산하지 못했습니다.';
   }
 
   const sourceLink = qs('[data-source-link]');
@@ -297,6 +338,12 @@ async function initDetailPage() {
     ]);
   }
 
+  const graphSectionSummaryRoot = qs('[data-graph-section-summary]');
+  if (graphSectionSummaryRoot) {
+    graphSectionSummaryRoot.textContent =
+      findDetailSection(paper, 'graph')?.summary || '그래프 기반 확장 상태를 계산하지 못했습니다.';
+  }
+
   const referenceRoot = qs('[data-reference-results]');
   if (referenceRoot) {
     referenceRoot.innerHTML = '';
@@ -316,6 +363,12 @@ async function initDetailPage() {
     relatedRoot.innerHTML = '';
     (paper.related || []).forEach((relatedPaper) => relatedRoot.appendChild(createPaperCard(relatedPaper)));
     if (!paper.related?.length) relatedRoot.innerHTML = '<p class="muted-copy">연결 자료가 아직 충분하지 않습니다.</p>';
+  }
+
+  const relatedSummaryRoot = qs('[data-detail-related-summary]');
+  if (relatedSummaryRoot) {
+    relatedSummaryRoot.textContent =
+      findDetailSection(paper, 'related')?.summary || '함께 읽을 자료 상태를 계산하지 못했습니다.';
   }
 
   const explanationSummaryRoot = qs('[data-detail-explanation-summary]');
@@ -340,6 +393,12 @@ async function initDetailPage() {
       recommendationsRoot.appendChild(createPaperCard(candidate));
     });
     if (!paper.recommendations?.length) recommendationsRoot.innerHTML = '<p class="muted-copy">추천 비교 문헌이 아직 부족합니다.</p>';
+  }
+
+  const recommendationSummaryRoot = qs('[data-detail-recommendations-summary]');
+  if (recommendationSummaryRoot) {
+    recommendationSummaryRoot.textContent =
+      findDetailSection(paper, 'recommendations')?.summary || '추천/비교 상태를 계산하지 못했습니다.';
   }
 
   const graphPathsRoot = qs('[data-graph-paths]');
@@ -390,6 +449,29 @@ async function initDetailPage() {
       .filter(Boolean)
       .join(' · ');
     sourceLinksSummaryRoot.textContent = summary || '연결 가능한 원문/상세 링크가 아직 없습니다.';
+  }
+
+  const healthWarningsRoot = qs('[data-detail-health-warnings]');
+  if (healthWarningsRoot) {
+    healthWarningsRoot.innerHTML = (paper.detailHealth?.warnings || []).length
+      ? paper.detailHealth.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')
+      : '<li>현재 확인된 degraded 구간이 없습니다.</li>';
+  }
+
+  const healthSectionsRoot = qs('[data-detail-health-sections]');
+  if (healthSectionsRoot) {
+    healthSectionsRoot.innerHTML = (paper.detailHealth?.sections || []).length
+      ? paper.detailHealth.sections
+          .map(
+            (section) => `
+              <div class="alert-card alert-card--${detailHealthTone(section.status)}">
+                <strong>${escapeHtml(section.title)} · ${escapeHtml(detailHealthLabel(section.status))}</strong>
+                <p>${escapeHtml(section.summary)} (${escapeHtml(section.count)}/${escapeHtml(section.total)})</p>
+              </div>
+            `,
+          )
+          .join('')
+      : '<p class="muted-copy">구간별 상태를 계산하지 못했습니다.</p>';
   }
 
   const alternateSourcesRoot = qs('[data-alternate-sources]');
