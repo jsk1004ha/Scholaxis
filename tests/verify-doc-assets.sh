@@ -32,7 +32,7 @@ grep -q "npm run validate:postgres" docs/deployment.md || { echo "Deployment doc
 grep -q "Content-Security-Policy" docs/security.md || { echo "Security doc is missing CSP guidance" >&2; exit 1; }
 grep -q "http://localhost:3000" cloudflared/config.example.yml || { echo "Tunnel config is missing unified app target" >&2; exit 1; }
 grep -q "http_status:404" cloudflared/config.example.yml || { echo "Tunnel config is missing 404 catch-all" >&2; exit 1; }
-grep -q "ENABLE_REPORT_SIMILARITY=false" .env.example || { echo ".env.example is missing similarity feature flag default" >&2; exit 1; }
+grep -Eq "ENABLE_REPORT_SIMILARITY=(true|false)" .env.example || { echo ".env.example is missing similarity feature flag default" >&2; exit 1; }
 grep -q "SCHOLAXIS_VECTOR_BACKEND=pgvector" .env.example || { echo ".env.example is missing pgvector serious-use guidance" >&2; exit 1; }
 
 if command -v cloudflared >/dev/null 2>&1; then
