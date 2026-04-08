@@ -576,6 +576,11 @@ test('admin infra and jobs endpoints expose search infrastructure controls', asy
   assert.equal(infraPayload.storageBackend, process.env.SCHOLAXIS_STORAGE_BACKEND || 'sqlite');
   assert.ok(infraPayload.vectorBackend);
   assert.ok(infraPayload.graphBackend);
+  assert.ok(infraPayload.seriousUsePath);
+  assert.equal(infraPayload.seriousUsePath.recommended.storageBackend, 'postgres');
+  assert.equal(infraPayload.seriousUsePath.recommended.vectorBackend, 'pgvector');
+  assert.equal(infraPayload.seriousUsePath.validationCommand, 'npm run validate:postgres');
+  assert.equal(infraPayload.postgres.seriousUsePath.validationCommand, 'npm run validate:postgres');
   assert.match(infraPayload.postgresMigrationPreview, /CREATE EXTENSION IF NOT EXISTS vector/);
 
   const scheduleResponse = await fetch(`${baseUrl}/api/admin/jobs`, {

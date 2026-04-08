@@ -163,7 +163,8 @@ export SCHOLAXIS_OLLAMA_RERANKER_MODEL=qwen2.5:3b
 - 1차 임베딩: `BAAI/bge-m3`
 - 1차 리랭커: `BAAI/bge-reranker-v2-m3`
 - 보조/대체 로컬 LLM 백엔드: Ollama (`nomic-embed-text`, `qwen2.5:3b`)
-- PostgreSQL 사용 시 `SCHOLAXIS_VECTOR_BACKEND=pgvector` 로 실제 pgvector 검색 경로 활성화
+- 빠른 로컬 확인은 SQLite/local 벡터 경로로 충분하지만, **실사용/운영 기준 기본 경로는 PostgreSQL + pgvector** 입니다.
+- PostgreSQL 사용 시 `SCHOLAXIS_VECTOR_BACKEND=pgvector` 로 실제 pgvector 검색 경로를 활성화하고 `npm run validate:postgres` 로 준비 상태를 확인하세요.
 
 ---
 
@@ -197,6 +198,7 @@ npm run sync
 npm run scheduler
 npm run worker
 npm run migrate:postgres
+npm run validate:postgres
 npm run translation-service
 npm run reranker-service
 npm run vector-service
@@ -212,8 +214,11 @@ export SCHOLAXIS_STORAGE_BACKEND=postgres
 export SCHOLAXIS_VECTOR_BACKEND=pgvector
 export DATABASE_URL=postgres://user:password@localhost:5432/scholaxis
 npm run migrate:postgres -- --apply
+npm run validate:postgres
 npm start
 ```
+
+실사용/운영 환경에서는 위 구성을 기본값으로 간주하세요. SQLite/local 벡터 경로는 빠른 로컬 개발과 디버깅용 fallback 입니다.
 
 로컬 sentence-transformers + pgvector를 함께 쓸 경우:
 ```bash
