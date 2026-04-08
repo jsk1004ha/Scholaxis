@@ -70,6 +70,10 @@
               <h2>원문 접근과 출처 메타데이터</h2>
               <div class="stack">
                 <p class="muted-copy" data-detail-novelty></p>
+                <ul data-detail-metadata>
+                  <li>메타데이터를 확인하는 중입니다.</li>
+                </ul>
+                <p class="muted-copy" data-detail-link-health>원문/상세 링크 상태를 계산 중입니다.</p>
                 <div class="action-row">
                   <a class="button button--ghost" data-detail-original-link href="#" target="_blank" rel="noreferrer noopener">원문 열기</a>
                   <a class="button button--ghost" data-detail-detail-link href="#" target="_blank" rel="noreferrer noopener">상세 페이지 열기</a>
@@ -80,6 +84,7 @@
             <article class="card">
               <span class="section-eyebrow">Intelligence network map</span>
               <h2>영향 관계 맵</h2>
+              <p class="muted-copy" data-graph-section-summary>그래프 경로를 계산 중입니다.</p>
               <div class="network" data-network-root></div>
             </article>
 
@@ -118,6 +123,16 @@
               <span class="section-eyebrow">Research insight</span>
               <h3>빠른 인사이트</h3>
               <p data-detail-insight></p>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Reliability & degraded state</span>
+              <h3>상세 페이지 상태</h3>
+              <p class="muted-copy" data-detail-health-summary>상세 상태를 계산 중입니다.</p>
+              <ul data-detail-health-warnings>
+                <li>제한 구간을 계산 중입니다.</li>
+              </ul>
+              <div class="stack" data-detail-health-sections></div>
             </article>
 
             <article class="card">
@@ -167,12 +182,14 @@
             <article class="card">
               <span class="section-eyebrow">Next reading set</span>
               <h3>추천 비교 문헌</h3>
+              <p class="muted-copy" data-detail-recommendations-summary>추천 비교 문헌을 계산 중입니다.</p>
               <div class="result-list" data-detail-recommendations></div>
             </article>
 
             <article class="card">
               <span class="section-eyebrow">Related items</span>
               <h3>함께 읽을 자료</h3>
+              <p class="muted-copy" data-detail-related-summary>함께 읽을 자료를 계산 중입니다.</p>
               <div class="result-list" data-related-results></div>
             </article>
           </div>
