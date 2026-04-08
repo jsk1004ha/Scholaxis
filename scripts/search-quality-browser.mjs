@@ -531,38 +531,68 @@ async function runApiScenario(baseUrl, scenario) {
 }
 
 async function runBrowserCheck(chromePath, url) {
-  const command = [
-    'timeout 15s',
-    `'${chromePath.replaceAll("'", "'\\''")}'`,
-    '--headless=new',
-    '--disable-gpu',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--virtual-time-budget=4000',
-    '--dump-dom',
-    `'${url.replaceAll("'", "'\\''")}'`,
-    '2>/dev/null',
-  ].join(' ');
-  try {
-    const { stdout } = await execFileAsync('/bin/bash', ['-lc', command], {
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    const dom = stdout.toString();
-    return {
-      pass: (dom.includes('result-card') || dom.includes('개 결과')) && !dom.includes('검색 오류'),
-      hasResults: dom.includes('result-card') || dom.includes('개 결과'),
-      hasError: dom.includes('검색 오류'),
-      domLength: dom.length,
-    };
-  } catch (error) {
-    return {
-      pass: false,
-      hasResults: false,
-      hasError: true,
-      domLength: 0,
-      error: error.message,
-    };
+  const browserModes = ['--headless=new', '--headless'];
+  let lastFailure = null;
+
+  for (const headlessMode of browserModes) {
+    const command = [
+      'timeout 30s',
+      `'${chromePath.replaceAll("'", "'\\''")}'`,
+      headlessMode,
+      '--disable-gpu',
+      '--disable-background-networking',
+      '--disable-extensions',
+      '--disable-features=Translate,BackForwardCache',
+      '--run-all-compositor-stages-before-draw',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--no-sandbox',
+      '--virtual-time-budget=12000',
+      '--dump-dom',
+      `'${url.replaceAll("'", "'\\''")}'`,
+      '2>/dev/null',
+    ].join(' ');
+    try {
+      const { stdout } = await execFileAsync('/bin/bash', ['-lc', command], {
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      const dom = stdout.toString();
+      const hasResults = dom.includes('result-card') || dom.includes('개 결과');
+      const hasError = dom.includes('검색 오류');
+      if (dom.length > 0 || hasResults || hasError) {
+        return {
+          pass: hasResults && !hasError,
+          hasResults,
+          hasError,
+          domLength: dom.length,
+          headlessMode,
+        };
+      }
+      lastFailure = {
+        pass: false,
+        hasResults: false,
+        hasError: false,
+        domLength: 0,
+        error: `empty-dom:${headlessMode}`,
+      };
+    } catch (error) {
+      lastFailure = {
+        pass: false,
+        hasResults: false,
+        hasError: true,
+        domLength: 0,
+        error: `${headlessMode}:${error.message}`,
+      };
+    }
   }
+
+  return lastFailure || {
+    pass: false,
+    hasResults: false,
+    hasError: true,
+    domLength: 0,
+    error: 'browser-check-unavailable',
+  };
 }
 
 function buildImprovementIdeas(report) {
