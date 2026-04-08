@@ -17,12 +17,32 @@ function postgresEnabled() {
   return appConfig.storageBackend === 'postgres';
 }
 
+function pgvectorEnabled() {
+  return appConfig.vectorBackend === 'pgvector';
+}
+
 function hasConnectionConfig() {
   return Boolean(
     process.env.DATABASE_URL ||
       process.env.PGHOST ||
       process.env.PGSERVICE
   );
+}
+
+function psqlBinaryName() {
+  return process.env.PSQL_BIN || 'psql';
+}
+
+function psqlBinaryAvailable() {
+  try {
+    execFileSync(psqlBinaryName(), ['--version'], {
+      stdio: 'ignore',
+      timeout: 4000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function buildPsqlArgs(sql) {
@@ -131,6 +151,100 @@ function ensurePostgresSchemaSync() {
   } finally {
     postgresRuntimeState.checkedAt = Date.now();
   }
+}
+
+function buildSeriousUseCheck({ key, label, ok, expected, actual, fix }) {
+  return { key, label, ok, expected, actual, fix };
+}
+
+function buildSeriousUseStatus(checks = [], pathActive = false) {
+  if (!pathActive) return 'development-fallback';
+  return checks.every((check) => check.ok) ? 'validated' : 'configuration-required';
+}
+
+export function getPostgresSeriousUsePathDiagnostics() {
+  const recommended = {
+    storageBackend: 'postgres',
+    vectorBackend: 'pgvector',
+  };
+  const active = {
+    storageBackend: appConfig.storageBackend,
+    vectorBackend: appConfig.vectorBackend,
+  };
+  const binaryName = psqlBinaryName();
+  const storageOk = postgresEnabled();
+  const vectorOk = pgvectorEnabled();
+  const connectionOk = hasConnectionConfig();
+  const psqlOk = psqlBinaryAvailable();
+  const pathActive = storageOk && vectorOk;
+  const prereqsOk = pathActive && connectionOk && psqlOk;
+  const schemaOk = prereqsOk ? ensurePostgresSchemaSync() : false;
+
+  const checks = [
+    buildSeriousUseCheck({
+      key: 'storage-backend',
+      label: 'Storage backend',
+      ok: storageOk,
+      expected: 'postgres',
+      actual: appConfig.storageBackend,
+      fix: 'Set SCHOLAXIS_STORAGE_BACKEND=postgres',
+    }),
+    buildSeriousUseCheck({
+      key: 'vector-backend',
+      label: 'Vector backend',
+      ok: vectorOk,
+      expected: 'pgvector',
+      actual: appConfig.vectorBackend,
+      fix: 'Set SCHOLAXIS_VECTOR_BACKEND=pgvector',
+    }),
+    buildSeriousUseCheck({
+      key: 'connection-config',
+      label: 'PostgreSQL connection env',
+      ok: connectionOk,
+      expected: 'DATABASE_URL or PGHOST/PGSERVICE',
+      actual: connectionOk ? 'configured' : 'missing',
+      fix: 'Set DATABASE_URL=postgres://... or the standard PG* variables',
+    }),
+    buildSeriousUseCheck({
+      key: 'psql-cli',
+      label: 'psql CLI availability',
+      ok: psqlOk,
+      expected: binaryName,
+      actual: psqlOk ? binaryName : 'missing',
+      fix: 'Install PostgreSQL client tools or point PSQL_BIN at a working psql binary',
+    }),
+    buildSeriousUseCheck({
+      key: 'schema-sync',
+      label: 'Schema sync + pgvector extension',
+      ok: schemaOk,
+      expected: 'documents/document_chunks tables reachable with pgvector enabled',
+      actual: prereqsOk
+        ? (schemaOk ? 'ready' : (postgresRuntimeState.lastError || 'schema-check-failed'))
+        : 'blocked-by-prerequisites',
+      fix: 'Run npm run migrate:postgres -- --apply after configuring PostgreSQL',
+    }),
+  ];
+
+  const status = buildSeriousUseStatus(checks, pathActive);
+  const missing = checks.filter((check) => !check.ok).map((check) => check.key);
+  const summary =
+    status === 'validated'
+      ? 'PostgreSQL + pgvector is validated and ready for serious use.'
+      : status === 'development-fallback'
+        ? 'SQLite/local vector mode is active; switch to PostgreSQL + pgvector for serious-use deployments.'
+        : 'PostgreSQL + pgvector is selected but still needs configuration or schema validation.';
+
+  return {
+    recommended,
+    active,
+    status,
+    ready: status === 'validated',
+    summary,
+    validationCommand: 'npm run validate:postgres',
+    migrationCommand: 'npm run migrate:postgres -- --apply',
+    checks,
+    missing,
+  };
 }
 
 export function getPostgresSchemaSql() {
@@ -521,12 +635,13 @@ FROM (
 }
 
 export async function getPostgresDiagnostics() {
+  const seriousUsePath = getPostgresSeriousUsePathDiagnostics();
   if (!postgresEnabled()) {
-    return { enabled: false, configured: false, ready: false };
+    return { enabled: false, configured: false, ready: false, seriousUsePath };
   }
   const configured = hasConnectionConfig();
   if (!configured) {
-    return { enabled: true, configured: false, ready: false };
+    return { enabled: true, configured: false, ready: false, seriousUsePath };
   }
 
   try {
@@ -549,6 +664,7 @@ FROM (
       ready: true,
       stats: output ? JSON.parse(output) : {},
       lastError: postgresRuntimeState.lastError,
+      seriousUsePath,
     };
   } catch (error) {
     postgresRuntimeState.ready = false;
@@ -558,6 +674,7 @@ FROM (
       configured: true,
       ready: false,
       error: error.message,
+      seriousUsePath,
     };
   }
 }

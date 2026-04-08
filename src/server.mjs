@@ -471,9 +471,11 @@ export function createServer() {
       }
 
       if (pathname === '/api/admin/infra') {
+        const postgres = await getPostgresDiagnostics();
         return json(res, 200, {
           storageBackend: appConfig.storageBackend,
-          postgres: await getPostgresDiagnostics(),
+          postgres,
+          seriousUsePath: postgres.seriousUsePath,
           vectorBackend: getVectorBackendDiagnostics(),
           embeddings: getEmbeddingDiagnostics(),
           searchIndex: getSearchIndexDiagnostics(),
