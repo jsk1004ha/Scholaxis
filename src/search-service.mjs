@@ -493,6 +493,204 @@ function buildComparisonMatrix(paper, recommendations = [], citations = [], refe
   }));
 }
 
+function gradeDetailSection(count = 0, total = 1, healthyThreshold = 0.75) {
+  const normalizedTotal = Math.max(1, total);
+  const ratio = Math.max(0, Math.min(1, count / normalizedTotal));
+  return {
+    count,
+    total: normalizedTotal,
+    ratio,
+    status: ratio >= healthyThreshold ? 'healthy' : count > 0 ? 'degraded' : 'unavailable',
+  };
+}
+
+function buildDetailSectionState({
+  key,
+  title,
+  count = 0,
+  total = 1,
+  healthyThreshold = 0.75,
+  healthySummary = '',
+  degradedSummary = '',
+  unavailableSummary = '',
+}) {
+  const grade = gradeDetailSection(count, total, healthyThreshold);
+  return {
+    key,
+    title,
+    count: grade.count,
+    total: grade.total,
+    ratio: Number((grade.ratio * 100).toFixed(0)),
+    status: grade.status,
+    summary:
+      grade.status === 'healthy'
+        ? healthySummary
+        : grade.status === 'degraded'
+          ? degradedSummary
+          : unavailableSummary,
+  };
+}
+
+function buildDetailMetadata(paper = {}) {
+  const type = classifySourceType(paper.type);
+  return [
+    { label: '문헌 유형', value: sourceTypeLabel[type] || paper.type || '자료' },
+    { label: '발행 연도', value: paper.year ? String(paper.year) : '' },
+    { label: '언어', value: paper.language || '' },
+    { label: '지역', value: regionLabel[paper.region] || paper.region || '' },
+    { label: '기관', value: paper.organization || '' },
+    { label: '저자 수', value: (paper.authors || []).length ? `${paper.authors.length}명` : '' },
+    { label: '키워드', value: (paper.keywords || []).length ? `${paper.keywords.length}개` : '' },
+    { label: '방법론', value: (paper.methods || []).length ? `${paper.methods.length}개` : '' },
+    { label: '연결 출처', value: (paper.alternateSources || []).length ? `${paper.alternateSources.length}곳` : '' },
+    { label: '오픈 액세스', value: paper.openAccess ? '가능' : '' },
+  ].map((entry) => ({
+    ...entry,
+    status: entry.value ? 'available' : 'missing',
+  }));
+}
+
+function buildDetailHealth({
+  paper,
+  related = [],
+  citations = [],
+  references = [],
+  recommendations = [],
+  comparisonMatrix = [],
+  suggestedQueries = [],
+  graph = {},
+  graphPaths = [],
+  sourceStatus = [],
+} = {}) {
+  const metadata = buildDetailMetadata(paper);
+  const availableMetadata = metadata.filter((entry) => entry.status === 'available').length;
+  const links = [
+    {
+      label: '원문 링크',
+      href: paper?.links?.original || paper?.links?.detail || '',
+    },
+    {
+      label: '출처 상세 링크',
+      href: paper?.links?.detail || '',
+    },
+  ].map((entry) => ({
+    ...entry,
+    status: entry.href ? 'available' : 'missing',
+  }));
+  const availableLinks = links.filter((entry) => entry.status === 'available').length;
+
+  const metadataSection = buildDetailSectionState({
+    key: 'metadata',
+    title: '핵심 메타데이터',
+    count: availableMetadata,
+    total: metadata.length,
+    healthyThreshold: 0.7,
+    healthySummary: '초록, 저자, 연도, 키워드 등 핵심 메타데이터가 비교적 충실합니다.',
+    degradedSummary: '메타데이터 일부가 비어 있어 요약·저자·기관 정보를 함께 확인해야 합니다.',
+    unavailableSummary: '기본 메타데이터가 부족해 출처 상세 페이지 확인이 필요합니다.',
+  });
+
+  const linkSection = buildDetailSectionState({
+    key: 'links',
+    title: '원문/상세 링크',
+    count: availableLinks,
+    total: links.length,
+    healthyThreshold: 1,
+    healthySummary: '원문과 출처 상세 링크가 모두 준비되어 바로 검증할 수 있습니다.',
+    degradedSummary: '링크가 일부만 연결되어 있어 원문 또는 상세 페이지 중 한 경로만 제공됩니다.',
+    unavailableSummary: '직접 열 수 있는 원문/상세 링크가 아직 없습니다.',
+  });
+
+  const relatedSection = buildDetailSectionState({
+    key: 'related',
+    title: '함께 읽을 자료',
+    count: Math.min(related.length, 4),
+    total: 4,
+    healthyThreshold: 0.5,
+    healthySummary: `관련 자료 ${related.length}건을 바로 이어서 탐색할 수 있습니다.`,
+    degradedSummary: `관련 자료가 ${related.length}건만 있어 탐색 연결성이 제한적입니다.`,
+    unavailableSummary: '함께 읽을 자료가 아직 충분히 연결되지 않았습니다.',
+  });
+
+  const recommendationSignals = [
+    recommendations.length > 0,
+    recommendations.length >= 2,
+    comparisonMatrix.length > 0,
+    suggestedQueries.length > 0,
+  ].filter(Boolean).length;
+  const recommendationSection = buildDetailSectionState({
+    key: 'recommendations',
+    title: '추천/비교 경로',
+    count: recommendationSignals,
+    total: 4,
+    healthyThreshold: 0.75,
+    healthySummary: '추천 후보, 비교 포인트, 다음 질의가 함께 제공되어 후속 탐색이 자연스럽습니다.',
+    degradedSummary: '추천 후보는 있지만 비교 포인트 또는 다음 질의가 아직 충분하지 않습니다.',
+    unavailableSummary: '추천 비교 경로가 아직 충분히 형성되지 않았습니다.',
+  });
+
+  const graphSignals = [
+    graphPaths.length > 0,
+    citations.length > 0,
+    references.length > 0,
+    ((graph.authorAffinity || []).length + (graph.similar || []).length + (graph.topicBridges || []).length) > 0,
+  ].filter(Boolean).length;
+  const graphSection = buildDetailSectionState({
+    key: 'graph',
+    title: '그래프/인용 확장',
+    count: graphSignals,
+    total: 4,
+    healthyThreshold: 0.75,
+    healthySummary: '그래프 경로와 인용/참고 확장이 함께 제공됩니다.',
+    degradedSummary: '그래프 또는 인용/참고 확장 중 일부만 제공되어 연결성이 부분적으로 제한됩니다.',
+    unavailableSummary: '그래프/인용 확장 데이터가 아직 부족합니다.',
+  });
+
+  const sourceSignals = [
+    sourceStatus.length > 0,
+    sourceStatus.some((item) => item.status === 'configured'),
+    (paper?.alternateSources || []).length > 0,
+  ].filter(Boolean).length;
+  const sourceSection = buildDetailSectionState({
+    key: 'sources',
+    title: '출처 상태',
+    count: sourceSignals,
+    total: 3,
+    healthyThreshold: 0.67,
+    healthySummary: '연결된 출처 상태와 대체 출처를 함께 확인할 수 있습니다.',
+    degradedSummary: '대체 출처 또는 출처 상태 정보가 일부만 확보되었습니다.',
+    unavailableSummary: '출처 상태를 아직 계산하지 못했습니다.',
+  });
+
+  const sections = [metadataSection, linkSection, relatedSection, recommendationSection, graphSection, sourceSection];
+  const averageRatio = sections.reduce((sum, section) => sum + section.ratio, 0) / sections.length;
+  const status = averageRatio >= 80 && sections.every((section) => section.status === 'healthy')
+    ? 'healthy'
+    : averageRatio > 0
+      ? 'degraded'
+      : 'unavailable';
+  const degradedSections = sections.filter((section) => section.status !== 'healthy');
+
+  return {
+    status,
+    score: Number(averageRatio.toFixed(0)),
+    summary:
+      degradedSections.length === 0
+        ? '상세 메타데이터, 링크, 추천, 그래프 확장이 모두 안정적으로 연결됩니다.'
+        : `일부 상세 구간이 제한적입니다: ${degradedSections.map((section) => section.title).join(', ')}.`,
+    warnings: degradedSections.map((section) => section.summary),
+    metadata,
+    links,
+    linkSummary:
+      availableLinks === 2
+        ? '원문과 출처 상세 링크를 모두 제공합니다.'
+        : availableLinks === 1
+          ? '원문 또는 출처 상세 링크 중 한 경로만 제공합니다.'
+          : '직접 접근 가능한 원문/상세 링크가 없습니다.',
+    sections,
+  };
+}
+
 
 function buildGraphPaths(paper, recommendations = [], citations = [], references = [], graph = {}) {
   const directPaths = [
@@ -954,6 +1152,20 @@ export async function getPaperById(id) {
   const sanitizedCitations = citations.map((item) => sanitizeDocumentForDetail(item));
   const sanitizedReferences = references.map((item) => sanitizeDocumentForDetail(item));
   const sanitizedRecommendations = recommendations.map((item) => sanitizeDocumentForDetail(item));
+  const graphPaths = [
+    ...graphTraversal.paths,
+    ...buildGraphPaths(paper, recommendations, citations, references)
+  ]
+    .filter((path, index, items) =>
+      index === items.findIndex((candidate) =>
+        candidate.from === path.from &&
+        candidate.to === path.to &&
+        (candidate.via || '') === (path.via || '') &&
+        String(candidate.summary || '') === String(path.summary || '')
+      )
+    )
+    .slice(0, appConfig.citationExpansionLimit);
+  const sourceStatus = listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source));
 
   return {
     ...sanitizedPaper,
@@ -962,21 +1174,9 @@ export async function getPaperById(id) {
     citations: sanitizedCitations,
     references: sanitizedReferences,
     recommendations: sanitizedRecommendations,
-    graphPaths: [
-      ...graphTraversal.paths,
-      ...buildGraphPaths(paper, recommendations, citations, references)
-    ]
-      .filter((path, index, items) =>
-        index === items.findIndex((candidate) =>
-          candidate.from === path.from &&
-          candidate.to === path.to &&
-          (candidate.via || '') === (path.via || '') &&
-          String(candidate.summary || '') === String(path.summary || '')
-        )
-      )
-      .slice(0, appConfig.citationExpansionLimit),
+    graphPaths,
     graphTraversal: sanitizeGraphTraversal(graphTraversal),
-    sourceStatus: listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source)),
+    sourceStatus,
     explanation: describeGraphInsights(paper, graph, recommendations),
     sourceLinks: {
       detail: paper.links?.detail || '',
@@ -990,7 +1190,17 @@ export async function getPaperById(id) {
       freshness: paper.year >= 2024 ? '최신 연구' : '안정화 연구',
       velocity: paper.year >= 2024 ? '상승' : '안정',
       alternateSourceCount: (paper.alternateSources || []).length
-    }
+    },
+    detailHealth: buildDetailHealth({
+      paper,
+      related,
+      citations,
+      references,
+      recommendations,
+      graph,
+      graphPaths,
+      sourceStatus,
+    }),
   };
 }
 
@@ -1020,7 +1230,23 @@ export async function expandPaperById(id) {
       comparisonMatrix: buildComparisonMatrix(paper, recommendations, citations, references),
       graph: getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit),
       sourceStatus: listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source)),
-      alternateSources: paper.alternateSources || [paper.source]
+      alternateSources: paper.alternateSources || [paper.source],
+      detailHealth: buildDetailHealth({
+        paper,
+        related: paper.related || [],
+        citations,
+        references,
+        recommendations,
+        comparisonMatrix: buildComparisonMatrix(paper, recommendations, citations, references),
+        suggestedQueries: unique([
+          ...(paper.keywords || []).slice(0, 3),
+          `${paper.keywords?.[0] || paper.title} 선행연구`,
+          `${paper.organization || paper.sourceLabel} 연구 동향`
+        ]).slice(0, 6),
+        graph: paper.graph || {},
+        graphPaths: paper.graphPaths || [],
+        sourceStatus: listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source)),
+      }),
     }
   };
 }
