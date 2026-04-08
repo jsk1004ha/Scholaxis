@@ -6,6 +6,8 @@ import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createServer } from '../src/server.mjs';
+import { hasBrokenEncoding, looksLikeNoise, matchesQueryText } from '../src/source-helpers.mjs';
+import { normalizeText, tokenize } from '../src/vector-service.mjs';
 import {
   buildSearchQualityRunPlan,
   buildSearchQualityUrl,
