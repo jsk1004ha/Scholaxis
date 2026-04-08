@@ -28,15 +28,21 @@ Deliver Scholaxis as a **single hosted web application** where UI and API traffi
   - crawl-backed: RISS, ScienceON, NTIS, science fair, student invention fair
   - configurable: KCI public search hook
 
-## Storage model in the current prototype
+## Storage model
 
-- in-memory seed catalog
-- on-request live source ingestion
-- canonical merge in-process
-- vector features computed in-process
+- quickstart/dev fallback: SQLite + in-process vectors
+- serious-use baseline: PostgreSQL + pgvector
+- in-memory seed catalog still exists for deterministic startup/demo coverage
+- on-request live source ingestion and canonical merge remain in-process
+
+## Current serious-use baseline
+
+- persist `documents`, `source_records`, request/search logs, jobs, and user data in PostgreSQL
+- use pgvector for direct nearest-neighbor search against documents and chunks
+- validate the runtime with `npm run validate:postgres`
+- keep SQLite/local vector mode as a developer fallback, not the primary deployment target
 
 ## Next production evolution
 
-- persist `documents`, `source_records`, `canonical_documents`, and `embeddings`
-- move vectors into PostgreSQL + pgvector or a dedicated vector DB
-- move citation / relation edges into graph storage if real source expansion becomes large
+- further separate graph storage if real source expansion becomes large
+- continue tightening migration/ops automation around the PostgreSQL serious-use path

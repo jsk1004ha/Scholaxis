@@ -13,6 +13,7 @@ If `3000` is already occupied, Scholaxis automatically retries the next ports up
 ## Search / infra env example
 
 ```bash
+# Primary serious-use path
 SCHOLAXIS_STORAGE_BACKEND=postgres
 SCHOLAXIS_VECTOR_BACKEND=pgvector
 SCHOLAXIS_GRAPH_BACKEND=http
@@ -45,6 +46,15 @@ This writes `.data/postgres-migration.sql` containing:
 If PostgreSQL is available locally, Scholaxis can also sync runtime documents into the
 configured database through the `psql` CLI using `DATABASE_URL` or standard `PG*`
 environment variables.
+
+Validate the serious-use path:
+
+```bash
+npm run validate:postgres
+```
+
+This command exits successfully only when Scholaxis is configured for the
+recommended PostgreSQL + pgvector path and the schema/pgvector extension are reachable.
 
 ## Scheduler / worker split
 
@@ -124,6 +134,8 @@ npm start
 - Apply proxy-level rate limiting for expensive crawl/API fan-out requests.
 - Prefer explicit source keys over anonymous scraping where providers offer official APIs.
 - Run scheduler and worker as separate processes/services.
+- Treat PostgreSQL + pgvector as the primary serious-use persistence/search path.
+- Run `npm run migrate:postgres -- --apply` and `npm run validate:postgres` as part of deployment bring-up.
 - PostgreSQL mode now supports direct pgvector nearest-neighbor search; external vector service remains optional.
 - Move citation/reference graph to the graph backend when scale grows.
 

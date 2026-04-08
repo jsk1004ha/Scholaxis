@@ -162,7 +162,8 @@ Recommended defaults:
 - primary embeddings: `BAAI/bge-m3`
 - primary reranker: `BAAI/bge-reranker-v2-m3`
 - optional local LLM assist path: Ollama (`nomic-embed-text`, `qwen2.5:3b`)
-- when PostgreSQL is enabled, use `SCHOLAXIS_VECTOR_BACKEND=pgvector` for real pgvector search
+- SQLite/local vector mode is fine for quick local bring-up, but the **primary serious-use path is PostgreSQL + pgvector**.
+- When PostgreSQL is enabled, use `SCHOLAXIS_VECTOR_BACKEND=pgvector` for real pgvector search and run `npm run validate:postgres` to confirm readiness.
 
 ---
 
@@ -196,6 +197,7 @@ npm run sync
 npm run scheduler
 npm run worker
 npm run migrate:postgres
+npm run validate:postgres
 npm run translation-service
 npm run reranker-service
 npm run vector-service
@@ -211,8 +213,11 @@ export SCHOLAXIS_STORAGE_BACKEND=postgres
 export SCHOLAXIS_VECTOR_BACKEND=pgvector
 export DATABASE_URL=postgres://user:password@localhost:5432/scholaxis
 npm run migrate:postgres -- --apply
+npm run validate:postgres
 npm start
 ```
+
+Treat this as the default path for serious-use deployments. SQLite/local vector mode remains a quickstart and debugging fallback.
 
 ---
 
