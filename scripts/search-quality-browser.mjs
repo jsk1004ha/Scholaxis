@@ -20,6 +20,7 @@ const REPORT_DIR = path.resolve('.omx/reports');
 const API_RUNS = Number(process.env.SCHOLAXIS_QUALITY_API_RUNS || 120);
 const BROWSER_RUNS = Number(process.env.SCHOLAXIS_QUALITY_BROWSER_RUNS || 24);
 const LIVE_SAMPLE_RUNS = Number(process.env.SCHOLAXIS_QUALITY_LIVE_SAMPLE_RUNS || 0);
+const FIXED_LIMIT = Number(process.env.SCHOLAXIS_QUALITY_FIXED_LIMIT || 0);
 const CHROME_PATHS = [
   process.env.CHROME_BIN,
   '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
@@ -450,8 +451,15 @@ export function summarizeScenarioBuckets(results = []) {
   return summary;
 }
 
-export function buildSearchQualityPlan({ apiRuns = API_RUNS, browserRuns = BROWSER_RUNS, liveSampleRuns = LIVE_SAMPLE_RUNS } = {}) {
-  const fixedScenarios = FIXED_SCENARIOS.map((scenario) => ({ ...scenario, autoLive: false, live: false }));
+export function buildSearchQualityPlan({
+  apiRuns = API_RUNS,
+  browserRuns = BROWSER_RUNS,
+  liveSampleRuns = LIVE_SAMPLE_RUNS,
+  fixedLimit = FIXED_LIMIT
+} = {}) {
+  const fixedScenarios = FIXED_SCENARIOS
+    .slice(0, fixedLimit > 0 ? fixedLimit : FIXED_SCENARIOS.length)
+    .map((scenario) => ({ ...scenario, autoLive: false, live: false }));
   const randomScenarios = buildRandomTopicScenarios(apiRuns).map((scenario) => ({ ...scenario, autoLive: false, live: false }));
   const liveScenarios = FIXED_SCENARIOS
     .filter((scenario) => scenario.allowLive)
