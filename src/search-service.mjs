@@ -253,6 +253,24 @@ function applyQueryProfileBoost(item, scoreBundle, queryProfile = null) {
   };
 }
 
+function applyPreferredSourceBoost(item, scoreBundle, preferredSources = []) {
+  const requestedSources = unique((preferredSources || []).map((source) => String(source || '').trim()).filter(Boolean));
+  if (!requestedSources.length) return { item, scoreBundle };
+
+  const availableSources = new Set([item.source, ...(item.alternateSources || [])].filter(Boolean));
+  const matched = requestedSources.some((source) => availableSources.has(source));
+  const sourceBoost = matched ? 18 : -6;
+
+  return {
+    item,
+    scoreBundle: {
+      ...scoreBundle,
+      total: scoreBundle.total + sourceBoost,
+      preferredSourceBoost: sourceBoost
+    }
+  };
+}
+
 function sanitizeDocumentForDetail(document = {}) {
   if (!document) return document;
   return {
@@ -888,7 +906,18 @@ async function executeSearchCatalog({
     return documents
       .filter((item) => (region === 'all' ? true : item.region === region))
       .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-      .map((item) => applyQueryProfileBoost(item, scoreDocument(item, queryTokens, queryTerms, queryVector, querySparse, corpusStats), queryProfile));
+      .map((item) =>
+        applyPreferredSourceBoost(
+          ...Object.values(
+            applyQueryProfileBoost(
+              item,
+              scoreDocument(item, queryTokens, queryTerms, queryVector, querySparse, corpusStats),
+              queryProfile
+            )
+          ),
+          preferredSources
+        )
+      );
   }
 
   async function attachVectorBoost(entries = []) {
@@ -972,7 +1001,18 @@ async function executeSearchCatalog({
         return documents
           .filter((item) => (region === 'all' ? true : item.region === region))
           .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-          .map((item) => applyQueryProfileBoost(item, scoreDocument(item, fallbackTokens, fallbackTerms, fallbackVector, fallbackSparse, corpusStats), queryProfile));
+          .map((item) =>
+            applyPreferredSourceBoost(
+              ...Object.values(
+                applyQueryProfileBoost(
+                  item,
+                  scoreDocument(item, fallbackTokens, fallbackTerms, fallbackVector, fallbackSparse, corpusStats),
+                  queryProfile
+                )
+              ),
+              preferredSources
+            )
+          );
       }
 
       const localFallback = await attachVectorBoost(rankFallbackDocuments(mergedSourceData));
