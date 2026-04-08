@@ -170,8 +170,8 @@ function normalizeResultCandidate(candidate = {}) {
     keywords: Array.isArray(candidate.keywords) ? candidate.keywords.map((item) => String(item)) : [],
     highlights: Array.isArray(candidate.highlights) ? candidate.highlights.map((item) => String(item)) : [],
     source: normalizeSourceValue(candidate.source || ''),
-    type: String(candidate.type || candidate.sourceType || '').toLowerCase(),
-    region: String(candidate.region || '').toLowerCase(),
+    type: normalizeLooseText(candidate.type || candidate.sourceType || ''),
+    region: normalizeLooseText(candidate.region || ''),
     score: Number(candidate.score || 0),
   };
 }
