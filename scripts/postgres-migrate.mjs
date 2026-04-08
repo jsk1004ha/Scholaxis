@@ -7,15 +7,27 @@ const execFileAsync = promisify(execFile);
 
 const args = process.argv.slice(2);
 const apply = args.includes('--apply');
-const filtered = args.filter((arg) => arg !== '--apply');
+const check = args.includes('--check');
+const filtered = args.filter((arg) => arg !== '--apply' && arg !== '--check');
 const outputPath = filtered[0] || '.data/postgres-migration.sql';
 
-process.env.SCHOLAXIS_STORAGE_BACKEND ||= 'sqlite';
+if (!check) {
+  process.env.SCHOLAXIS_STORAGE_BACKEND ||= 'sqlite';
+}
 
-const [{ buildPostgresMigrationSql }, { getPostgresSchemaSql }] = await Promise.all([
+const [{ buildPostgresMigrationSql }, { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics }] = await Promise.all([
   import('../src/postgres-migration.mjs'),
   import('../src/postgres-store.mjs')
 ]);
+
+if (check) {
+  const diagnostics = getPostgresSeriousUsePathDiagnostics();
+  console.log(JSON.stringify(diagnostics, null, 2));
+  if (!diagnostics.ready) {
+    process.exit(1);
+  }
+  process.exit(0);
+}
 
 function buildPsqlArgs(sql) {
   const args = ['-X', '-v', 'ON_ERROR_STOP=1', '-c', sql];

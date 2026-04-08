@@ -5,7 +5,7 @@ import { Blob } from 'node:buffer';
 import { createServer, startServer } from '../src/server.mjs';
 import { createGraphBackendServer } from '../src/graph-backend-server.mjs';
 import { buildPostgresMigrationSql } from '../src/postgres-migration.mjs';
-import { getPostgresSchemaSql } from '../src/postgres-store.mjs';
+import { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics } from '../src/postgres-store.mjs';
 import { createRerankerBackendServer } from '../src/reranker-backend-server.mjs';
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
@@ -986,6 +986,19 @@ test('postgres schema sql includes runtime tables', () => {
   assert.match(sql, /CREATE TABLE IF NOT EXISTS library_items/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS saved_searches/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS user_preferences/);
+});
+
+test('postgres serious-use diagnostics recommend postgres + pgvector when fallback mode is active', () => {
+  const diagnostics = getPostgresSeriousUsePathDiagnostics();
+  assert.equal(diagnostics.recommended.storageBackend, 'postgres');
+  assert.equal(diagnostics.recommended.vectorBackend, 'pgvector');
+  assert.equal(diagnostics.active.storageBackend, process.env.SCHOLAXIS_STORAGE_BACKEND || 'sqlite');
+  assert.equal(diagnostics.active.vectorBackend, process.env.SCHOLAXIS_VECTOR_BACKEND || 'local');
+  assert.equal(diagnostics.status, 'development-fallback');
+  assert.equal(diagnostics.ready, false);
+  assert.ok(diagnostics.missing.includes('storage-backend'));
+  assert.ok(diagnostics.missing.includes('vector-backend'));
+  assert.equal(diagnostics.validationCommand, 'npm run validate:postgres');
 });
 
 test('frontend search query normalization maps Korean option values to API values', () => {
