@@ -436,6 +436,9 @@ test('recommendations endpoint returns data', async () => {
   assert.ok(Array.isArray(payload.recommendations));
   assert.ok(payload.recommendations[0].recommendationScore >= payload.recommendations.at(-1).recommendationScore);
   assert.ok(payload.recommendations[0].recommendationRationale);
+  assert.ok(payload.recommendations[0].recommendationRationale.sourceGrounding);
+  assert.equal(typeof payload.recommendations[0].recommendationRationale.sourceGrounding.evidenceCount, 'number');
+  assert.ok(Array.isArray(payload.recommendations[0].recommendationRationale.sourceGrounding.graphSignals));
   server.close();
 });
 
@@ -679,6 +682,8 @@ test('detail endpoint returns related materials and alternate source metadata', 
   assert.ok(payload.sourceLinks.original || payload.sourceLinks.detail);
   assert.ok(payload.explanation);
   assert.ok(Array.isArray(payload.explanation.whyItMatters));
+  assert.ok(Array.isArray(payload.explanation.evidenceTrail));
+  assert.ok(payload.explanation.evidenceTrail.length >= 1);
   assert.ok(Array.isArray(payload.recommendations));
   assert.ok(payload.metrics.alternateSourceCount >= 1);
   assert.ok(payload.metrics.references >= 0);
@@ -704,6 +709,8 @@ test('detail expansion endpoint returns graph narrative and comparison matrix', 
   assert.ok(Array.isArray(payload.expansion.comparisonMatrix));
   assert.ok(Array.isArray(payload.expansion.graph?.references));
   assert.equal(typeof payload.expansion.graphNarrative?.summary, 'string');
+  assert.ok(Array.isArray(payload.expansion.graphNarrative?.evidenceTrail));
+  assert.ok(payload.expansion.graphNarrative.evidenceTrail.length >= 1);
   assert.ok(payload.expansion.detailHealth);
   assert.ok(Array.isArray(payload.expansion.detailHealth.warnings));
   assert.ok(payload.expansion.detailHealth.sections.some((section) => section.key === 'recommendations'));

@@ -468,18 +468,35 @@ function describeGraphInsights(paper, graph, recommendations = []) {
   const referenceCount = graph.references?.length || 0;
   const citationCount = graph.citations?.length || 0;
   const authorAffinityCount = graph.authorAffinity?.length || 0;
+  const similarCount = graph.similar?.length || 0;
+  const topicBridgeCount = graph.topicBridges?.length || 0;
+  const provenanceCount = (paper.alternateSources || [paper.source]).filter(Boolean).length;
   const topRecommendation = recommendations[0] || null;
+  const topGrounding = topRecommendation?.recommendationRationale?.sourceGrounding || null;
+  const evidenceTrail = [
+    referenceCount ? `선행 참고 ${referenceCount}건` : null,
+    citationCount ? `후속 인용 ${citationCount}건` : null,
+    authorAffinityCount ? `저자/기관 연결 ${authorAffinityCount}건` : null,
+    similarCount ? `유사 문헌 엣지 ${similarCount}건` : null,
+    topicBridgeCount ? `주제 브리지 ${topicBridgeCount}건` : null,
+    provenanceCount ? `출처 provenance ${provenanceCount}개` : null,
+    topGrounding?.evidenceCount ? `상위 추천 근거 ${topGrounding.evidenceCount}개` : null,
+  ].filter(Boolean);
   return {
     summary:
-      referenceCount || citationCount
-        ? `이 문헌은 참고문헌 ${referenceCount}건, 후속 인용 ${citationCount}건, 저자 연구 맵 ${authorAffinityCount}건과 연결됩니다.`
-        : '아직 직접 그래프 엣지는 적지만 키워드·저자·인용 신호를 기반으로 후속 읽기 후보를 확장할 수 있습니다.',
+      referenceCount || citationCount || similarCount || topicBridgeCount
+        ? `이 문헌은 참고문헌 ${referenceCount}건, 후속 인용 ${citationCount}건, 저자 연구 맵 ${authorAffinityCount}건, 유사/주제 그래프 ${similarCount + topicBridgeCount}건과 연결됩니다.`
+        : '아직 직접 그래프 엣지는 적지만 키워드·저자·인용·출처 provenance 신호를 기반으로 후속 읽기 후보를 확장할 수 있습니다.',
     whyItMatters: [
       referenceCount ? `선행 연구 축이 ${referenceCount}건으로 형성되어 관련 연구 검토 경로가 뚜렷합니다.` : null,
       citationCount ? `후속 인용 축이 ${citationCount}건 있어 최근 영향 범위를 빠르게 파악할 수 있습니다.` : null,
       authorAffinityCount ? `저자/기관 기반 연관 연구 ${authorAffinityCount}건이 있어 연구실 단위 추적에 유리합니다.` : null,
-      topRecommendation ? `가장 먼저 읽을 후보는 “${topRecommendation.title}”입니다.` : null,
+      similarCount ? `유사 문헌 엣지 ${similarCount}건이 있어 동일 문제를 다른 소스에서 교차 검토하기 쉽습니다.` : null,
+      topicBridgeCount ? `주제 브리지 ${topicBridgeCount}건이 있어 인접 분야로 확장 탐색하기 좋습니다.` : null,
+      provenanceCount > 1 ? `동일 문헌이 ${provenanceCount}개 소스에서 관측되어 provenance 확인에 유리합니다.` : null,
+      topRecommendation ? `가장 먼저 읽을 후보는 “${topRecommendation.title}”이며, ${topGrounding?.evidenceCount || 0}개의 근거 신호가 추천을 지지합니다.` : null,
     ].filter(Boolean),
+    evidenceTrail,
   };
 }
 
@@ -504,8 +521,14 @@ function buildComparisonMatrix(paper, recommendations = [], citations = [], refe
       (item.keywords || []).length && (paper.keywords || []).length
         ? `공통 키워드 ${unique((item.keywords || []).filter((keyword) => (paper.keywords || []).includes(keyword))).slice(0, 3).join(', ') || '정보 없음'}`
         : null,
+      (item.methods || []).length && (paper.methods || []).length
+        ? `공통 방법론 ${unique((item.methods || []).filter((method) => (paper.methods || []).includes(method))).slice(0, 2).join(', ') || '정보 없음'}`
+        : null,
       item.organization && paper.organization && item.organization !== paper.organization
         ? `기관/출처가 달라 비교 관점 확보에 유리합니다.`
+        : null,
+      (item.alternateSources || []).length > 1
+        ? `복수 출처 provenance(${(item.alternateSources || []).join(', ')})가 확인됩니다.`
         : null,
     ].filter(Boolean)
   }));
@@ -717,21 +740,21 @@ function buildGraphPaths(paper, recommendations = [], citations = [], references
       relation: 'references',
       from: paper.canonicalId || paper.id,
       to: item.canonicalId || item.id,
-      summary: `선행 참고로 ${item.title} 연결`,
+      summary: `선행 참고로 ${item.title} (${item.sourceLabel || item.source}) 연결`,
     })),
     ...citations.slice(0, 3).map((item) => ({
       hop: 1,
       relation: 'citations',
       from: item.canonicalId || item.id,
       to: paper.canonicalId || paper.id,
-      summary: `후속 인용으로 ${item.title} 연결`,
+      summary: `후속 인용으로 ${item.title} (${item.sourceLabel || item.source}) 연결`,
     })),
     ...recommendations.slice(0, 3).map((item) => ({
       hop: 1,
       relation: 'recommended',
       from: paper.canonicalId || paper.id,
       to: item.canonicalId || item.id,
-      summary: `의미/그래프 혼합 추천으로 ${item.title} 연결`,
+      summary: `의미/그래프 혼합 추천으로 ${item.title} (${item.sourceLabel || item.source}) 연결`,
     }))
   ];
 

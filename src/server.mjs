@@ -84,6 +84,11 @@ function isDirectRun() {
   return import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
+function shouldWarmSearchIndexOnStart() {
+  const value = String(process.env.SCHOLAXIS_WARM_SEARCH_INDEX_ON_START || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
 function setCookieHeader(res, cookie) {
   const existing = res.getHeader('Set-Cookie');
   if (!existing) {
@@ -769,18 +774,6 @@ export function startServer(
   host = appConfig.host,
   options = {}
 ) {
-  void ensureLocalModelBackend().catch((error) => {
-    console.warn(`[startup] local model backend bootstrap failed: ${error.message}`);
-  });
-  void ensureTranslationBackend().catch((error) => {
-    console.warn(`[startup] translation backend bootstrap failed: ${error.message}`);
-  });
-  void ensureRerankerBackend().catch((error) => {
-    console.warn(`[startup] reranker backend bootstrap failed: ${error.message}`);
-  });
-  void warmSearchIndex().catch((error) => {
-    console.warn(`[startup] search index warmup failed: ${error.message}`);
-  });
   const server = createServer();
   const maxFallbackAttempts = Math.max(
     0,
@@ -792,6 +785,26 @@ export function startServer(
   let currentPort = requestedPort;
   let fallbackAttempts = 0;
   let startupLogged = false;
+  let startupTasksScheduled = false;
+
+  function kickoffStartupTasks() {
+    if (startupTasksScheduled) return;
+    startupTasksScheduled = true;
+    void ensureLocalModelBackend().catch((error) => {
+      console.warn(`[startup] local model backend bootstrap failed: ${error.message}`);
+    });
+    void ensureTranslationBackend().catch((error) => {
+      console.warn(`[startup] translation backend bootstrap failed: ${error.message}`);
+    });
+    void ensureRerankerBackend().catch((error) => {
+      console.warn(`[startup] reranker backend bootstrap failed: ${error.message}`);
+    });
+    if (shouldWarmSearchIndexOnStart()) {
+      void warmSearchIndex().catch((error) => {
+        console.warn(`[startup] search index warmup failed: ${error.message}`);
+      });
+    }
+  }
 
   server.on('listening', () => {
     if (startupLogged) return;
@@ -802,6 +815,7 @@ export function startServer(
     const suffix =
       boundPort === requestedPort ? '' : ` (requested ${requestedPort}, auto-fallback after port conflict)`;
     console.log(`Scholaxis server listening on http://${printableHost}:${boundPort}${suffix}`);
+    kickoffStartupTasks();
   });
 
   function listenOn(portToUse) {

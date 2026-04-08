@@ -56,6 +56,18 @@ npm run validate:postgres
 This command exits successfully only when Scholaxis is configured for the
 recommended PostgreSQL + pgvector path and the schema/pgvector extension are reachable.
 
+## Startup responsiveness note
+
+Scholaxis now keeps eager search-index warmup **disabled by default** during process
+startup so `/api/health`, browser smoke checks, and first-boot diagnostics do not stall
+behind a large local index build.
+
+Enable eager warmup only when you explicitly want it:
+
+```bash
+export SCHOLAXIS_WARM_SEARCH_INDEX_ON_START=true
+```
+
 ### `validate:postgres` troubleshooting
 
 `npm run validate:postgres` prints a structured readiness report before it exits.
