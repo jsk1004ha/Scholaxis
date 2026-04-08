@@ -17,19 +17,27 @@ async function commandExists(command) {
 
 async function rasterizePdf(pdfPath, outputDir) {
   if (await commandExists('pdftoppm')) {
-    await execFileAsync('pdftoppm', ['-png', '-r', '200', pdfPath, path.join(outputDir, 'page')]);
+    await execFileAsync('pdftoppm', ['-png', '-r', '300', pdfPath, path.join(outputDir, 'page')]);
     return;
   }
   if (await commandExists('pdftocairo')) {
-    await execFileAsync('pdftocairo', ['-png', '-r', '200', pdfPath, path.join(outputDir, 'page')]);
+    await execFileAsync('pdftocairo', ['-png', '-r', '300', pdfPath, path.join(outputDir, 'page')]);
     return;
   }
   throw new Error('no-pdf-rasterizer');
 }
 
 async function ocrImage(imagePath) {
-  await execFileAsync('tesseract', [imagePath, 'stdout', '-l', 'kor+eng', '--psm', '6']);
-  const { stdout } = await execFileAsync('tesseract', [imagePath, 'stdout', '-l', 'kor+eng', '--psm', '6']);
+  const { stdout } = await execFileAsync('tesseract', [
+    imagePath,
+    'stdout',
+    '-l',
+    'kor+eng',
+    '--psm',
+    '4',
+    '-c',
+    'preserve_interword_spaces=1'
+  ]);
   return stdout.trim();
 }
 

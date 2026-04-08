@@ -85,7 +85,7 @@ Scholaxis now supports these runtime modes:
 
 - `SCHOLAXIS_VECTOR_BACKEND=local` — in-process dense vector search
 - `SCHOLAXIS_VECTOR_BACKEND=http` — POST `/upsert`, `/search` on `SCHOLAXIS_VECTOR_SERVICE_URL`
-- `SCHOLAXIS_VECTOR_BACKEND=pgvector` — PostgreSQL/pgvector-compatible migration/export path
+- `SCHOLAXIS_VECTOR_BACKEND=pgvector` — PostgreSQL documents table + pgvector similarity search path
 
 - `SCHOLAXIS_GRAPH_BACKEND=local` — in-process author/citation/reference graph
 - `SCHOLAXIS_GRAPH_BACKEND=http` — POST `/upsert` on `SCHOLAXIS_GRAPH_SERVICE_URL`
@@ -124,7 +124,7 @@ npm start
 - Apply proxy-level rate limiting for expensive crawl/API fan-out requests.
 - Prefer explicit source keys over anonymous scraping where providers offer official APIs.
 - Run scheduler and worker as separate processes/services.
-- Move vectors to pgvector or an external vector service.
+- PostgreSQL mode now supports direct pgvector nearest-neighbor search; external vector service remains optional.
 - Move citation/reference graph to the graph backend when scale grows.
 
 ## Cloudflare Tunnel

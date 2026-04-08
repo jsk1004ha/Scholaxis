@@ -10,10 +10,10 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "test": "node --test --test-concurrency=1",
+    "test": "NODE_ENV=test node --test --test-concurrency=1",
     "lint": "node scripts/lint.mjs",
     "typecheck": "node scripts/typecheck.mjs",
-    "smoke": "node scripts/smoke-test.mjs",
+    "smoke": "NODE_ENV=test node scripts/smoke-test.mjs",
     "sync": "node scripts/sync-sources.mjs",
     "scheduler": "node scripts/start-scheduler.mjs",
     "worker": "node scripts/start-worker.mjs",
@@ -25,7 +25,9 @@
     "quality:search": "node scripts/search-quality-browser.mjs",
     "backup": "node scripts/backup-sqlite.mjs",
     "restore": "node scripts/restore-sqlite.mjs",
-    "verify": "npm run typecheck && npm run lint && npm test && npm run smoke"
+    "verify": "npm run typecheck && npm run lint && npm test && npm run smoke",
+    "local-model-service": "python3 scripts/local-model-server.py",
+    "quality:search:quick": "SCHOLAXIS_QUALITY_API_RUNS=24 SCHOLAXIS_QUALITY_BROWSER_RUNS=6 SCHOLAXIS_QUALITY_LIVE_SAMPLE_RUNS=3 node scripts/search-quality-browser.mjs"
   },
   "license": "Apache-2.0"
 }

@@ -222,6 +222,21 @@ ensureColumn('saved_searches', 'last_notified_at TEXT');
 ensureColumn('saved_searches', 'last_result_count INTEGER DEFAULT 0');
 ensureColumn('user_preferences', 'cross_language_opt_in INTEGER DEFAULT 0');
 
+function withSqliteRetry(operation, retries = 6, delayMs = 25) {
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  let attempt = 0;
+  while (true) {
+    try {
+      return operation();
+    } catch (error) {
+      const locked = /database is locked/i.test(String(error?.message || ''));
+      if (!locked || attempt >= retries) throw error;
+      attempt += 1;
+      Atomics.wait(sleeper, 0, 0, delayMs * attempt);
+    }
+  }
+}
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_graph_edges_source_type ON graph_edges(source_id, edge_type);
   CREATE INDEX IF NOT EXISTS idx_graph_edges_target_type ON graph_edges(target_id, edge_type);
@@ -262,6 +277,34 @@ const insertSimilarityRun = db.prepare(`
   ) VALUES (?, ?, ?, ?, ?, ?, ?)
 `);
 
+function serializeDocumentSnapshot(document = {}) {
+  return JSON.stringify({
+    ...document,
+    vector: document.semanticVector || document.vector || [],
+    sparseVector: document.sparseVector || {},
+    rawRecord: document.rawRecord || document.rawRecords || null,
+    updatedAt: document.updatedAt || new Date().toISOString(),
+  });
+}
+
+function hydrateStoredDocument(base = {}, rawJson = 'null') {
+  const snapshot = JSON.parse(rawJson || 'null') || {};
+  return {
+    ...snapshot,
+    ...base,
+    authors: base.authors || snapshot.authors || [],
+    keywords: base.keywords || snapshot.keywords || [],
+    methods: snapshot.methods || [],
+    highlights: snapshot.highlights || [],
+    links: base.links || snapshot.links || {},
+    vector: base.vector?.length ? base.vector : snapshot.vector || [],
+    semanticVector: snapshot.semanticVector || base.vector || snapshot.vector || [],
+    sparseVector: Object.keys(base.sparseVector || {}).length ? base.sparseVector : snapshot.sparseVector || {},
+    rawRecord: base.rawRecord || snapshot.rawRecord || snapshot.rawRecords || null,
+    updatedAt: base.updatedAt || snapshot.updatedAt,
+  };
+}
+
 export function persistDocuments(documents = []) {
   if (usePostgresStorage()) {
     persistDocumentsToPostgresSync(documents);
@@ -269,7 +312,7 @@ export function persistDocuments(documents = []) {
   }
   const timestamp = new Date().toISOString();
   for (const document of documents) {
-    upsertDocument.run(
+    withSqliteRetry(() => upsertDocument.run(
       document.canonicalId || document.id,
       document.source,
       document.type,
@@ -280,11 +323,11 @@ export function persistDocuments(documents = []) {
       JSON.stringify(document.keywords || []),
       document.summary || '',
       JSON.stringify(document.links || {}),
-      JSON.stringify(document.vector || []),
+      JSON.stringify(document.semanticVector || document.vector || []),
       JSON.stringify(document.sparseVector || {}),
-      JSON.stringify(document.rawRecord || document.rawRecords || null),
+      serializeDocumentSnapshot(document),
       timestamp
-    );
+    ));
   }
 }
 
@@ -293,14 +336,14 @@ export function persistSearchRun({ query = '', filters = {}, total = 0, liveSour
     persistSearchRunToPostgresSync({ query, filters, total, liveSourceCount, canonicalCount });
     return;
   }
-  insertSearchRun.run(
+  withSqliteRetry(() => insertSearchRun.run(
     query,
     JSON.stringify(filters),
     total,
     liveSourceCount,
     canonicalCount,
     new Date().toISOString()
-  );
+  ));
 }
 
 export function persistSimilarityRun({ title = '', extraction = null, report = null } = {}) {
@@ -308,7 +351,7 @@ export function persistSimilarityRun({ title = '', extraction = null, report = n
     persistSimilarityRunToPostgresSync({ title, extraction, report });
     return;
   }
-  insertSimilarityRun.run(
+  withSqliteRetry(() => insertSimilarityRun.run(
     title,
     extraction?.method || '',
     extraction?.extractedCharacters || 0,
@@ -316,7 +359,7 @@ export function persistSimilarityRun({ title = '', extraction = null, report = n
     report?.riskLevel || '',
     report?.topMatches?.[0]?.id || null,
     new Date().toISOString()
-  );
+  ));
 }
 
 export function getStorageDiagnostics() {
@@ -595,7 +638,7 @@ export function persistGraphEdges(edges = []) {
   }
   const timestamp = new Date().toISOString();
   for (const edge of edges) {
-    insertGraphEdge.run(edge.sourceId, edge.targetId, edge.edgeType, edge.weight || 0, timestamp);
+    withSqliteRetry(() => insertGraphEdge.run(edge.sourceId, edge.targetId, edge.edgeType, edge.weight || 0, timestamp));
   }
 }
 
@@ -632,7 +675,11 @@ export function persistRequestLog({ method = '', path = '', status = 0, duration
     persistRequestLogToPostgresSync({ method, path, status, durationMs });
     return;
   }
-  insertRequestLog.run(method, path, status, durationMs, new Date().toISOString());
+  try {
+    withSqliteRetry(() => insertRequestLog.run(method, path, status, durationMs, new Date().toISOString()));
+  } catch {
+    // request logging must not fail the request path
+  }
 }
 
 export function getRecommendationsFromStorage(canonicalId, limit = 5) {
@@ -759,7 +806,7 @@ export function requeueBackgroundJob(id, delayMs = 0) {
 
 export function getStoredDocuments() {
   if (usePostgresStorage()) return getStoredDocumentsFromPostgresSync();
-  return getAllDocumentsStmt.all().map((row) => ({
+  return getAllDocumentsStmt.all().map((row) => hydrateStoredDocument({
     canonicalId: row.canonicalId,
     id: row.canonicalId,
     source: row.source,
@@ -775,7 +822,7 @@ export function getStoredDocuments() {
     sparseVector: JSON.parse(row.sparseJson || '{}'),
     rawRecord: JSON.parse(row.rawJson || 'null'),
     updatedAt: row.updatedAt
-  }));
+  }, row.rawJson));
 }
 
 export function createUser({ email, displayName, passwordDigest }) {

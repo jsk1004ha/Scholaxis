@@ -34,3 +34,7 @@ yarn-error.log*
 # caches
 .pytest_cache/
 .venv-libretranslate/
+.venv-local-model/
+.venv-local-models/
+__pycache__/
+scripts/__pycache__/

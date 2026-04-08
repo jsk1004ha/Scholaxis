@@ -70,7 +70,7 @@ In short, Scholaxis is closer to a **research exploration engine** than a generi
 - citations/references/graph lookup
 - interest-aware recommendation feed
 - multi-source fan-out + deduplication
-- vector + sparse + reranker-based ordering
+- BGE-M3 embeddings + sparse retrieval + cross-encoder reranking
 - translation-assisted cross-lingual retrieval
 
 ### Supported source families
@@ -87,7 +87,7 @@ In short, Scholaxis is closer to a **research exploration engine** than a generi
 - R&E report board
 
 ### Document similarity analysis
-- text comparison
+- semantic-embedding + section-structure comparison
 - PDF / DOCX / HWPX extraction
 - best-effort HWP extraction
 - OCR fallback pipeline
@@ -129,6 +129,7 @@ Instead of embedding unstable real screenshots, this README now includes a **mai
 
 ### Optional
 - PostgreSQL (when using `SCHOLAXIS_STORAGE_BACKEND=postgres`)
+- Local model backend (when using sentence-transformers BGE embeddings / reranker)
 - LibreTranslate (when using the `libretranslate` translation backend)
 - Tesseract OCR + Poppler (when OCR is required)
 - `cloudflared` (for public demos)
@@ -138,6 +139,30 @@ Instead of embedding unstable real screenshots, this README now includes a **mai
 sudo apt-get update
 sudo apt-get install -y tesseract-ocr tesseract-ocr-kor poppler-utils
 ```
+
+### Local embedding + reranker setup
+```bash
+# 1) Local sentence-transformers stack (recommended primary path)
+python3 -m pip install --user --break-system-packages -r requirements-local-models.txt
+
+export SCHOLAXIS_EMBEDDING_PROVIDER=auto
+export SCHOLAXIS_EMBEDDING_MODEL=BAAI/bge-m3
+export SCHOLAXIS_RERANKER_PROVIDER=auto
+export SCHOLAXIS_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+export SCHOLAXIS_LOCAL_MODEL_AUTOSTART=true
+export SCHOLAXIS_VECTOR_DIMS=1024
+
+# 2) Optional Ollama fallback/assist path
+export SCHOLAXIS_OLLAMA_URL=http://127.0.0.1:11434
+export SCHOLAXIS_OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+export SCHOLAXIS_OLLAMA_RERANKER_MODEL=qwen2.5:3b
+```
+
+Recommended defaults:
+- primary embeddings: `BAAI/bge-m3`
+- primary reranker: `BAAI/bge-reranker-v2-m3`
+- optional local LLM assist path: Ollama (`nomic-embed-text`, `qwen2.5:3b`)
+- when PostgreSQL is enabled, use `SCHOLAXIS_VECTOR_BACKEND=pgvector` for real pgvector search
 
 ---
 
@@ -175,6 +200,7 @@ npm run translation-service
 npm run reranker-service
 npm run vector-service
 npm run graph-service
+npm run typecheck
 npm run backup
 npm run restore -- <backup-file>
 ```
@@ -182,6 +208,7 @@ npm run restore -- <backup-file>
 ### 6) PostgreSQL + pgvector mode
 ```bash
 export SCHOLAXIS_STORAGE_BACKEND=postgres
+export SCHOLAXIS_VECTOR_BACKEND=pgvector
 export DATABASE_URL=postgres://user:password@localhost:5432/scholaxis
 npm run migrate:postgres -- --apply
 npm start
@@ -304,6 +331,12 @@ Stored entities include:
 - `SCHOLAXIS_RERANKER_SERVICE_URL`
 - `SCHOLAXIS_RERANKER_API_KEY`
 - `SCHOLAXIS_RERANKER_TOP_K`
+- `SCHOLAXIS_EMBEDDING_PROVIDER`
+- `SCHOLAXIS_EMBEDDING_SERVICE_URL`
+- `SCHOLAXIS_EMBEDDING_MODEL`
+- `SCHOLAXIS_OLLAMA_URL`
+- `SCHOLAXIS_OLLAMA_EMBEDDING_MODEL`
+- `SCHOLAXIS_OLLAMA_RERANKER_MODEL`
 - `SCHOLAXIS_VECTOR_BACKEND`
 - `SCHOLAXIS_GRAPH_BACKEND`
 - `SCHOLAXIS_VECTOR_SERVICE_URL`

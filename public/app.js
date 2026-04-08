@@ -89,6 +89,13 @@ function matchCard(match) {
       <div class="keyword-row">
         ${match.sharedKeywords.map((keyword) => `<span class="keyword-chip">${escapeHtml(keyword)}</span>`).join('')}
       </div>
+      <div class="result-actions">
+        <div class="tiny-metrics">
+          <span>Dense ${escapeHtml(match.denseScore ?? 0)}</span>
+          <span>Sparse ${escapeHtml(match.sparseScore ?? 0)}</span>
+        </div>
+        ${match.id ? `<button class="link-button" data-action="open-detail" data-id="${escapeHtml(match.id)}">상세 보기</button>` : ''}
+      </div>
     </article>
   `;
 }
@@ -277,6 +284,10 @@ function detailView() {
                 </ul>
               </div>
             </div>
+            <div class="result-actions" style="margin-top:1rem">
+              ${detail.originalUrl ? `<a class="secondary-button" href="${escapeHtml(detail.originalUrl)}" target="_blank" rel="noreferrer noopener">원문 열기</a>` : ''}
+              ${detail.sourceUrl ? `<a class="secondary-button" href="${escapeHtml(detail.sourceUrl)}" target="_blank" rel="noreferrer noopener">출처 상세 열기</a>` : ''}
+            </div>
           </article>
           <article class="detail-card">
             <div class="section-header compact">
@@ -287,6 +298,28 @@ function detailView() {
             </div>
             <div class="related-list">
               ${detail.related.map(relatedCard).join('')}
+            </div>
+          </article>
+          <article class="detail-card">
+            <div class="section-header compact">
+              <div>
+                <p class="eyebrow">Citation & Expansion</p>
+                <h2>인용·참고·추천 확장</h2>
+              </div>
+            </div>
+            <div class="split-grid">
+              <div>
+                <h3>후속 인용</h3>
+                <div class="related-list">${detail.citations?.length ? detail.citations.map(relatedCard).join('') : '<div class="empty-card">후속 인용 자료가 아직 충분하지 않습니다.</div>'}</div>
+              </div>
+              <div>
+                <h3>선행 참고</h3>
+                <div class="related-list">${detail.references?.length ? detail.references.map(relatedCard).join('') : '<div class="empty-card">선행 참고 자료가 아직 충분하지 않습니다.</div>'}</div>
+              </div>
+            </div>
+            <div style="margin-top:1rem">
+              <h3>추천 경로</h3>
+              <div class="related-list">${detail.recommendations?.length ? detail.recommendations.map(relatedCard).join('') : '<div class="empty-card">추천 후보가 아직 충분하지 않습니다.</div>'}</div>
             </div>
           </article>
         </div>
@@ -302,8 +335,30 @@ function detailView() {
             </ul>
           </div>
           <div class="detail-card">
-            <p class="eyebrow">Source</p>
-            <p class="body-copy">${escapeHtml(detail.sourceUrl)}</p>
+            <p class="eyebrow">Source grounding</p>
+            <p class="body-copy">${escapeHtml(detail.explanation?.summary || '이 문서는 실제 출처 레코드에 연결된 상세 자료입니다.')}</p>
+            <ul class="bullet-list">
+              ${(detail.explanation?.whyItMatters || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+          </div>
+          <div class="detail-card">
+            <p class="eyebrow">그래프 경로</p>
+            <ul class="bullet-list">
+              ${(detail.graphPaths || []).length
+                ? detail.graphPaths.map((path) => `<li>${escapeHtml(path.summary)}</li>`).join('')
+                : '<li>그래프 경로 정보가 아직 부족합니다.</li>'}
+            </ul>
+          </div>
+          <div class="detail-card">
+            <p class="eyebrow">출처 상태 / 대체 소스</p>
+            <div class="keyword-row">
+              ${(detail.alternateSources || []).map((source) => `<span class="keyword-chip">${escapeHtml(source)}</span>`).join('')}
+            </div>
+            <ul class="bullet-list">
+              ${(detail.sourceStatus || []).length
+                ? detail.sourceStatus.map((item) => `<li>${escapeHtml(item.source)} · ${escapeHtml(item.status)} · ${escapeHtml(item.note || '')}</li>`).join('')
+                : '<li>출처 상태 정보가 아직 없습니다.</li>'}
+            </ul>
           </div>
         </aside>
       </section>
@@ -330,6 +385,10 @@ function similarityView() {
               <input type="text" name="title" placeholder="예: 배터리 진단 AI 연구 초안" value="${escapeHtml(state.similarity?.title || '')}" />
             </label>
             <label>
+              파일 업로드
+              <input type="file" name="report" accept=".pdf,.docx,.hwpx,.hwp,.txt,.md" />
+            </label>
+            <label>
               분석할 텍스트
               <textarea name="text" rows="10" placeholder="초록이나 주요 본문을 붙여 넣으세요.">${escapeHtml(state.similarity?.draftText || '')}</textarea>
             </label>
@@ -343,6 +402,8 @@ function similarityView() {
               </div>
               ${state.similarity?.report ? `<span class="score-pill score-pill-strong">${escapeHtml(state.similarity.report.score)}%</span>` : ''}
             </div>
+            ${state.similarity?.report?.sameTopicStatement ? `<p class="body-copy">${escapeHtml(state.similarity.report.sameTopicStatement)}</p>` : ''}
+            ${state.similarity?.report?.extraction ? `<p class="body-copy">추출: ${escapeHtml(state.similarity.report.extraction.method)} · ${escapeHtml(state.similarity.report.extraction.extractedCharacters)}자${state.similarity.report.extraction.warnings?.length ? ` · 경고 ${escapeHtml(state.similarity.report.extraction.warnings.join(', '))}` : ''}</p>` : ''}
             ${state.similarity?.report ? `<div class="match-list">${state.similarity.report.topMatches.map(matchCard).join('')}</div>` : '<div class="empty-card">텍스트를 입력하면 상위 유사 자료를 분석합니다.</div>'}
           </section>
         </div>
@@ -464,6 +525,38 @@ async function submitSimilarity(title, text) {
   state.similarity = { title, draftText: text, report: payload };
 }
 
+async function submitSimilarityForm(form) {
+  const formData = new FormData(form);
+  const reportFile = formData.get('report');
+  const hasFile = reportFile && typeof reportFile === 'object' && reportFile.size > 0;
+
+  let payload;
+  if (hasFile) {
+    const response = await fetch('/api/similarity/analyze', {
+      method: 'POST',
+      body: formData
+    });
+    payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || '유사도 분석 중 오류가 발생했습니다.');
+  } else {
+    payload = await fetchJson('/api/similarity/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: String(formData.get('title') || '업로드 문서'),
+        text: String(formData.get('text') || '')
+      })
+    });
+  }
+
+  state.route = { view: 'similarity' };
+  state.similarity = {
+    title: String(formData.get('title') || '업로드 문서'),
+    draftText: String(formData.get('text') || ''),
+    report: payload
+  };
+}
+
 function setHash(hash) {
   if (window.location.hash === hash) {
     syncRoute();
@@ -555,8 +648,7 @@ app.addEventListener('submit', async (event) => {
 
     if (event.target.id === 'similarity-form') {
       event.preventDefault();
-      const form = new FormData(event.target);
-      await submitSimilarity(String(form.get('title') || '업로드 문서'), String(form.get('text') || ''));
+      await submitSimilarityForm(event.target);
       render();
     }
   } catch (error) {

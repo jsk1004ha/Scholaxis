@@ -2,8 +2,16 @@ import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { appConfig } from './config.mjs';
+import { embedText } from './embedding-service.mjs';
+import { buildDocumentPassages, buildSparseVector, unique } from './vector-service.mjs';
 
 const execFileAsync = promisify(execFile);
+const POSTGRES_RUNTIME_CACHE_MS = 5_000;
+const postgresRuntimeState = {
+  checkedAt: 0,
+  ready: false,
+  lastError: '',
+};
 
 function postgresEnabled() {
   return appConfig.storageBackend === 'postgres';
@@ -64,14 +72,65 @@ function firstJsonRow(sql) {
   return jsonRows(sql)[0] || null;
 }
 
+function serializeDocumentSnapshot(document = {}) {
+  return {
+    ...document,
+    vector: document.semanticVector || document.vector || [],
+    sparseVector: document.sparseVector || {},
+    rawRecord: document.rawRecord || document.rawRecords || null,
+    updatedAt: document.updatedAt || new Date().toISOString(),
+  };
+}
+
+function hydrateStoredDocument(base = {}, rawSnapshot = null) {
+  const snapshot = rawSnapshot && typeof rawSnapshot === 'object' ? rawSnapshot : {};
+  return {
+    ...snapshot,
+    ...base,
+    authors: base.authors || snapshot.authors || [],
+    keywords: base.keywords || snapshot.keywords || [],
+    methods: snapshot.methods || [],
+    highlights: snapshot.highlights || [],
+    links: base.links || snapshot.links || {},
+    vector: snapshot.vector || [],
+    semanticVector: snapshot.semanticVector || snapshot.vector || [],
+    sparseVector: base.sparseVector || snapshot.sparseVector || {},
+    rawRecord: base.rawRecord || snapshot.rawRecord || snapshot.rawRecords || null,
+    updatedAt: base.updatedAt || snapshot.updatedAt,
+  };
+}
+
 function postgresStorageReady() {
   return postgresEnabled() && hasConnectionConfig();
 }
 
 function ensurePostgresSchemaSync() {
-  if (!postgresStorageReady()) return false;
-  runPsqlSync(getPostgresSchemaSql());
-  return true;
+  if (!postgresStorageReady()) {
+    postgresRuntimeState.ready = false;
+    postgresRuntimeState.lastError = postgresEnabled() ? 'postgres-not-configured' : '';
+    postgresRuntimeState.checkedAt = Date.now();
+    return false;
+  }
+
+  if (
+    postgresRuntimeState.checkedAt &&
+    Date.now() - postgresRuntimeState.checkedAt < POSTGRES_RUNTIME_CACHE_MS
+  ) {
+    return postgresRuntimeState.ready;
+  }
+
+  try {
+    runPsqlSync(getPostgresSchemaSql());
+    postgresRuntimeState.ready = true;
+    postgresRuntimeState.lastError = '';
+    return true;
+  } catch (error) {
+    postgresRuntimeState.ready = false;
+    postgresRuntimeState.lastError = error.message;
+    return false;
+  } finally {
+    postgresRuntimeState.checkedAt = Date.now();
+  }
 }
 
 export function getPostgresSchemaSql() {
@@ -82,18 +141,75 @@ CREATE TABLE IF NOT EXISTS documents (
   source TEXT,
   type TEXT,
   title TEXT,
+  english_title TEXT,
   year INTEGER,
   organization TEXT,
+  language TEXT,
+  region TEXT,
+  citations INTEGER,
+  open_access BOOLEAN,
   authors_json JSONB,
   keywords_json JSONB,
+  methods_json JSONB,
+  highlights_json JSONB,
+  alternate_sources_json JSONB,
+  source_ids_json JSONB,
+  abstract TEXT,
   summary TEXT,
+  novelty TEXT,
+  search_text TEXT,
   links_json JSONB,
   embedding vector(${appConfig.vectorDimensions}),
+  embedding_provider TEXT,
+  embedding_model TEXT,
   sparse_json JSONB,
   raw_json JSONB,
   updated_at TIMESTAMPTZ
 );
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS english_title TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS language TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS region TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS citations INTEGER;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS open_access BOOLEAN;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS methods_json JSONB;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS highlights_json JSONB;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS alternate_sources_json JSONB;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_ids_json JSONB;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS abstract TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS novelty TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS search_text TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS embedding_provider TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 CREATE INDEX IF NOT EXISTS idx_documents_embedding_cosine ON documents USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_documents_source_type_year ON documents(source, type, year DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_region_year ON documents(region, year DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_updated_at ON documents(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_search_text_tsv ON documents USING GIN (to_tsvector('simple', COALESCE(search_text, '')));
+CREATE TABLE IF NOT EXISTS source_records (
+  canonical_id TEXT,
+  source_key TEXT,
+  source_document_id TEXT,
+  source_label TEXT,
+  detail_url TEXT,
+  original_url TEXT,
+  raw_json JSONB,
+  updated_at TIMESTAMPTZ,
+  PRIMARY KEY (canonical_id, source_key)
+);
+CREATE INDEX IF NOT EXISTS idx_source_records_canonical_id ON source_records(canonical_id);
+CREATE TABLE IF NOT EXISTS document_chunks (
+  chunk_id TEXT PRIMARY KEY,
+  canonical_id TEXT,
+  ordinal INTEGER,
+  label TEXT,
+  content TEXT,
+  embedding vector(${appConfig.vectorDimensions}),
+  sparse_json JSONB,
+  updated_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_canonical_id ON document_chunks(canonical_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_cosine ON document_chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_content_tsv ON document_chunks USING GIN (to_tsvector('simple', COALESCE(content, '')));
 CREATE TABLE IF NOT EXISTS search_runs (
   id BIGSERIAL PRIMARY KEY,
   query_text TEXT,
@@ -215,47 +331,141 @@ export async function syncDocumentsToPostgres(documents = []) {
   const schema = await ensurePostgresSchema();
   if (!schema.ready) return { ...schema, synced: 0 };
 
-  const statements = documents.map((document) => {
+  const documentStatements = documents.map((document) => {
     const vectorLiteral = `[${(document.vector || []).map((value) => Number(value || 0).toFixed(6)).join(',')}]`;
     return `
 INSERT INTO documents (
-  canonical_id, source, type, title, year, organization, authors_json, keywords_json,
-  summary, links_json, embedding, sparse_json, raw_json, updated_at
+  canonical_id, source, type, title, english_title, year, organization, language, region, citations, open_access,
+  authors_json, keywords_json, methods_json, highlights_json, alternate_sources_json, source_ids_json,
+  abstract, summary, novelty, search_text, links_json, embedding, embedding_provider, embedding_model,
+  sparse_json, raw_json, updated_at
 ) VALUES (
   ${sqlString(document.canonicalId || document.id)},
   ${sqlString(document.source)},
   ${sqlString(document.type)},
   ${sqlString(document.title)},
+  ${sqlString(document.englishTitle || '')},
   ${document.year ?? 'NULL'},
   ${sqlString(document.organization || '')},
+  ${sqlString(document.language || '')},
+  ${sqlString(document.region || '')},
+  ${Number(document.citations || 0)},
+  ${sqlBool(document.openAccess)},
   ${sqlJson(document.authors || [])},
   ${sqlJson(document.keywords || [])},
+  ${sqlJson(document.methods || [])},
+  ${sqlJson(document.highlights || [])},
+  ${sqlJson(document.alternateSources || [])},
+  ${sqlJson(document.sourceIds || {})},
+  ${sqlString(document.abstract || '')},
   ${sqlString(document.summary || '')},
+  ${sqlString(document.novelty || '')},
+  ${sqlString(document.searchText || '')},
   ${sqlJson(document.links || {})},
   ${sqlString(vectorLiteral)}::vector,
+  ${sqlString(document.embeddingProvider || '')},
+  ${sqlString(document.embeddingModel || '')},
   ${sqlJson(document.sparseVector || {})},
-  ${sqlJson(document.rawRecord || null)},
+  ${sqlJson(serializeDocumentSnapshot(document))},
   ${sqlString(document.updatedAt || new Date().toISOString())}
 )
 ON CONFLICT (canonical_id) DO UPDATE SET
   source=EXCLUDED.source,
   type=EXCLUDED.type,
   title=EXCLUDED.title,
+  english_title=EXCLUDED.english_title,
   year=EXCLUDED.year,
   organization=EXCLUDED.organization,
+  language=EXCLUDED.language,
+  region=EXCLUDED.region,
+  citations=EXCLUDED.citations,
+  open_access=EXCLUDED.open_access,
   authors_json=EXCLUDED.authors_json,
   keywords_json=EXCLUDED.keywords_json,
+  methods_json=EXCLUDED.methods_json,
+  highlights_json=EXCLUDED.highlights_json,
+  alternate_sources_json=EXCLUDED.alternate_sources_json,
+  source_ids_json=EXCLUDED.source_ids_json,
+  abstract=EXCLUDED.abstract,
   summary=EXCLUDED.summary,
+  novelty=EXCLUDED.novelty,
+  search_text=EXCLUDED.search_text,
   links_json=EXCLUDED.links_json,
   embedding=EXCLUDED.embedding,
+  embedding_provider=EXCLUDED.embedding_provider,
+  embedding_model=EXCLUDED.embedding_model,
   sparse_json=EXCLUDED.sparse_json,
   raw_json=EXCLUDED.raw_json,
   updated_at=EXCLUDED.updated_at;`.trim();
   });
 
+  const sourceRecordStatements = [];
+  const chunkStatements = [];
+
+  for (const document of documents) {
+    const canonicalId = document.canonicalId || document.id;
+    const updatedAt = document.updatedAt || new Date().toISOString();
+    sourceRecordStatements.push(`DELETE FROM source_records WHERE canonical_id = ${sqlString(canonicalId)};`);
+    chunkStatements.push(`DELETE FROM document_chunks WHERE canonical_id = ${sqlString(canonicalId)};`);
+
+    const sourceKeys = unique([document.source, ...(document.alternateSources || [])].filter(Boolean));
+    for (const sourceKey of sourceKeys) {
+      sourceRecordStatements.push(`
+INSERT INTO source_records (
+  canonical_id, source_key, source_document_id, source_label, detail_url, original_url, raw_json, updated_at
+) VALUES (
+  ${sqlString(canonicalId)},
+  ${sqlString(sourceKey)},
+  ${sqlString(document.sourceIds?.[sourceKey] || canonicalId)},
+  ${sqlString(document.sourceLabel || sourceKey)},
+  ${sqlString(document.links?.detail || '')},
+  ${sqlString(document.links?.original || document.links?.detail || '')},
+  ${sqlJson(document.rawRecord || serializeDocumentSnapshot(document))},
+  ${sqlString(updatedAt)}
+)
+ON CONFLICT (canonical_id, source_key) DO UPDATE SET
+  source_document_id = EXCLUDED.source_document_id,
+  source_label = EXCLUDED.source_label,
+  detail_url = EXCLUDED.detail_url,
+  original_url = EXCLUDED.original_url,
+  raw_json = EXCLUDED.raw_json,
+  updated_at = EXCLUDED.updated_at;`.trim());
+    }
+
+    const passages = buildDocumentPassages(document).slice(0, 8);
+    const chunkVectors = await Promise.all(
+      passages.map((passage) => embedText(`${document.title || ''}\n${passage.text}`))
+    );
+    passages.forEach((passage, index) => {
+      const vectorLiteral = `[${(chunkVectors[index] || []).map((value) => Number(value || 0).toFixed(6)).join(',')}]`;
+      chunkStatements.push(`
+INSERT INTO document_chunks (
+  chunk_id, canonical_id, ordinal, label, content, embedding, sparse_json, updated_at
+) VALUES (
+  ${sqlString(`${canonicalId}::${index + 1}`)},
+  ${sqlString(canonicalId)},
+  ${index + 1},
+  ${sqlString(passage.label)},
+  ${sqlString(passage.text)},
+  ${sqlString(vectorLiteral)}::vector,
+  ${sqlJson(buildSparseVector(passage.text))},
+  ${sqlString(updatedAt)}
+)
+ON CONFLICT (chunk_id) DO UPDATE SET
+  canonical_id = EXCLUDED.canonical_id,
+  ordinal = EXCLUDED.ordinal,
+  label = EXCLUDED.label,
+  content = EXCLUDED.content,
+  embedding = EXCLUDED.embedding,
+  sparse_json = EXCLUDED.sparse_json,
+  updated_at = EXCLUDED.updated_at;`.trim());
+    });
+  }
+
   try {
+    const statements = [...documentStatements, ...sourceRecordStatements, ...chunkStatements];
     if (statements.length) await runPsql(statements.join('\n'));
-    return { enabled: true, synced: documents.length, ready: true };
+    return { enabled: true, synced: documents.length, sourceRecords: sourceRecordStatements.length, chunks: chunkStatements.length, ready: true };
   } catch (error) {
     return { enabled: true, ready: false, synced: 0, error: error.message };
   }
@@ -272,11 +482,23 @@ FROM (
     source,
     type,
     title,
+    english_title AS "englishTitle",
     year,
     organization,
+    language,
+    region,
+    citations,
+    open_access AS "openAccess",
     authors_json AS authors,
     keywords_json AS keywords,
+    methods_json AS methods,
+    highlights_json AS highlights,
+    alternate_sources_json AS "alternateSources",
+    source_ids_json AS "sourceIds",
+    abstract,
     summary,
+    novelty,
+    search_text AS "searchText",
     links_json AS links,
     sparse_json AS "sparseVector",
     raw_json AS "rawRecord",
@@ -289,7 +511,10 @@ FROM (
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .map((line) => JSON.parse(line));
+      .map((line) => {
+        const row = JSON.parse(line);
+        return hydrateStoredDocument(row, row.rawRecord);
+      });
   } catch {
     return [];
   }
@@ -310,6 +535,8 @@ SELECT row_to_json(t)
 FROM (
   SELECT
     (SELECT COUNT(*) FROM documents) AS documents,
+    (SELECT COUNT(*) FROM source_records) AS source_records,
+    (SELECT COUNT(*) FROM document_chunks) AS document_chunks,
     (SELECT COUNT(*) FROM graph_edges) AS graph_edges,
     (SELECT COUNT(*) FROM background_jobs) AS background_jobs,
     (SELECT COUNT(*) FROM library_items) AS library_items,
@@ -321,8 +548,11 @@ FROM (
       configured: true,
       ready: true,
       stats: output ? JSON.parse(output) : {},
+      lastError: postgresRuntimeState.lastError,
     };
   } catch (error) {
+    postgresRuntimeState.ready = false;
+    postgresRuntimeState.lastError = error.message;
     return {
       enabled: true,
       configured: true,
@@ -333,7 +563,26 @@ FROM (
 }
 
 export function postgresRuntimeReady() {
-  return postgresStorageReady();
+  return ensurePostgresSchemaSync();
+}
+
+export function searchDocumentsByEmbeddingSync({ queryVector = [], limit = 12 } = {}) {
+  if (!ensurePostgresSchemaSync() || !Array.isArray(queryVector) || !queryVector.length) return [];
+  const vectorLiteral = `[${queryVector.map((value) => Number(value || 0).toFixed(6)).join(',')}]`;
+  return jsonRows(`
+SELECT row_to_json(t)
+FROM (
+  SELECT
+    canonical_id AS id,
+    GREATEST(0, 1 - (embedding <=> ${sqlString(vectorLiteral)}::vector)) AS score
+  FROM documents
+  WHERE embedding IS NOT NULL
+  ORDER BY embedding <=> ${sqlString(vectorLiteral)}::vector ASC
+  LIMIT ${Math.max(1, Number(limit || 12))}
+) t;`).map((row) => ({
+    id: row.id,
+    score: Number(row.score || 0)
+  }));
 }
 
 export function persistDocumentsToPostgresSync(documents = []) {
@@ -343,35 +592,65 @@ export function persistDocumentsToPostgresSync(documents = []) {
     const vectorLiteral = `[${(document.vector || []).map((value) => Number(value || 0).toFixed(6)).join(',')}]`;
     return `
 INSERT INTO documents (
-  canonical_id, source, type, title, year, organization, authors_json, keywords_json,
-  summary, links_json, embedding, sparse_json, raw_json, updated_at
+  canonical_id, source, type, title, english_title, year, organization, language, region, citations, open_access,
+  authors_json, keywords_json, methods_json, highlights_json, alternate_sources_json, source_ids_json,
+  abstract, summary, novelty, search_text, links_json, embedding, embedding_provider, embedding_model,
+  sparse_json, raw_json, updated_at
 ) VALUES (
   ${sqlString(document.canonicalId || document.id)},
   ${sqlString(document.source)},
   ${sqlString(document.type)},
   ${sqlString(document.title)},
+  ${sqlString(document.englishTitle || '')},
   ${document.year ?? 'NULL'},
   ${sqlString(document.organization || '')},
+  ${sqlString(document.language || '')},
+  ${sqlString(document.region || '')},
+  ${Number(document.citations || 0)},
+  ${sqlBool(document.openAccess)},
   ${sqlJson(document.authors || [])},
   ${sqlJson(document.keywords || [])},
+  ${sqlJson(document.methods || [])},
+  ${sqlJson(document.highlights || [])},
+  ${sqlJson(document.alternateSources || [])},
+  ${sqlJson(document.sourceIds || {})},
+  ${sqlString(document.abstract || '')},
   ${sqlString(document.summary || '')},
+  ${sqlString(document.novelty || '')},
+  ${sqlString(document.searchText || '')},
   ${sqlJson(document.links || {})},
   ${sqlString(`[${(document.vector || []).map((value) => Number(value || 0).toFixed(6)).join(',')}]`)}::vector,
+  ${sqlString(document.embeddingProvider || '')},
+  ${sqlString(document.embeddingModel || '')},
   ${sqlJson(document.sparseVector || {})},
-  ${sqlJson(document.rawRecord || document.rawRecords || null)},
+  ${sqlJson(serializeDocumentSnapshot(document))},
   ${sqlString(document.updatedAt || new Date().toISOString())}
 )
 ON CONFLICT (canonical_id) DO UPDATE SET
   source=EXCLUDED.source,
   type=EXCLUDED.type,
   title=EXCLUDED.title,
+  english_title=EXCLUDED.english_title,
   year=EXCLUDED.year,
   organization=EXCLUDED.organization,
+  language=EXCLUDED.language,
+  region=EXCLUDED.region,
+  citations=EXCLUDED.citations,
+  open_access=EXCLUDED.open_access,
   authors_json=EXCLUDED.authors_json,
   keywords_json=EXCLUDED.keywords_json,
+  methods_json=EXCLUDED.methods_json,
+  highlights_json=EXCLUDED.highlights_json,
+  alternate_sources_json=EXCLUDED.alternate_sources_json,
+  source_ids_json=EXCLUDED.source_ids_json,
+  abstract=EXCLUDED.abstract,
   summary=EXCLUDED.summary,
+  novelty=EXCLUDED.novelty,
+  search_text=EXCLUDED.search_text,
   links_json=EXCLUDED.links_json,
   embedding=EXCLUDED.embedding,
+  embedding_provider=EXCLUDED.embedding_provider,
+  embedding_model=EXCLUDED.embedding_model,
   sparse_json=EXCLUDED.sparse_json,
   raw_json=EXCLUDED.raw_json,
   updated_at=EXCLUDED.updated_at;`.trim();
@@ -430,6 +709,8 @@ SELECT row_to_json(t)
 FROM (
   SELECT
     (SELECT COUNT(*) FROM documents) AS documents,
+    (SELECT COUNT(*) FROM source_records) AS "sourceRecords",
+    (SELECT COUNT(*) FROM document_chunks) AS "documentChunks",
     COALESCE((SELECT COUNT(*) FROM search_runs), 0) AS "searchRuns",
     COALESCE((SELECT COUNT(*) FROM similarity_runs), 0) AS "similarityRuns",
     (SELECT COUNT(*) FROM graph_edges) AS "graphEdges",
@@ -685,7 +966,7 @@ FROM (
     updated_at AS "updatedAt"
   FROM documents
   ORDER BY canonical_id ASC
-) t;`);
+) t;`).map((row) => hydrateStoredDocument(row, row.rawRecord));
 }
 
 export function createUserInPostgresSync({ email, displayName, passwordDigest }) {

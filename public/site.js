@@ -19,7 +19,6 @@ import {
   saveProfile,
   saveSearchRequest,
 } from './api.js';
-import { mockPapers, mockSources } from './mock-data.js';
 
 function qs(selector, parent = document) {
   return parent.querySelector(selector);
@@ -32,6 +31,17 @@ function qsa(selector, parent = document) {
 function setText(selector, value) {
   const node = qs(selector);
   if (node) node.textContent = value;
+}
+
+function setLink(anchor, href) {
+  if (!anchor) return;
+  if (href) {
+    anchor.href = href;
+    anchor.removeAttribute('aria-disabled');
+    return;
+  }
+  anchor.href = '#';
+  anchor.setAttribute('aria-disabled', 'true');
 }
 
 function escapeHtml(value) {
@@ -59,14 +69,17 @@ function buildSearchParams(form) {
 function createPaperCard(paper) {
   const article = document.createElement('article');
   article.className = 'result-card';
+  const detailHref = `./detail.html?id=${encodeURIComponent(paper.id)}`;
+  const sourceHref = paper.originalUrl || paper.sourceUrl || '#';
   article.innerHTML = `
     <div class="result-card__meta">
       <span class="pill pill--muted">${paper.badge}</span>
       <span>${paper.source}</span>
+      <span>${paper.sourceType ?? ''}</span>
       <span>${paper.year}</span>
       <span>${paper.region}</span>
     </div>
-    <h3><a href="./detail.html?id=${encodeURIComponent(paper.id)}">${paper.title}</a></h3>
+    <h3><a href="${detailHref}">${paper.title}</a></h3>
     <p class="result-card__subtitle">${paper.subtitle ?? ''}</p>
     <p>${paper.summary}</p>
     <div class="result-card__footer">
@@ -80,6 +93,10 @@ function createPaperCard(paper) {
       </div>
     </div>
     <div class="tag-row">${(paper.tags ?? []).map((tag) => `<span class="tag">${tag}</span>`).join('')}</div>
+    <div class="action-row" style="margin-top: 0.75rem">
+      <a class="button button--ghost" href="${detailHref}">상세 보기</a>
+      ${sourceHref !== '#' ? `<a class="button button--ghost" href="${sourceHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
+    </div>
   `;
   return article;
 }
@@ -91,9 +108,10 @@ function navigateToResults(form) {
 
 function renderSourceList(searchPayload, sourceRoot) {
   if (!sourceRoot) return;
-  sourceRoot.innerHTML = (searchPayload.sourceStatus?.map((item) => item.source) ?? searchPayload.filters?.sources ?? mockSources)
-    .map((source) => `<li>${source}</li>`)
-    .join('');
+  const sources = searchPayload.sourceStatus?.map((item) => item.source) ?? searchPayload.filters?.sources ?? [];
+  sourceRoot.innerHTML = sources.length
+    ? sources.map((source) => `<li>${source}</li>`).join('')
+    : '<li>활성화된 소스가 아직 없습니다.</li>';
 }
 
 function renderSearchPayload(searchPayload, resultsRoot) {
@@ -121,7 +139,7 @@ function renderSearchPayload(searchPayload, resultsRoot) {
     return;
   }
 
-  (searchPayload.items ?? mockPapers).forEach((paper) => {
+  (searchPayload.items ?? []).forEach((paper) => {
     resultsRoot.appendChild(createPaperCard(paper));
   });
 }
@@ -159,7 +177,7 @@ async function initResultsPage() {
     live: params.get('live') || '',
     autoLive: params.get('autoLive') || '',
   };
-  resultsRoot.innerHTML = '<article class="card"><h3>검색 준비 중</h3><p>로컬 인덱스와 라이브 소스를 순차적으로 조회하고 있습니다.</p></article>';
+  resultsRoot.innerHTML = '<article class="card"><h3>검색 준비 중</h3><p>로컬 인덱스와 라이브 소스를 병렬로 조회하고 있습니다.</p></article>';
   if (progressRoot) progressRoot.textContent = '검색 스트리밍 연결 중…';
 
   const searchPayload = await fetchSearchStream(query, {
@@ -215,49 +233,97 @@ async function initDetailPage() {
   const root = qs('[data-detail-root]');
   if (!root) return;
 
-  const id = new URLSearchParams(window.location.search).get('id') || mockPapers[0].id;
-  const paper = await fetchPaper(id);
+  const id = new URLSearchParams(window.location.search).get('id');
+  if (!id) {
+    setText('[data-detail-title]', '상세 문서가 선택되지 않았습니다.');
+    setText('[data-detail-subtitle]', '검색 결과에서 문서를 선택한 뒤 다시 열어 주세요.');
+    setText('[data-detail-authors]', 'detail-id-missing');
+    setText('[data-detail-abstract]', 'source-grounded 상세 정보를 보려면 결과 목록에서 문서를 선택해야 합니다.');
+    setText('[data-detail-insight]', '선택된 문서 ID가 없습니다.');
+    setText('[data-detail-source]', '문서 선택 필요');
+    setText('[data-detail-badge]', 'No document');
+    return;
+  }
+  let paper;
+  try {
+    paper = await fetchPaper(id);
+  } catch (error) {
+    setText('[data-detail-title]', '상세 문서를 불러오지 못했습니다.');
+    setText('[data-detail-subtitle]', '문서 ID 또는 서버 상태를 확인해 주세요.');
+    setText('[data-detail-authors]', String(error?.message || 'detail-load-failed'));
+    setText('[data-detail-abstract]', '상세 데이터를 가져오는 동안 오류가 발생했습니다. 검색 결과에서 다시 진입하거나 서버 로그를 확인해 주세요.');
+    setText('[data-detail-insight]', '원인: API 응답 실패');
+    setText('[data-detail-source]', `문서 ID · ${id}`);
+    setText('[data-detail-badge]', 'Load failed');
+    setText('[data-detail-novelty]', '소스 기반 상세 데이터가 없어 원문 링크와 그래프를 표시하지 못했습니다.');
+    setText('[data-detail-source-links]', String(error?.message || 'detail-load-failed'));
+    return;
+  }
 
   setText('[data-detail-title]', paper.title);
-  setText('[data-detail-subtitle]', paper.subtitle);
-  setText('[data-detail-authors]', `${formatAuthors(paper.authors)} — ${paper.affiliation}`);
-  setText('[data-detail-abstract]', paper.abstract);
-  setText('[data-detail-insight]', paper.insight);
-  setText('[data-detail-source]', `${paper.source} · ${paper.year}`);
-  setText('[data-detail-badge]', paper.badge);
+  setText('[data-detail-subtitle]', paper.subtitle || paper.novelty || '');
+  setText('[data-detail-authors]', `${formatAuthors(paper.authors)} — ${paper.affiliation || paper.source || ''}`);
+  setText('[data-detail-abstract]', paper.abstract || paper.summary || '초록 정보가 아직 없습니다.');
+  setText('[data-detail-insight]', paper.explanation?.summary || paper.insight || '핵심 인사이트를 계산 중입니다.');
+  setText('[data-detail-source]', [paper.source, paper.year].filter(Boolean).join(' · '));
+  setText('[data-detail-badge]', paper.badge || paper.source || 'Scholaxis');
   setText('[data-metric-citations]', String(paper.metrics?.citations ?? '-'));
   setText('[data-metric-references]', String(paper.metrics?.references ?? '-'));
-  setText('[data-metric-impact]', String(paper.metrics?.impact ?? '-'));
-  setText('[data-metric-velocity]', String(paper.metrics?.velocity ?? '-'));
+  setText('[data-metric-impact]', String(paper.metrics?.impact ?? paper.metrics?.insightScore ?? '-'));
+  setText('[data-metric-velocity]', String(paper.metrics?.velocity ?? paper.metrics?.freshness ?? '-'));
+  setText('[data-detail-novelty]', paper.novelty || paper.summary || '기여 요약이 아직 없습니다.');
 
   const tagsRoot = qs('[data-detail-tags]');
   if (tagsRoot) {
-    tagsRoot.innerHTML = (paper.tags ?? []).map((tag) => `<span class="tag">${tag}</span>`).join('');
+    tagsRoot.innerHTML = (paper.tags ?? []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('');
   }
+
+  const sourceLink = qs('[data-source-link]');
+  const originalLink = qs('[data-detail-original-link]');
+  const detailLink = qs('[data-detail-detail-link]');
+  for (const link of [sourceLink, originalLink]) {
+    setLink(link, paper.originalUrl || paper.sourceUrl || '');
+  }
+  setLink(detailLink, paper.sourceUrl || paper.originalUrl || '');
 
   const networkRoot = qs('[data-network-root]');
   if (networkRoot) {
     networkRoot.innerHTML = renderNetwork([
-      { x: 50, y: 50, label: '현재 논문', meta: paper.badge, tone: 'primary' },
-      { x: 20, y: 24, label: '선행 연구', meta: 'Semantic Scholar', tone: 'secondary' },
-      { x: 76, y: 26, label: '국내 과제', meta: 'NTIS', tone: 'accent' },
-      { x: 25, y: 76, label: '특허 노드', meta: 'KIPRIS', tone: 'muted' },
-      { x: 78, y: 74, label: '후속 아이디어', meta: '학생발명전', tone: 'secondary' },
+      { x: 50, y: 50, label: '현재 문헌', meta: paper.badge || paper.source || 'Scholaxis', tone: 'primary' },
+      { x: 22, y: 24, label: '선행 참고', meta: `${paper.references?.length || 0}건`, tone: 'secondary' },
+      { x: 78, y: 24, label: '후속 인용', meta: `${paper.citations?.length || 0}건`, tone: 'accent' },
+      { x: 25, y: 78, label: '추천 비교', meta: `${paper.recommendations?.length || 0}건`, tone: 'muted' },
+      { x: 78, y: 78, label: '원문 링크', meta: paper.source || 'source', tone: 'secondary' },
     ]);
+  }
+
+  const referenceRoot = qs('[data-reference-results]');
+  if (referenceRoot) {
+    referenceRoot.innerHTML = '';
+    (paper.references || []).forEach((item) => referenceRoot.appendChild(createPaperCard(item)));
+    if (!paper.references?.length) referenceRoot.innerHTML = '<p class="muted-copy">선행 참고문헌을 아직 찾지 못했습니다.</p>';
+  }
+
+  const citationRoot = qs('[data-citation-results]');
+  if (citationRoot) {
+    citationRoot.innerHTML = '';
+    (paper.citations || []).forEach((item) => citationRoot.appendChild(createPaperCard(item)));
+    if (!paper.citations?.length) citationRoot.innerHTML = '<p class="muted-copy">후속 인용 자료를 아직 찾지 못했습니다.</p>';
   }
 
   const relatedRoot = qs('[data-related-results]');
   if (relatedRoot) {
     relatedRoot.innerHTML = '';
-    (paper.related ?? []).forEach((relatedId) => {
-      const relatedPaper = mockPapers.find((candidate) => candidate.id === relatedId);
-      if (relatedPaper) relatedRoot.appendChild(createPaperCard(relatedPaper));
-    });
+    (paper.related || []).forEach((relatedPaper) => relatedRoot.appendChild(createPaperCard(relatedPaper)));
+    if (!paper.related?.length) relatedRoot.innerHTML = '<p class="muted-copy">연결 자료가 아직 충분하지 않습니다.</p>';
   }
 
   const explanationSummaryRoot = qs('[data-detail-explanation-summary]');
   if (explanationSummaryRoot) {
-    explanationSummaryRoot.textContent = paper.explanation?.summary || '그래프 기반 설명이 아직 부족합니다.';
+    explanationSummaryRoot.textContent =
+      paper.graphNarrative?.summary ||
+      paper.explanation?.summary ||
+      '그래프 기반 설명이 아직 부족합니다.';
   }
 
   const explanationPointsRoot = qs('[data-detail-explanation-points]');
@@ -273,6 +339,66 @@ async function initDetailPage() {
     (paper.recommendations || []).forEach((candidate) => {
       recommendationsRoot.appendChild(createPaperCard(candidate));
     });
+    if (!paper.recommendations?.length) recommendationsRoot.innerHTML = '<p class="muted-copy">추천 비교 문헌이 아직 부족합니다.</p>';
+  }
+
+  const graphPathsRoot = qs('[data-graph-paths]');
+  if (graphPathsRoot) {
+    graphPathsRoot.innerHTML = (paper.graphPaths || []).length
+      ? paper.graphPaths
+          .map((path) => `<li>${escapeHtml(path.summary || '')}${path.relation ? ` · ${escapeHtml(path.relation)}` : ''}${path.hop ? ` · ${escapeHtml(path.hop)} hop` : ''}</li>`)
+          .join('')
+      : '<li>그래프 경로 정보가 아직 부족합니다.</li>';
+  }
+
+  const comparisonMatrixRoot = qs('[data-comparison-matrix]');
+  if (comparisonMatrixRoot) {
+    comparisonMatrixRoot.innerHTML = (paper.comparisonMatrix || []).length
+      ? paper.comparisonMatrix
+          .map(
+            (row) =>
+              `<li><strong>${escapeHtml(row.lane)}</strong> · <a href="./detail.html?id=${encodeURIComponent(row.id)}">${escapeHtml(row.title)}</a>${row.comparison?.length ? ` — ${escapeHtml(row.comparison.join(' / '))}` : ''}</li>`,
+          )
+          .join('')
+      : '<li>직접 비교 메모가 아직 부족합니다.</li>';
+  }
+
+  const suggestedQueriesRoot = qs('[data-suggested-queries]');
+  if (suggestedQueriesRoot) {
+    suggestedQueriesRoot.innerHTML = (paper.suggestedQueries || []).length
+      ? paper.suggestedQueries
+          .map((query) => `<a class="chip" href="./results.html?q=${encodeURIComponent(query)}">${escapeHtml(query)}</a>`)
+          .join('')
+      : '<span class="muted-copy">추천 질의가 아직 없습니다.</span>';
+  }
+
+  const sourceStatusRoot = qs('[data-source-status]');
+  if (sourceStatusRoot) {
+    sourceStatusRoot.innerHTML = (paper.sourceStatus || []).length
+      ? paper.sourceStatus
+          .map((item) => `<li>${escapeHtml(item.source)} · ${escapeHtml(item.status)}${item.note ? ` · ${escapeHtml(item.note)}` : ''}${item.detailUrl ? ` · <a href="${escapeHtml(item.detailUrl)}" target="_blank" rel="noreferrer noopener">source</a>` : ''}</li>`)
+          .join('')
+      : '<li>출처 상태 정보가 아직 없습니다.</li>';
+  }
+
+  const sourceLinksSummaryRoot = qs('[data-detail-source-links]');
+  if (sourceLinksSummaryRoot) {
+    const summary = [
+      paper.originalUrl ? `원문 ${paper.originalUrl}` : null,
+      paper.sourceUrl && paper.sourceUrl !== paper.originalUrl ? `상세 ${paper.sourceUrl}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    sourceLinksSummaryRoot.textContent = summary || '연결 가능한 원문/상세 링크가 아직 없습니다.';
+  }
+
+  const alternateSourcesRoot = qs('[data-alternate-sources]');
+  if (alternateSourcesRoot) {
+    alternateSourcesRoot.innerHTML = (paper.alternateSources || []).length
+      ? paper.alternateSources
+          .map((source) => `<li>${escapeHtml(source)}${paper.source === source ? ' · 대표 출처' : ''}</li>`)
+          .join('')
+      : '<li>추가 연결 출처가 아직 없습니다.</li>';
   }
 
   const similarityLink = qs('[data-similarity-link]');
@@ -312,16 +438,34 @@ async function initSimilarityPage() {
   const compared = qs('[data-compared-paper]');
   const recommendations = qs('[data-recommendations]');
   const fileName = qs('[data-upload-name]');
+  const extractionSummary = qs('[data-extraction-summary]');
+  const topMatches = qs('[data-top-matches]');
+  const submitButton = qs('button[type="submit"]', form);
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
-    const result = await analyzeSimilarity(formData);
+    if (submitButton) submitButton.disabled = true;
+    let result;
+    try {
+      result = await analyzeSimilarity(formData);
+    } catch (error) {
+      if (extractionSummary) {
+        extractionSummary.textContent = `유사도 분석 요청이 실패했습니다: ${error.message || 'similarity-request-failed'}`;
+      }
+      if (submitButton) submitButton.disabled = false;
+      return;
+    }
     if (score) score.textContent = `${result.similarityScore}%`;
     if (context) context.textContent = result.sharedContext;
     if (novelty) novelty.textContent = result.novelty;
     if (structure) structure.textContent = result.structure || '섹션 비교 결과가 없습니다.';
-    if (differentiation) differentiation.textContent = result.differentiation || '차별성 분석 결과가 없습니다.';
+    if (differentiation) {
+      differentiation.textContent =
+        [result.sameTopicStatement || result.topicVerdict, result.differentiation]
+          .filter(Boolean)
+          .join(' ') || '차별성 분석 결과가 없습니다.';
+    }
     if (differentiators) {
       differentiators.innerHTML = (result.differentiators ?? []).length
         ? result.differentiators.map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join('')
@@ -347,20 +491,86 @@ async function initSimilarityPage() {
             .join('')
         : `<li>${escapeHtml(result.semanticDiff?.summary || '의미적 차이 분석 결과가 없습니다.')}</li>`;
     }
-    if (risk) risk.textContent = result.risk;
+    if (risk) {
+      risk.textContent = [
+        result.risk,
+        result.topicVerdict,
+        result.relationship ? `관계: ${result.relationship}` : ''
+      ].filter(Boolean).join(' · ');
+    }
+    if (context && result.sameTopicStatement) {
+      context.textContent = `${result.sameTopicStatement} ${result.sharedContext || ''}`.trim();
+    }
     if (compared) {
-      const href = `./detail.html?id=${encodeURIComponent(result.comparedPaperId)}`;
-      compared.innerHTML = `<a href="${href}">${result.comparedPaperId}</a>`;
+      if (result.comparedPaperId) {
+        const href = `./detail.html?id=${encodeURIComponent(result.comparedPaperId)}`;
+        compared.innerHTML = `<a href="${href}">${result.comparedPaperId}</a>`;
+      } else {
+        compared.textContent = '직접 대응 문헌 없음';
+      }
     }
     if (recommendations) {
       recommendations.innerHTML = (result.recommendations ?? []).map((item) => `<li>${item}</li>`).join('');
     }
-    if (fileName) fileName.textContent = result.reportName;
+    if (extractionSummary) {
+      extractionSummary.textContent = result.extraction
+        ? `${result.extraction.method || 'text'} · ${result.extraction.extractedCharacters || 0}자 추출${result.extraction.warnings?.length ? ` · 경고: ${result.extraction.warnings.join(', ')}` : ''}`
+        : '직접 입력 텍스트 또는 업로드 문서를 기준으로 분석했습니다.';
+    }
+    if (topMatches) {
+      topMatches.innerHTML = (result.topMatches ?? []).length
+        ? result.topMatches
+            .map((item) => {
+              const detailHref = item.id ? `./detail.html?id=${encodeURIComponent(item.id)}` : '';
+              const externalHref = item.originalUrl || item.detailUrl || '';
+              return `
+                <li>
+                  <strong>${escapeHtml(item.title)}</strong>
+                  <div>${escapeHtml(item.source || '')} · ${escapeHtml(item.relationship || '')} · ${escapeHtml(item.score)}%</div>
+                  <div class="muted-copy">dense ${escapeHtml(item.denseScore)} · sparse ${escapeHtml(item.sparseScore)}</div>
+                  <div class="action-row">
+                    ${detailHref ? `<a class="button button--ghost" href="${detailHref}">상세 보기</a>` : ''}
+                    ${externalHref ? `<a class="button button--ghost" href="${externalHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
+                  </div>
+                </li>
+              `;
+            })
+            .join('')
+        : '<li>상위 비교 문헌이 없습니다.</li>';
+    }
+    if (fileName) fileName.textContent = result.reportName || result.title || '업로드된 파일 없음';
+    if (submitButton) submitButton.disabled = false;
   });
 
   const linkedPaperId = new URLSearchParams(window.location.search).get('paperId');
   if (linkedPaperId && compared) {
     compared.innerHTML = `<a href="./detail.html?id=${encodeURIComponent(linkedPaperId)}">${linkedPaperId}</a>`;
+  }
+
+  if (linkedPaperId) {
+    try {
+      const linkedPaper = await fetchPaper(linkedPaperId);
+      const titleInput = qs('input[name="title"]', form);
+      const textInput = qs('textarea[name="text"]', form);
+      if (titleInput && !titleInput.value.trim()) {
+        titleInput.value = linkedPaper.title || linkedPaperId;
+      }
+      if (textInput && !textInput.value.trim()) {
+        textInput.value = [linkedPaper.abstract, linkedPaper.novelty, ...(linkedPaper.highlights || [])]
+          .filter(Boolean)
+          .join('\n\n');
+      }
+      if (extractionSummary) {
+        extractionSummary.textContent = '상세 문서의 초록/기여 요약을 미리 불러왔습니다. 업로드 파일 없이도 비교를 시작할 수 있습니다.';
+      }
+      if (fileName && fileName.textContent === '업로드된 파일 없음') {
+        fileName.textContent = linkedPaper.title || linkedPaperId;
+      }
+    } catch (error) {
+      if (extractionSummary) {
+        extractionSummary.textContent = `연결 문서를 미리 불러오지 못했습니다: ${error.message || linkedPaperId}`;
+      }
+    }
   }
 
   const input = qs('input[type="file"]', form);

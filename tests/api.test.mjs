@@ -17,6 +17,7 @@ import { extractKciDocumentsFromHtml, extractRneReportDocumentsFromHtml } from '
 import { dedupeDocuments } from '../src/dedup-service.mjs';
 import { extractPdfText } from '../src/pdf-text-extractor.mjs';
 import { extractDocxText } from '../src/docx-text-extractor.mjs';
+import { persistDocuments } from '../src/storage.mjs';
 import { buildDenseVector, cosineSimilarity } from '../src/vector-service.mjs';
 
 async function startTestServer() {
@@ -85,6 +86,35 @@ async function sampleHwpxBuffer() {
   const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <hp:section xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
   <hp:p><hp:run><hp:t>안녕하세요 HWPX 세계</hp:t></hp:run></hp:p>
+</hp:section>`;
+  const py = [
+    'import io, zipfile, sys',
+    `xml = ${JSON.stringify(xml)}`,
+    'buf = io.BytesIO()',
+    "with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:",
+    "    zf.writestr('Contents/section0.xml', xml)",
+    "    zf.writestr('mimetype', 'application/haansofthwpx')",
+    'sys.stdout.buffer.write(buf.getvalue())',
+  ].join('\n');
+  const { execFileSync } = await import('node:child_process');
+  return execFileSync('python3', ['-c', py]);
+}
+
+async function sampleStructuredHwpxBuffer() {
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<hp:section xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p><hp:run><hp:t>연구 배경</hp:t></hp:run></hp:p>
+  <hp:tbl>
+    <hp:tr>
+      <hp:tc><hp:p><hp:run><hp:t>항목</hp:t></hp:run></hp:p></hp:tc>
+      <hp:tc><hp:p><hp:run><hp:t>값</hp:t></hp:run></hp:p></hp:tc>
+    </hp:tr>
+    <hp:tr>
+      <hp:tc><hp:p><hp:run><hp:t>정확도</hp:t></hp:run></hp:p></hp:tc>
+      <hp:tc><hp:p><hp:run><hp:t>92%</hp:t></hp:run></hp:p></hp:tc>
+    </hp:tr>
+  </hp:tbl>
+  <hp:p><hp:run><hp:t>결론</hp:t></hp:run></hp:p>
 </hp:section>`;
   const py = [
     'import io, zipfile, sys',
@@ -588,7 +618,7 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   assert.equal(payload.filters.region, 'domestic');
   assert.ok(payload.results[0].id);
   assert.equal(payload.reranking.applied, true);
-  assert.ok(['heuristic', 'http'].includes(payload.reranking.backend));
+  assert.ok(['heuristic', 'http', 'hybrid-local', 'ollama'].includes(payload.reranking.backend));
   assert.equal(payload.crossLingual.enabled, false);
   assert.ok(payload.canonicalCount >= 1);
   server.close();
@@ -638,10 +668,31 @@ test('detail endpoint returns related materials and alternate source metadata', 
   assert.equal(response.status, 200);
   assert.ok(payload.id || payload.canonicalId);
   assert.ok(payload.related.length > 0);
+  assert.ok(Array.isArray(payload.citations));
+  assert.ok(Array.isArray(payload.references));
+  assert.ok(payload.sourceLinks);
+  assert.ok(payload.sourceLinks.original || payload.sourceLinks.detail);
   assert.ok(payload.explanation);
   assert.ok(Array.isArray(payload.explanation.whyItMatters));
   assert.ok(Array.isArray(payload.recommendations));
   assert.ok(payload.metrics.alternateSourceCount >= 1);
+  assert.ok(payload.metrics.references >= 0);
+  assert.ok(Array.isArray(payload.graphPaths));
+  assert.ok(payload.graphPaths.length >= 1);
+  server.close();
+});
+
+test('detail expansion endpoint returns graph narrative and comparison matrix', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum/expand`);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(payload.paper);
+  assert.ok(payload.expansion);
+  assert.ok(Array.isArray(payload.expansion.recommendations));
+  assert.ok(Array.isArray(payload.expansion.comparisonMatrix));
+  assert.ok(Array.isArray(payload.expansion.graph?.references));
+  assert.equal(typeof payload.expansion.graphNarrative?.summary, 'string');
   server.close();
 });
 
@@ -677,6 +728,86 @@ test('similarity report returns matches and recommendations', async () => {
   assert.ok(Array.isArray(payload.semanticDiff.insights));
   assert.ok(payload.topMatches[0].denseScore >= 0);
   assert.ok(payload.topMatches[0].sparseScore >= 0);
+  assert.equal(typeof payload.verdict, 'string');
+  server.close();
+});
+
+test('search remains stable across repeated Korean, English, and mixed-language exact queries', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const queries = [
+    '차세대 배터리 열폭주 예측',
+    'Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval',
+    '배터리 thermal runaway multimodal'
+  ];
+
+  for (const query of queries) {
+    for (let run = 0; run < 3; run += 1) {
+      const response = await fetch(`${baseUrl}/api/search?q=${encodeURIComponent(query)}&region=all&sourceType=all&sort=relevance&autoLive=0`);
+      const payload = await response.json();
+      assert.equal(response.status, 200);
+      assert.ok(Array.isArray(payload.items));
+      assert.ok(payload.items.length >= 1);
+      assert.ok(payload.items[0].title || payload.items[0].englishTitle);
+      assert.ok(payload.items[0].score >= 0);
+    }
+  }
+
+  server.close();
+});
+
+test('search includes documents persisted in local storage', async () => {
+  const storedId = `paper:stored-search-${Date.now()}`;
+  persistDocuments([
+    {
+      id: storedId,
+      canonicalId: storedId,
+      source: 'scienceon',
+      sourceLabel: 'ScienceON',
+      type: 'paper',
+      title: '수질 이상 탐지를 위한 저장 인덱스 검증 문헌',
+      englishTitle: 'Stored-index validation paper for water-quality anomaly detection',
+      authors: ['홍길동'],
+      organization: 'Stored Index Lab',
+      year: 2024,
+      region: 'domestic',
+      language: 'ko',
+      summary: '저장된 문헌이 검색 인덱스에 포함되는지 확인하는 테스트용 레코드입니다.',
+      abstract: '수질 이상 탐지와 저장 인덱스 검증을 결합한 테스트 논문입니다.',
+      keywords: ['수질 이상 탐지', '저장 인덱스', '검증'],
+      highlights: ['persistent storage path'],
+      methods: ['hybrid retrieval'],
+      links: {
+        detail: 'https://scienceon.kisti.re.kr/',
+        original: 'https://scienceon.kisti.re.kr/'
+      }
+    }
+  ]);
+
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/search?q=${encodeURIComponent('저장 인덱스 검증 문헌')}&region=all&sourceType=all&sort=relevance&autoLive=0`);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(payload.items.some((item) => item.canonicalId === storedId || item.id === storedId));
+  server.close();
+});
+
+test('search supports Korean to English and English to Korean semantic retrieval', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  const koreanToEnglish = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('학술 그래프 검색')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const koreanPayload = await koreanToEnglish.json();
+  assert.equal(koreanToEnglish.status, 200);
+  assert.ok(koreanPayload.items.some((item) => /Quantum Neural Architectures/i.test(item.title)));
+
+  const englishToKorean = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('portable voltage supply')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const englishPayload = await englishToKorean.json();
+  assert.equal(englishToKorean.status, 200);
+  assert.ok(englishPayload.items.some((item) => /휴대용 전압 공급장치/.test(item.title)));
+
   server.close();
 });
 
@@ -690,6 +821,15 @@ test('docx extractor pulls text from a DOCX buffer', async () => {
 test('hwpx extractor pulls text from an HWPX buffer', async () => {
   const extraction = await extractHwpxText(await sampleHwpxBuffer());
   assert.match(extraction.text, /안녕하세요 HWPX 세계/);
+});
+
+test('hwpx extractor preserves table markers and paragraph order', async () => {
+  const extraction = await extractHwpxText(await sampleStructuredHwpxBuffer());
+  assert.match(extraction.text, /연구 배경/);
+  assert.match(extraction.text, /\[TABLE\]/);
+  assert.match(extraction.text, /항목 \| 값/);
+  assert.match(extraction.text, /정확도 \| 92%/);
+  assert.match(extraction.text, /결론/);
 });
 
 test('hwp extractor returns best-effort text with warning', async () => {

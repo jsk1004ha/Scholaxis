@@ -70,7 +70,7 @@ Scholaxis의 우선순위는 다음과 같습니다.
 - 인용/참고문헌/그래프 조회
 - 관심사 기반 추천 피드
 - 다중 소스 fan-out + deduplication
-- 벡터 + sparse + reranker 기반 재정렬
+- BGE-M3 임베딩 + sparse + cross-encoder reranker 기반 하이브리드 재정렬
 - 번역 기반 교차언어 검색
 
 ### 지원 소스 계열
@@ -87,7 +87,7 @@ Scholaxis의 우선순위는 다음과 같습니다.
 - 과학영재 창의연구(R&E) 보고서
 
 ### 문서 유사도 분석
-- 텍스트 기반 비교
+- 의미 임베딩 + 섹션 구조 기반 비교
 - PDF / DOCX / HWPX 추출
 - HWP best-effort 추출
 - OCR fallback 파이프라인
@@ -130,6 +130,7 @@ Scholaxis의 우선순위는 다음과 같습니다.
 
 ### 선택
 - PostgreSQL (`SCHOLAXIS_STORAGE_BACKEND=postgres` 사용 시)
+- 로컬 모델 백엔드 (`sentence-transformers` 기반 BGE-M3 / BGE reranker 사용 시)
 - LibreTranslate (`libretranslate` 번역 백엔드 사용 시)
 - Tesseract OCR + Poppler (`OCR` 필요 시)
 - `cloudflared` (외부 데모 공유 시)
@@ -139,6 +140,30 @@ Scholaxis의 우선순위는 다음과 같습니다.
 sudo apt-get update
 sudo apt-get install -y tesseract-ocr tesseract-ocr-kor poppler-utils
 ```
+
+### 로컬 임베딩 + 리랭커 준비
+```bash
+# 1) 로컬 sentence-transformers 스택(기본 권장)
+python3 -m pip install --user --break-system-packages -r requirements-local-models.txt
+
+export SCHOLAXIS_EMBEDDING_PROVIDER=auto
+export SCHOLAXIS_EMBEDDING_MODEL=BAAI/bge-m3
+export SCHOLAXIS_RERANKER_PROVIDER=auto
+export SCHOLAXIS_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+export SCHOLAXIS_LOCAL_MODEL_AUTOSTART=true
+export SCHOLAXIS_VECTOR_DIMS=1024
+
+# 2) Ollama를 보조 백엔드로 함께 쓰는 경우
+export SCHOLAXIS_OLLAMA_URL=http://127.0.0.1:11434
+export SCHOLAXIS_OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+export SCHOLAXIS_OLLAMA_RERANKER_MODEL=qwen2.5:3b
+```
+
+권장 기본값:
+- 1차 임베딩: `BAAI/bge-m3`
+- 1차 리랭커: `BAAI/bge-reranker-v2-m3`
+- 보조/대체 로컬 LLM 백엔드: Ollama (`nomic-embed-text`, `qwen2.5:3b`)
+- PostgreSQL 사용 시 `SCHOLAXIS_VECTOR_BACKEND=pgvector` 로 실제 pgvector 검색 경로 활성화
 
 ---
 
@@ -176,6 +201,7 @@ npm run translation-service
 npm run reranker-service
 npm run vector-service
 npm run graph-service
+npm run typecheck
 npm run backup
 npm run restore -- <backup-file>
 ```
@@ -183,8 +209,23 @@ npm run restore -- <backup-file>
 ### 6) PostgreSQL + pgvector 모드
 ```bash
 export SCHOLAXIS_STORAGE_BACKEND=postgres
+export SCHOLAXIS_VECTOR_BACKEND=pgvector
 export DATABASE_URL=postgres://user:password@localhost:5432/scholaxis
 npm run migrate:postgres -- --apply
+npm start
+```
+
+로컬 sentence-transformers + pgvector를 함께 쓸 경우:
+```bash
+export SCHOLAXIS_EMBEDDING_PROVIDER=auto
+export SCHOLAXIS_EMBEDDING_MODEL=BAAI/bge-m3
+export SCHOLAXIS_RERANKER_PROVIDER=auto
+export SCHOLAXIS_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+export SCHOLAXIS_LOCAL_MODEL_AUTOSTART=true
+export SCHOLAXIS_VECTOR_DIMS=1024
+export SCHOLAXIS_OLLAMA_URL=http://127.0.0.1:11434
+export SCHOLAXIS_OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+export SCHOLAXIS_OLLAMA_RERANKER_MODEL=qwen2.5:3b
 npm start
 ```
 
@@ -305,6 +346,12 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - `SCHOLAXIS_RERANKER_SERVICE_URL`
 - `SCHOLAXIS_RERANKER_API_KEY`
 - `SCHOLAXIS_RERANKER_TOP_K`
+- `SCHOLAXIS_EMBEDDING_PROVIDER`
+- `SCHOLAXIS_EMBEDDING_SERVICE_URL`
+- `SCHOLAXIS_EMBEDDING_MODEL`
+- `SCHOLAXIS_OLLAMA_URL`
+- `SCHOLAXIS_OLLAMA_EMBEDDING_MODEL`
+- `SCHOLAXIS_OLLAMA_RERANKER_MODEL`
 - `SCHOLAXIS_VECTOR_BACKEND`
 - `SCHOLAXIS_GRAPH_BACKEND`
 - `SCHOLAXIS_VECTOR_SERVICE_URL`

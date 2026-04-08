@@ -33,8 +33,10 @@ import {
   listTrends,
   searchCatalog,
   searchCatalogStream,
-  getRecommendationsById
+  getRecommendationsById,
+  warmSearchIndex
 } from './search-service.mjs';
+import { getSearchIndexDiagnostics } from './document-index-service.mjs';
 import { clearSourceCache, getSourceRuntimeDiagnostics } from './source-adapters.mjs';
 import { getGraphBackendDiagnostics } from './graph-service.mjs';
 import { enqueueRecurringInfraJobs, runWorkerLoop } from './job-service.mjs';
@@ -64,6 +66,9 @@ import {
   updateUserProfile
 } from './storage.mjs';
 import { buildSimilarityReport } from './similarity-service.mjs';
+import { getEmbeddingDiagnostics } from './embedding-service.mjs';
+import { ensureLocalModelBackend, getLocalModelDiagnostics } from './local-model-runtime.mjs';
+import { getSemanticDiagnostics } from './semantic-service.mjs';
 import { appConfig } from './config.mjs';
 import { getRerankerDiagnostics } from './reranker-service.mjs';
 import { ensureRerankerBackend, getRerankerRuntimeDiagnostics } from './reranker-runtime.mjs';
@@ -116,6 +121,12 @@ function notFound(res, message = 'Not found') {
 
 function normalizeSimilarityCompat(report, overrides = {}) {
   const comparedPaperId = report.topMatches?.[0]?.id || null;
+  const verdict =
+    report.riskLevel === 'high'
+      ? 'same-topic-likely'
+      : report.riskLevel === 'moderate'
+        ? 'topic-overlap-possible'
+        : 'topic-overlap-uncertain';
   return {
     reportName: overrides.title || report.title,
     similarityScore: report.score,
@@ -131,6 +142,14 @@ function normalizeSimilarityCompat(report, overrides = {}) {
     differentiation:
       report.differentiationAnalysis?.summary || '차별점 분석 요약을 생성할 수 없습니다.',
     differentiators: report.differentiationAnalysis?.uniqueTerms || [],
+    verdict,
+    sameTopicStatement: report.sameTopicStatement || '',
+    topicVerdict:
+      report.riskLevel === 'high'
+        ? '주제가 매우 가깝습니다. 같은 문제를 다루는 선행 연구로 보고 차별점을 명확히 정리해야 합니다.'
+        : report.riskLevel === 'moderate'
+          ? '주제가 부분적으로 겹칩니다. 같은 문제군일 가능성이 있으므로 비교 근거를 함께 읽어야 합니다.'
+          : '주제가 완전히 같다고 단정하기는 어렵습니다. 관련 연구로 검토하되 과도하게 동일 주제로 보지는 마세요.',
     risk:
       report.riskLevel === 'high'
         ? '유사도가 높습니다. 핵심 기여와 실험 차별점을 명확히 분리하세요.'
@@ -140,12 +159,14 @@ function normalizeSimilarityCompat(report, overrides = {}) {
     sectionComparisons: report.sectionComparisons || [],
     semanticDiff: report.semanticDiff || { summary: '', insights: [] },
     differentiationAnalysis: report.differentiationAnalysis || null,
-    recommendations: report.recommendations
+    recommendations: report.recommendations,
+    topMatches: report.topMatches || [],
+    extraction: report.extraction || null,
   };
 }
 
-function buildSimilarityFromRequest(body, fallbackTitle = '업로드 문서') {
-  const report = buildSimilarityReport({
+async function buildSimilarityFromRequest(body, fallbackTitle = '업로드 문서') {
+  const report = await buildSimilarityReport({
     title: body.title || body.reportName || fallbackTitle,
     text: body.text || body.content || body.extractedText || ''
   });
@@ -266,7 +287,7 @@ async function buildSimilarityFromMultipart(fields) {
     }
   }
 
-  const payload = buildSimilarityFromRequest(
+  const payload = await buildSimilarityFromRequest(
     {
       title,
       text: extractedText || `${title} research manuscript scholarly similarity analysis`
@@ -311,7 +332,10 @@ export function createServer() {
             translation: getTranslationDiagnostics(),
             reranker: getRerankerDiagnostics(),
             rerankerRuntime: getRerankerRuntimeDiagnostics(),
-            storage: getStorageDiagnostics()
+            localModels: getLocalModelDiagnostics(),
+            storage: getStorageDiagnostics(),
+            embeddings: getEmbeddingDiagnostics(),
+            searchIndex: getSearchIndexDiagnostics()
           }
         });
       }
@@ -427,7 +451,11 @@ export function createServer() {
             translation: getTranslationDiagnostics(),
             reranker: getRerankerDiagnostics(),
             rerankerRuntime: getRerankerRuntimeDiagnostics(),
+            localModel: getLocalModelDiagnostics(),
+            semantic: getSemanticDiagnostics(),
             vectorBackend: getVectorBackendDiagnostics(),
+            embeddings: getEmbeddingDiagnostics(),
+            searchIndex: getSearchIndexDiagnostics(),
             graphBackend: getGraphBackendDiagnostics(),
             parserMonitor: buildParserMonitorSummary(jobs),
             worker: {
@@ -447,6 +475,8 @@ export function createServer() {
           storageBackend: appConfig.storageBackend,
           postgres: await getPostgresDiagnostics(),
           vectorBackend: getVectorBackendDiagnostics(),
+          embeddings: getEmbeddingDiagnostics(),
+          searchIndex: getSearchIndexDiagnostics(),
           graphBackend: getGraphBackendDiagnostics(),
           postgresMigrationPreview: buildPostgresMigrationSql().slice(0, 1200)
         });
@@ -635,7 +665,7 @@ export function createServer() {
       }
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/recommendations')) {
-        const id = pathname.split('/')[3];
+        const id = decodeURIComponent(pathname.split('/')[3] || '');
         const session = getSessionContext(req);
         const userProfile = session ? getUserProfile(session.session.userId) : null;
         const recommendations = await getRecommendationsById(id, Number(searchParams.get('limit') || 5), userProfile);
@@ -643,38 +673,38 @@ export function createServer() {
       }
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/citations')) {
-        const id = pathname.split('/')[3];
+        const id = decodeURIComponent(pathname.split('/')[3] || '');
         return json(res, 200, { citations: await getCitationsById(id, Number(searchParams.get('limit') || appConfig.citationExpansionLimit)) });
       }
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/references')) {
-        const id = pathname.split('/')[3];
+        const id = decodeURIComponent(pathname.split('/')[3] || '');
         return json(res, 200, { references: await getReferencesById(id, Number(searchParams.get('limit') || appConfig.citationExpansionLimit)) });
       }
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/related')) {
-        const id = pathname.split('/')[3];
+        const id = decodeURIComponent(pathname.split('/')[3] || '');
         const paper = await getPaperById(id);
         if (!paper) return notFound(res, 'Paper not found');
         return json(res, 200, { related: paper.related });
       }
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/expand')) {
-        const id = pathname.split('/')[3];
+        const id = decodeURIComponent(pathname.split('/')[3] || '');
         const expansion = await expandPaperById(id);
         if (!expansion) return notFound(res, 'Paper not found');
         return json(res, 200, expansion);
       }
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/graph')) {
-        const id = pathname.split('/')[3];
+        const id = decodeURIComponent(pathname.split('/')[3] || '');
         const paper = await getPaperById(id);
         if (!paper) return notFound(res, 'Paper not found');
         return json(res, 200, { graph: paper.graph || {} });
       }
 
       if (pathname.startsWith('/api/papers/')) {
-        const id = pathname.split('/')[3];
+        const id = decodeURIComponent(pathname.split('/')[3] || '');
         const paper = await getPaperById(id);
         if (!paper) return notFound(res, 'Paper not found');
         return json(res, 200, { ...paper, paper });
@@ -682,7 +712,7 @@ export function createServer() {
 
       if (pathname === '/api/similarity/report' && req.method === 'POST') {
         const body = await readJsonBody(req);
-        const payload = buildSimilarityFromRequest(body);
+        const payload = await buildSimilarityFromRequest(body);
         persistSimilarityRun({ title: body.title || body.reportName || '업로드 문서', extraction: null, report: payload });
         return json(res, 200, payload);
       }
@@ -691,7 +721,9 @@ export function createServer() {
         const contentType = req.headers['content-type'] || '';
         if (contentType.includes('application/json')) {
           const body = await readJsonBody(req);
-          return json(res, 200, buildSimilarityFromRequest(body));
+          const payload = await buildSimilarityFromRequest(body);
+          persistSimilarityRun({ title: body.title || body.reportName || '업로드 문서', extraction: null, report: payload });
+          return json(res, 200, payload);
         }
 
         const rawBody = await readRawBody(req, 5_000_000);
@@ -723,11 +755,17 @@ export function startServer(
   host = appConfig.host,
   options = {}
 ) {
+  void ensureLocalModelBackend().catch((error) => {
+    console.warn(`[startup] local model backend bootstrap failed: ${error.message}`);
+  });
   void ensureTranslationBackend().catch((error) => {
     console.warn(`[startup] translation backend bootstrap failed: ${error.message}`);
   });
   void ensureRerankerBackend().catch((error) => {
     console.warn(`[startup] reranker backend bootstrap failed: ${error.message}`);
+  });
+  void warmSearchIndex().catch((error) => {
+    console.warn(`[startup] search index warmup failed: ${error.message}`);
   });
   const server = createServer();
   const maxFallbackAttempts = Math.max(

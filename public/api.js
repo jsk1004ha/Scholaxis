@@ -1,4 +1,32 @@
-import { getPaperById, mockSearchResponse, mockSimilarity } from './mock-data.js';
+const EMPTY_SEARCH_RESPONSE = {
+  query: '',
+  total: 0,
+  summary: '',
+  relatedQueries: [],
+  filters: {
+    regions: ['전체'],
+    sourceTypes: ['전체'],
+    sources: [],
+  },
+  items: [],
+};
+
+const EMPTY_SIMILARITY_RESPONSE = {
+  similarityScore: 0,
+  comparedPaperId: null,
+  sharedContext: '',
+  novelty: '',
+  structure: '',
+  differentiation: '',
+  differentiators: [],
+  verdict: 'topic-overlap-uncertain',
+  topicVerdict: '',
+  risk: '',
+  recommendations: [],
+  topMatches: [],
+  sectionComparisons: [],
+  semanticDiff: { summary: '', insights: [] },
+};
 
 const REGION_MAP = {
   '국내,해외': 'all',
@@ -36,64 +64,46 @@ const SORT_MAP = {
 
 async function requestJson(url, options) {
   const response = await fetch(url, options);
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
   }
-  return response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.message || `Request failed: ${response.status}`);
+  }
+  return payload;
 }
 
 function normalizeSearch(payload) {
-  if (Array.isArray(payload)) return { ...mockSearchResponse, items: payload.map(toUiPaperShape) };
+  if (Array.isArray(payload)) return { ...EMPTY_SEARCH_RESPONSE, items: payload.map(toUiPaperShape) };
   if (payload?.items) return buildNormalizedSearchPayload(payload, payload.items);
   if (payload?.results) return buildNormalizedSearchPayload(payload, payload.results);
   if (payload?.data?.items) return buildNormalizedSearchPayload(payload.data, payload.data.items);
-  return mockSearchResponse;
+  return EMPTY_SEARCH_RESPONSE;
 }
 
 function normalizePaper(payload, id) {
-  if (payload?.paper) return toUiPaperDetail({ ...payload.paper, id: payload.paper.id || id });
-  if (payload?.data?.paper) return toUiPaperDetail({ ...payload.data.paper, id: payload.data.paper.id || id });
-  return toUiPaperDetail({ ...getPaperById(id), ...(payload ?? {}), id: payload?.id || id });
+  if (payload?.paper || payload?.expansion) {
+    return toUiPaperDetail({ ...(payload.paper || {}), ...(payload.expansion || {}), id: payload.paper?.id || id });
+  }
+  if (payload?.data?.paper || payload?.data?.expansion) {
+    return toUiPaperDetail({ ...(payload.data.paper || {}), ...(payload.data.expansion || {}), id: payload.data.paper?.id || id });
+  }
+  return toUiPaperDetail({ ...(payload ?? {}), id: payload?.id || id });
 }
 
 function normalizeSimilarity(payload) {
-  if (payload?.analysis) return { ...mockSimilarity, ...payload.analysis };
-  if (payload?.data?.analysis) return { ...mockSimilarity, ...payload.data.analysis };
-  return { ...mockSimilarity, ...(payload ?? {}) };
-}
-
-function buildFallbackSearch(query) {
-  const normalizedQuery = normalizeSearchQuery(query);
-  const q = (query.q || '').toLowerCase();
-  const regionFilter =
-    normalizedQuery.region && normalizedQuery.region !== 'all' ? [normalizedQuery.region] : [];
-  const typeFilter =
-    normalizedQuery.sourceType && normalizedQuery.sourceType !== 'all' ? [normalizedQuery.sourceType] : [];
-
-  const items = mockSearchResponse.items.filter((paper) => {
-    const haystack = [paper.title, paper.subtitle, paper.summary, paper.abstract, ...(paper.tags ?? [])]
-      .join(' ')
-      .toLowerCase();
-    const matchesQuery = !q || haystack.includes(q);
-    const normalizedRegion = REGION_MAP[paper.region] || paper.region;
-    const normalizedType = SOURCE_TYPE_MAP[paper.sourceType] || paper.sourceType;
-    const matchesRegion = regionFilter.length === 0 || regionFilter.includes(normalizedRegion);
-    const matchesType = typeFilter.length === 0 || typeFilter.includes(normalizedType);
-    return matchesQuery && matchesRegion && matchesType;
-  });
-
-  return {
-    ...mockSearchResponse,
-    query: query.q || mockSearchResponse.query,
-    total: items.length,
-    items,
-  };
+  if (payload?.analysis) return { ...EMPTY_SIMILARITY_RESPONSE, ...payload.analysis, ...payload };
+  if (payload?.data?.analysis) return { ...EMPTY_SIMILARITY_RESPONSE, ...payload.data.analysis, ...(payload.data || {}) };
+  return { ...EMPTY_SIMILARITY_RESPONSE, ...(payload ?? {}) };
 }
 
 function buildErrorSearch(query, error) {
   const normalizedQuery = normalizeSearchQuery(query);
   return {
-    ...mockSearchResponse,
+    ...EMPTY_SEARCH_RESPONSE,
     query: normalizedQuery.q || '',
     total: 0,
     items: [],
@@ -107,8 +117,8 @@ export async function fetchSearch(query) {
   try {
     const payload = await requestJson(`/api/search?${params.toString()}`);
     return normalizeSearch(payload);
-  } catch {
-    return buildErrorSearch(query);
+  } catch (error) {
+    return buildErrorSearch(query, error);
   }
 }
 
@@ -210,6 +220,8 @@ export function toUiPaperShape(item = {}) {
     region: humanRegion(item.region),
     summary: item.summary || '',
     abstract: item.abstract || item.summary || '',
+    sourceUrl: item.links?.detail || item.sourceUrl || '',
+    originalUrl: item.links?.original || item.originalUrl || item.links?.detail || '',
     tags: item.keywords || item.tags || [],
     insight: (item.highlights || []).join(' · ') || item.summary || '',
     matches: item.score || item.matches || 0,
@@ -227,12 +239,25 @@ function toUiPaperDetail(item = {}) {
   const paper = toUiPaperShape(item);
   return {
     ...paper,
-    source: [paper.source, paper.year].filter(Boolean).join(' · '),
-    sourceUrl: item.links?.detail || item.links?.original || '',
+    source: paper.source,
+    sourceUrl: item.sourceLinks?.detail || item.links?.detail || item.links?.original || '',
+    originalUrl: item.sourceLinks?.original || item.links?.original || item.links?.detail || '',
     novelty: item.novelty || item.summary || '',
+    methods: item.methods || [],
+    highlights: item.highlights || [],
     related: (item.related || []).map((related) => toUiPaperShape(related)),
+    citations: (item.citations || []).map((related) => toUiPaperShape(related)),
+    references: (item.references || []).map((related) => toUiPaperShape(related)),
     recommendations: (item.recommendations || []).map((related) => toUiPaperShape(related)),
+    graphPaths: item.graphPaths || [],
+    graphTraversal: item.graphTraversal || item.expansion?.graphTraversal || null,
     explanation: item.explanation || null,
+    comparisonMatrix: item.comparisonMatrix || item.expansion?.comparisonMatrix || [],
+    graphNarrative: item.graphNarrative || item.expansion?.graphNarrative || null,
+    suggestedQueries: item.suggestedQueries || item.expansion?.suggestedQueries || [],
+    graph: item.graph || {},
+    sourceStatus: item.sourceStatus || [],
+    alternateSources: item.alternateSources || [],
     tags: item.keywords || [],
     metrics: item.metrics || paper.metrics,
   };
@@ -241,36 +266,28 @@ function toUiPaperDetail(item = {}) {
 function buildNormalizedSearchPayload(basePayload, rawItems = []) {
   const items = rawItems.map(toUiPaperShape);
   return {
-    ...mockSearchResponse,
+    ...EMPTY_SEARCH_RESPONSE,
     ...basePayload,
     filters: {
-      ...mockSearchResponse.filters,
+      ...EMPTY_SEARCH_RESPONSE.filters,
       ...(basePayload.filters || {}),
-      sources: (basePayload.sourceStatus || []).map((source) => source.source) || mockSearchResponse.filters.sources,
+      sources: (basePayload.sourceStatus || []).map((source) => source.source) || EMPTY_SEARCH_RESPONSE.filters.sources,
     },
     items,
   };
 }
 
 export async function fetchPaper(id) {
-  try {
-    const payload = await requestJson(`/api/papers/${encodeURIComponent(id)}`);
-    return normalizePaper(payload, id);
-  } catch {
-    return getPaperById(id);
-  }
+  const payload = await requestJson(`/api/papers/${encodeURIComponent(id)}/expand`);
+  return normalizePaper(payload, id);
 }
 
 export async function analyzeSimilarity(formData) {
-  try {
-    const payload = await requestJson('/api/similarity/analyze', {
-      method: 'POST',
-      body: formData,
-    });
-    return normalizeSimilarity(payload);
-  } catch {
-    return mockSimilarity;
-  }
+  const payload = await requestJson('/api/similarity/analyze', {
+    method: 'POST',
+    body: formData,
+  });
+  return normalizeSimilarity(payload);
 }
 
 export async function fetchAdminSummary() {

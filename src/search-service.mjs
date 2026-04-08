@@ -1,14 +1,29 @@
 import { seedCatalog, trendingTopics } from './catalog.mjs';
 import { appConfig } from './config.mjs';
-import { dedupeDocuments } from './dedup-service.mjs';
-import { getStoredDocuments, persistDocuments, persistGraphEdges, persistSearchRun } from './storage.mjs';
-import { getDocumentGraph, syncDocumentGraph } from './graph-service.mjs';
-import { loadDocumentsFromPostgres, syncDocumentsToPostgres } from './postgres-store.mjs';
+import { persistDocuments, persistGraphEdges, persistSearchRun } from './storage.mjs';
+import { getSearchIndexDiagnostics, loadSearchIndexDocuments } from './document-index-service.mjs';
+import { getDocumentGraph, syncDocumentGraph, traceDocumentGraph } from './graph-service.mjs';
+import { syncDocumentsToPostgres } from './postgres-store.mjs';
 import { buildRecommendationSet } from './recommendation-service.mjs';
 import { rerankSearchEntries } from './reranker-service.mjs';
+import { expandSemanticLexiconTerms } from './semantic-lexicon.mjs';
 import { searchLiveSources, sourceRegistrySummary } from './source-adapters.mjs';
 import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
-import { attachVectors, buildDenseVector, buildSparseVector, cosineSimilarity, normalizeText, sparseOverlapScore, tokenize, unique } from './vector-service.mjs';
+import {
+  averageDocumentLength,
+  bm25Score,
+  buildDocumentFrequency,
+  buildDocumentPassages,
+  buildSparseVector,
+  buildTermFrequency,
+  cosineSimilarity,
+  coverageRatio,
+  normalizeText,
+  sparseOverlapScore,
+  tokenize,
+  unique
+} from './vector-service.mjs';
+import { embedText } from './embedding-service.mjs';
 import { searchVectorCandidates, syncDocumentVectors } from './vector-index-service.mjs';
 
 const regionLabel = { all: '전체', domestic: '국내', global: '해외' };
@@ -19,6 +34,8 @@ const SEARCH_STOPWORDS = new Set([
 ]);
 const GLOBAL_SOURCES = new Set(['semantic_scholar', 'arxiv']);
 const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'ntis', 'kipris', 'science_fair', 'student_invention_fair']);
+const HEURISTIC_EMBEDDING_PROVIDERS = new Set(['hash-projection', 'heuristic-hash', 'local-hash-projection', 'local-semantic-projection']);
+let lastSynchronizedIndexKey = '';
 
 function classifySourceType(type) {
   if (['paper', 'thesis', 'patent', 'report', 'fair_entry'].includes(type)) return type;
@@ -27,6 +44,7 @@ function classifySourceType(type) {
 
 function buildQueryTokens(query = '') {
   const base = unique(tokenize(query));
+  const semantic = expandSemanticLexiconTerms(base);
   const normalized = normalizeText(query).replace(/\s+/g, '');
   const variants = expandQueryVariants(query).flatMap((value) => tokenize(value));
 
@@ -40,7 +58,11 @@ function buildQueryTokens(query = '') {
     }
   }
 
-  return unique([...base, ...variants, ...koreanChunks]).filter((token) => token.length >= 2);
+  return unique([...base, ...semantic, ...variants, ...koreanChunks]).filter((token) => token.length >= 2);
+}
+
+function hasReliableSemanticEmbedding(document = {}) {
+  return !HEURISTIC_EMBEDDING_PROVIDERS.has(String(document.embeddingProvider || '').toLowerCase());
 }
 
 function hasQueryEvidence(scoreBundle, queryTokens = [], queryTerms = [], rawQueryTermCount = 0, document = {}, query = '') {
@@ -61,21 +83,44 @@ function hasQueryEvidence(scoreBundle, queryTokens = [], queryTerms = [], rawQue
       .join(' ')
   );
   const normalizedQuery = String(query || '').toLowerCase().trim();
+  const compactQuery = normalizeText(query).replace(/\s+/g, '');
+  const queryLooksKorean = /[가-힣]/.test(query);
+  const queryLooksLatin = /[A-Za-z]/.test(query);
+  const documentLanguage = String(document.language || '').toLowerCase();
+  const crossLingualTarget =
+    (queryLooksKorean && documentLanguage.startsWith('en')) ||
+    (queryLooksLatin && documentLanguage.startsWith('ko'));
   if (normalizedQuery && (normalizedTitle.includes(normalizedQuery) || normalizedEnglishTitle.includes(normalizedQuery))) return true;
+  if (compactQuery && normalizedBody.replace(/\s+/g, '').includes(compactQuery)) return true;
   const exactTermMatches = queryTerms.filter((token) => normalizedBody.includes(token));
   if (queryTerms.length >= 2) {
     return exactTermMatches.length >= Math.min(2, queryTerms.length);
   }
   if (queryTerms.length === 1 && exactTermMatches.length >= 1) return true;
+  if (hasReliableSemanticEmbedding(document) && scoreBundle.denseScore >= 0.58) return true;
+  if (crossLingualTarget && hasReliableSemanticEmbedding(document) && scoreBundle.denseScore >= 0.34) return true;
+  if ((scoreBundle.rerankScore || 0) >= 0.62 && scoreBundle.denseScore >= 0.28) return true;
   if (rawQueryTermCount >= 2) return false;
   if (queryTokens.some((token) => normalizedBody.includes(token))) return true;
   return (
     scoreBundle.lexicalScore >= 8 ||
-    scoreBundle.sparseScore >= 0.14
+    scoreBundle.sparseScore >= 0.14 ||
+    scoreBundle.bm25Score >= 0.4 ||
+    (hasReliableSemanticEmbedding(document) && scoreBundle.denseScore >= 0.44)
   );
 }
 
-function scoreDocument(document, queryTokens, queryVector, querySparse) {
+function buildCorpusStats(documents = []) {
+  const termFrequencyMaps = documents.map((document) => buildTermFrequency(document.searchText || ''));
+  return {
+    termFrequencyMaps,
+    documentFrequencyMap: buildDocumentFrequency(termFrequencyMaps),
+    averageLength: averageDocumentLength(termFrequencyMaps),
+    totalDocuments: documents.length || 1
+  };
+}
+
+function scoreDocument(document, queryTokens, queryTerms, queryVector, querySparse, corpusStats = null) {
   const lexicalText = [
     document.title,
     document.englishTitle,
@@ -90,6 +135,7 @@ function scoreDocument(document, queryTokens, queryVector, querySparse) {
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
+  const normalizedQuery = normalizeText(queryTerms.join(' '));
 
   let lexicalScore = 0;
   for (const token of queryTokens) {
@@ -102,27 +148,143 @@ function scoreDocument(document, queryTokens, queryVector, querySparse) {
     if (lexicalText.includes(token)) lexicalScore += 2;
   }
 
-  const denseScore = cosineSimilarity(queryVector, document.vector || []);
+  const titleCoverage = coverageRatio(queryTerms, [document.title, document.englishTitle].filter(Boolean).join(' '));
+  const abstractCoverage = coverageRatio(queryTerms, [document.abstract, document.summary].filter(Boolean).join(' '));
+  const exactTitleBoost = normalizedQuery && normalizeText([document.title, document.englishTitle].join(' ')).includes(normalizedQuery) ? 18 : 0;
+  lexicalScore += titleCoverage * 18 + abstractCoverage * 8 + exactTitleBoost;
+
+  const denseScore = cosineSimilarity(queryVector, document.semanticVector || document.vector || []);
   const sparseScore = sparseOverlapScore(querySparse, document.sparseVector || {});
-  const domesticBias = document.region === 'domestic' ? 0.08 : 0;
-  const sourcePriority = ['semantic_scholar', 'arxiv', 'riss', 'kci', 'scienceon', 'dbpia', 'ntis', 'kipris'].includes(document.source)
-    ? 0.06
-    : 0.04;
+  const termFrequencyMap = buildTermFrequency(document.searchText || lexicalText);
+  const bm25 = corpusStats
+    ? bm25Score(queryTerms, termFrequencyMap, corpusStats.documentFrequencyMap, corpusStats.totalDocuments, corpusStats.averageLength)
+    : 0;
+  const domesticBias = 0;
+  const sourcePriority = 0;
   const citationScore = Math.min((document.citations || 0) / 500, 0.12);
   const recencyScore = document.year ? Math.max(0, (document.year - 2018) * 0.01) : 0;
+  const denseWeight = hasReliableSemanticEmbedding(document) ? 24 : 9;
 
   return {
     lexicalScore,
     denseScore,
     sparseScore,
+    bm25Score: bm25,
     total:
-      lexicalScore * 0.55 +
-      denseScore * 22 +
-      sparseScore * 14 +
+      lexicalScore * 0.5 +
+      denseScore * denseWeight +
+      sparseScore * 10 +
+      bm25 * 18 +
       domesticBias * 100 +
       sourcePriority * 100 +
       citationScore * 100 +
       recencyScore * 100
+  };
+}
+
+async function boostWithPassageMatches(entries = [], queryVector = [], limit = 24) {
+  const head = entries
+    .slice()
+    .sort((a, b) => b.scoreBundle.total - a.scoreBundle.total)
+    .slice(0, Math.max(6, limit));
+
+  const boostedHead = await Promise.all(
+    head.map(async (entry) => {
+      const passages = buildDocumentPassages(entry.item);
+      if (!passages.length) return entry;
+      let bestScore = 0;
+      let bestLabel = '';
+      for (const passage of passages) {
+        const passageVector = await embedText(`${entry.item.title || ''}\n${passage.text}`);
+        const score = cosineSimilarity(queryVector, passageVector);
+        if (score > bestScore) {
+          bestScore = score;
+          bestLabel = passage.label;
+        }
+      }
+
+      const fieldBonus =
+        bestLabel === 'title' ? 0.16 :
+        bestLabel === 'abstract' ? 0.1 :
+        bestLabel === 'summary' ? 0.06 :
+        0.03;
+
+      return {
+        ...entry,
+        scoreBundle: {
+          ...entry.scoreBundle,
+          passageDenseScore: Number(bestScore.toFixed(4)),
+          passageLabel: bestLabel,
+          total: entry.scoreBundle.total + (bestScore + fieldBonus) * 16
+        }
+      };
+    })
+  );
+
+  const boostedById = new Map(boostedHead.map((entry) => [entry.item.canonicalId || entry.item.id, entry]));
+  return entries.map((entry) => boostedById.get(entry.item.canonicalId || entry.item.id) || entry);
+}
+
+
+function applyQueryProfileBoost(item, scoreBundle, queryProfile = null) {
+  if (!queryProfile) return { item, scoreBundle };
+  const requestedTypes = queryProfile.requestedTypes || [];
+  const sourceHints = queryProfile.sourceHints || [];
+  const itemType = classifySourceType(item.type);
+  let total = scoreBundle.total;
+
+  if (requestedTypes.length && !requestedTypes.includes('paper')) {
+    if (requestedTypes.includes(itemType)) total += 18;
+    else total -= 10;
+  }
+
+  if (sourceHints.includes(item.source)) total += 10;
+  if (requestedTypes.includes('fair_entry') && itemType !== 'fair_entry') total -= 8;
+  if (requestedTypes.includes('patent') && itemType !== 'patent') total -= 6;
+  if (requestedTypes.includes('report') && itemType !== 'report') total -= 6;
+
+  return {
+    item,
+    scoreBundle: {
+      ...scoreBundle,
+      total,
+      profileBoost: Number((total - scoreBundle.total).toFixed(2))
+    }
+  };
+}
+
+function sanitizeDocumentForDetail(document = {}) {
+  if (!document) return document;
+  return {
+    id: document.canonicalId || document.id,
+    canonicalId: document.canonicalId || document.id,
+    type: classifySourceType(document.type),
+    source: document.sourceLabel || document.source,
+    sourceKey: document.source,
+    title: document.title,
+    englishTitle: document.englishTitle,
+    authors: document.authors || [],
+    organization: document.organization || '',
+    year: document.year || null,
+    citations: document.citations || 0,
+    openAccess: Boolean(document.openAccess),
+    region: document.region || 'all',
+    language: document.language || '',
+    summary: document.summary || '',
+    abstract: document.abstract || '',
+    novelty: document.novelty || '',
+    keywords: document.keywords || [],
+    methods: document.methods || [],
+    highlights: document.highlights || [],
+    alternateSources: document.alternateSources || [document.source],
+    links: document.links || {},
+  };
+}
+
+function sanitizeGraphTraversal(graphTraversal = {}) {
+  return {
+    paths: graphTraversal.paths || [],
+    nodes: graphTraversal.nodes || []
   };
 }
 
@@ -142,6 +304,7 @@ function buildFallbackQueries(query = '', crossLingual = null) {
     informative.slice(0, 2).join(' '),
     longest.join(' '),
     crossLingual?.translatedQuery || '',
+    ...expandSemanticLexiconTerms(informative).slice(0, 6),
   ].filter(Boolean);
 
   if (informative.length >= 3) {
@@ -221,7 +384,11 @@ function uniqueById(items = []) {
 function candidateMatchesPaper(paper, candidate) {
   const paperTokens = new Set(tokenize([paper.title, ...(paper.keywords || [])].join(' ')));
   const candidateTokens = new Set(tokenize([candidate.title, ...(candidate.keywords || [])].join(' ')));
-  return [...paperTokens].some((token) => candidateTokens.has(token));
+  const denseSimilarity = cosineSimilarity(
+    paper.semanticVector || paper.vector || [],
+    candidate.semanticVector || candidate.vector || []
+  );
+  return [...paperTokens].some((token) => candidateTokens.has(token)) || denseSimilarity >= 0.32;
 }
 
 async function rankExploratoryCandidates({
@@ -233,15 +400,14 @@ async function rankExploratoryCandidates({
 } = {}) {
   const queryTokens = buildQueryTokens(query);
   const queryTerms = unique(tokenize(query)).filter((token) => !SEARCH_STOPWORDS.has(token));
-  const queryVector = buildDenseVector(query, appConfig.vectorDimensions);
+  const queryProfile = classifyQueryProfile(query);
+  const queryVector = await embedText(query);
   const querySparse = buildSparseVector(query);
+  const corpusStats = buildCorpusStats(documents);
   const ranked = documents
     .filter((item) => (region === 'all' ? true : item.region === region))
     .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-    .map((item) => ({
-      item,
-      scoreBundle: scoreDocument(item, queryTokens, queryVector, querySparse)
-    }));
+    .map((item) => applyQueryProfileBoost(item, scoreDocument(item, queryTokens, queryTerms, queryVector, querySparse, corpusStats), classifyQueryProfile(query)));
 
   const boosted = await rerankSearchEntries(
     ranked
@@ -262,12 +428,20 @@ async function rankExploratoryCandidates({
         ...(entry.item.keywords || [])
       ].filter(Boolean).join(' '));
       const termOverlap = queryTerms.filter((token) => searchableText.includes(token)).length;
-      return (
+      const requestedTypes = queryProfile.requestedTypes || [];
+      const profileTypeMatch = requestedTypes.includes(classifySourceType(entry.item.type));
+      const profileSourceMatch = (queryProfile.sourceHints || []).includes(entry.item.source);
+      const directEvidence = (
         termOverlap >= 1 ||
         entry.scoreBundle.lexicalScore >= 8 ||
         entry.scoreBundle.sparseScore >= 0.14 ||
-        entry.scoreBundle.denseScore >= 0.24
+        entry.scoreBundle.bm25Score >= 0.32 ||
+        (hasReliableSemanticEmbedding(entry.item) && entry.scoreBundle.denseScore >= 0.24)
       );
+      if (directEvidence) return true;
+      const typeDrivenFallback = requestedTypes.some((type) => type !== 'paper') && profileTypeMatch;
+      const sourceDrivenFallback = requestedTypes.some((type) => type !== 'paper') && profileSourceMatch && profileTypeMatch;
+      return (typeDrivenFallback || sourceDrivenFallback) && entry.scoreBundle.total >= 18;
     })
     .slice(0, limit);
 }
@@ -320,6 +494,43 @@ function buildComparisonMatrix(paper, recommendations = [], citations = [], refe
 }
 
 
+function buildGraphPaths(paper, recommendations = [], citations = [], references = [], graph = {}) {
+  const directPaths = [
+    ...references.slice(0, 3).map((item) => ({
+      hop: 1,
+      relation: 'references',
+      from: paper.canonicalId || paper.id,
+      to: item.canonicalId || item.id,
+      summary: `선행 참고로 ${item.title} 연결`,
+    })),
+    ...citations.slice(0, 3).map((item) => ({
+      hop: 1,
+      relation: 'citations',
+      from: item.canonicalId || item.id,
+      to: paper.canonicalId || paper.id,
+      summary: `후속 인용으로 ${item.title} 연결`,
+    })),
+    ...recommendations.slice(0, 3).map((item) => ({
+      hop: 1,
+      relation: 'recommended',
+      from: paper.canonicalId || paper.id,
+      to: item.canonicalId || item.id,
+      summary: `의미/그래프 혼합 추천으로 ${item.title} 연결`,
+    }))
+  ];
+
+  const tracedPaths = (graph.pathTrace || []).slice(0, 4).map((path) => ({
+    hop: 2,
+    relation: `${path.firstEdgeType}:${path.secondEdgeType}`,
+    from: path.from,
+    via: path.via,
+    to: path.to,
+    summary: path.summary
+  }));
+
+  return [...directPaths, ...tracedPaths];
+}
+
 function buildGraphEdgesFromResults(results = []) {
   if (!results.length) return [];
   const [head, ...tail] = results;
@@ -332,11 +543,38 @@ function buildGraphEdgesFromResults(results = []) {
 }
 
 async function buildSearchIndexDocuments(liveDocuments = []) {
-  const postgres = appConfig.storageBackend === 'postgres' ? await loadDocumentsFromPostgres() : [];
-  const stored = getStoredDocuments();
-  return dedupeDocuments([...seedCatalog, ...stored, ...postgres, ...liveDocuments]).map((document) =>
-    attachVectors(document, appConfig.vectorDimensions)
-  );
+  return loadSearchIndexDocuments({ liveDocuments });
+}
+
+function buildSynchronizationKey(documents = []) {
+  return documents
+    .map((document) => `${document.canonicalId || document.id}:${document.updatedAt || ''}`)
+    .sort()
+    .join('|');
+}
+
+async function synchronizeIndexedArtifacts(documents = []) {
+  const key = buildSynchronizationKey(documents);
+  if (key && key === lastSynchronizedIndexKey) {
+    return { synchronized: false, reason: 'unchanged-index' };
+  }
+
+  persistDocuments(documents);
+  await syncDocumentGraph(documents);
+  await syncDocumentVectors(documents);
+  await syncDocumentsToPostgres(documents);
+  lastSynchronizedIndexKey = key;
+  return { synchronized: true };
+}
+
+export async function warmSearchIndex() {
+  const documents = await buildSearchIndexDocuments();
+  const sync = await synchronizeIndexedArtifacts(documents);
+  return {
+    documents: documents.length,
+    sync,
+    cache: getSearchIndexDiagnostics(),
+  };
 }
 
 function normalizeSearchResult(document, rank, scoreBundle) {
@@ -347,6 +585,9 @@ function normalizeSearchResult(document, rank, scoreBundle) {
     lexicalScore: Number(scoreBundle.lexicalScore.toFixed(2)),
     denseScore: Number(scoreBundle.denseScore.toFixed(4)),
     sparseScore: Number(scoreBundle.sparseScore.toFixed(4)),
+    bm25Score: Number((scoreBundle.bm25Score || 0).toFixed(4)),
+    passageDenseScore: Number((scoreBundle.passageDenseScore || 0).toFixed(4)),
+    passageLabel: scoreBundle.passageLabel || '',
     type: classifySourceType(document.type),
     region: document.region,
     year: document.year,
@@ -422,7 +663,7 @@ async function executeSearchCatalog({
   const queryTokens = buildQueryTokens(retrievalQuery);
   const queryTerms = unique(tokenize(retrievalQuery)).filter((token) => !SEARCH_STOPWORDS.has(token));
   const rawQueryTermCount = unique(tokenize(retrievalQuery)).length;
-  const queryVector = buildDenseVector(retrievalQuery, appConfig.vectorDimensions);
+  const queryVector = await embedText(retrievalQuery);
   const querySparse = buildSparseVector(retrievalQuery);
   const shouldAutoLive = Boolean(q.trim()) && autoLive && !live;
   const filters = {
@@ -445,26 +686,29 @@ async function executeSearchCatalog({
   });
 
   function rankDocuments(documents = []) {
+    const corpusStats = buildCorpusStats(documents);
     return documents
       .filter((item) => (region === 'all' ? true : item.region === region))
       .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-      .map((item) => ({ item, scoreBundle: scoreDocument(item, queryTokens, queryVector, querySparse) }));
+      .map((item) => applyQueryProfileBoost(item, scoreDocument(item, queryTokens, queryTerms, queryVector, querySparse, corpusStats), queryProfile));
   }
 
   async function attachVectorBoost(entries = []) {
     const documents = entries.map((entry) => entry.item);
     const vectorHits = await searchVectorCandidates({
       query: retrievalQuery,
+      queryVector,
       documents,
       limit: appConfig.recommendationCandidateLimit,
     });
     const vectorHitScores = new Map(vectorHits.map((entry) => [entry.id, entry.score]));
+    const vectorBoostWeight = documents.some((document) => hasReliableSemanticEmbedding(document)) ? 10 : 2.5;
     return entries
       .map(({ item, scoreBundle }) => ({
         item,
         scoreBundle: {
           ...scoreBundle,
-          total: scoreBundle.total + (vectorHitScores.get(item.canonicalId || item.id) || 0) * 10,
+          total: scoreBundle.total + (vectorHitScores.get(item.canonicalId || item.id) || 0) * vectorBoostWeight,
         },
       }))
       .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, retrievalQuery));
@@ -522,14 +766,15 @@ async function executeSearchCatalog({
       reformulationsTried.push(fallbackQuery);
       const fallbackTokens = buildQueryTokens(fallbackQuery);
       const fallbackTerms = unique(tokenize(fallbackQuery)).filter((token) => !SEARCH_STOPWORDS.has(token));
-      const fallbackVector = buildDenseVector(fallbackQuery, appConfig.vectorDimensions);
+      const fallbackVector = await embedText(fallbackQuery);
       const fallbackSparse = buildSparseVector(fallbackQuery);
 
       function rankFallbackDocuments(documents = []) {
+        const corpusStats = buildCorpusStats(documents);
         return documents
           .filter((item) => (region === 'all' ? true : item.region === region))
           .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-          .map((item) => ({ item, scoreBundle: scoreDocument(item, fallbackTokens, fallbackVector, fallbackSparse) }));
+          .map((item) => applyQueryProfileBoost(item, scoreDocument(item, fallbackTokens, fallbackTerms, fallbackVector, fallbackSparse, corpusStats), queryProfile));
       }
 
       const localFallback = await attachVectorBoost(rankFallbackDocuments(mergedSourceData));
@@ -615,6 +860,8 @@ async function executeSearchCatalog({
     }
   }
 
+  rankedEntries = await boostWithPassageMatches(rankedEntries, queryVector, appConfig.recommendationCandidateLimit);
+
   const ranked = [...rankedEntries].sort((a, b) => {
     if (sort === 'latest') return (b.item.year || 0) - (a.item.year || 0) || b.scoreBundle.total - a.scoreBundle.total;
     if (sort === 'citation') return (b.item.citations || 0) - (a.item.citations || 0) || b.scoreBundle.total - a.scoreBundle.total;
@@ -641,11 +888,10 @@ async function executeSearchCatalog({
     exploratory: fallbackMode === 'exploratory',
   }));
   const sourceStatus = mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses);
-  persistDocuments(mergedSourceData);
   persistGraphEdges(buildGraphEdgesFromResults(results));
-  await syncDocumentGraph(mergedSourceData);
-  await syncDocumentVectors(mergedSourceData);
-  await syncDocumentsToPostgres(mergedSourceData);
+  void synchronizeIndexedArtifacts(mergedSourceData).catch((error) => {
+    console.warn(`[search-sync] background artifact synchronization failed: ${error.message}`);
+  });
   persistSearchRun({ query: q, filters, total: reranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
 
   const payload = {
@@ -687,31 +933,66 @@ export async function getPaperById(id) {
   const paper = sourceData.find((item) => item.id === id || item.canonicalId === id);
   if (!paper) return null;
 
-  const related = (await searchCatalog({ q: paper.keywords.slice(0, 3).join(' '), sort: 'relevance', live: false })).results
-    .filter((item) => item.id !== (paper.canonicalId || paper.id))
-    .slice(0, 4);
-  const graph = getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit);
+  await syncDocumentGraph(sourceData);
+  const graphTraversal = traceDocumentGraph(paper.canonicalId || paper.id, sourceData, appConfig.citationExpansionLimit);
+  const graph = graphTraversal.graph || getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit);
+  const citations = await getCitationsById(id, appConfig.citationExpansionLimit);
+  const references = await getReferencesById(id, appConfig.citationExpansionLimit);
   const recommendations = await buildRecommendationSet({
     paper,
     documents: sourceData,
     userProfile: null,
     limit: 4,
   });
+  const related = uniqueById([...recommendations, ...citations, ...references])
+    .filter((item) => (item.canonicalId || item.id) !== (paper.canonicalId || paper.id))
+    .slice(0, 4);
+  const impactScore = Math.min(99, Math.round((paper.citations || 0) * 0.35 + (references.length + citations.length) * 4 + (paper.year >= 2024 ? 10 : 0)));
+
+  const sanitizedPaper = sanitizeDocumentForDetail(paper);
+  const sanitizedRelated = related.map((item) => sanitizeDocumentForDetail(item));
+  const sanitizedCitations = citations.map((item) => sanitizeDocumentForDetail(item));
+  const sanitizedReferences = references.map((item) => sanitizeDocumentForDetail(item));
+  const sanitizedRecommendations = recommendations.map((item) => sanitizeDocumentForDetail(item));
 
   return {
-    ...paper,
-    related,
+    ...sanitizedPaper,
+    related: sanitizedRelated,
     graph,
-    recommendations,
+    citations: sanitizedCitations,
+    references: sanitizedReferences,
+    recommendations: sanitizedRecommendations,
+    graphPaths: [
+      ...graphTraversal.paths,
+      ...buildGraphPaths(paper, recommendations, citations, references)
+    ]
+      .filter((path, index, items) =>
+        index === items.findIndex((candidate) =>
+          candidate.from === path.from &&
+          candidate.to === path.to &&
+          (candidate.via || '') === (path.via || '') &&
+          String(candidate.summary || '') === String(path.summary || '')
+        )
+      )
+      .slice(0, appConfig.citationExpansionLimit),
+    graphTraversal: sanitizeGraphTraversal(graphTraversal),
+    sourceStatus: listSourceStatuses().filter((item) => [paper.source, ...(paper.alternateSources || [])].includes(item.source)),
     explanation: describeGraphInsights(paper, graph, recommendations),
+    sourceLinks: {
+      detail: paper.links?.detail || '',
+      original: paper.links?.original || paper.links?.detail || ''
+    },
     metrics: {
-      citations: paper.citations,
-      references: 18 + (paper.keywords?.length || 0) * 3,
-      insightScore: Math.min(97, 70 + (paper.keywords?.length || 0) * 3),
+      citations: paper.citations || citations.length,
+      references: references.length,
+      impact: impactScore,
+      insightScore: impactScore,
       freshness: paper.year >= 2024 ? '최신 연구' : '안정화 연구',
+      velocity: paper.year >= 2024 ? '상승' : '안정',
       alternateSourceCount: (paper.alternateSources || []).length
     }
-  };}
+  };
+}
 
 export async function expandPaperById(id) {
   const paper = await getPaperById(id);
@@ -734,7 +1015,7 @@ export async function expandPaperById(id) {
         source: item.source,
         year: item.year
       })),
-      recommendations,
+      recommendations: recommendations.map((item) => sanitizeDocumentForDetail(item)),
       graphNarrative: describeGraphInsights(paper, paper.graph || {}, recommendations),
       comparisonMatrix: buildComparisonMatrix(paper, recommendations, citations, references),
       graph: getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit),

@@ -1,6 +1,7 @@
 import { appConfig } from './config.mjs';
 import { getAllGraphEdges, getStoredDocuments, listBackgroundJobs } from './storage.mjs';
 import { toPgvectorLiteral } from './vector-index-service.mjs';
+import { buildDocumentPassages } from './vector-service.mjs';
 
 function sqlString(value) {
   if (value == null) return 'NULL';
@@ -36,6 +37,11 @@ export function buildPostgresMigrationSql() {
     '  updated_at TIMESTAMPTZ',
     ');',
     `CREATE INDEX IF NOT EXISTS idx_documents_embedding_cosine ON documents USING hnsw (embedding vector_cosine_ops);`,
+    'CREATE TABLE IF NOT EXISTS source_records (canonical_id TEXT, source_key TEXT, source_document_id TEXT, source_label TEXT, detail_url TEXT, original_url TEXT, raw_json JSONB, updated_at TIMESTAMPTZ, PRIMARY KEY (canonical_id, source_key));',
+    'CREATE INDEX IF NOT EXISTS idx_source_records_canonical_id ON source_records(canonical_id);',
+    'CREATE TABLE IF NOT EXISTS document_chunks (chunk_id TEXT PRIMARY KEY, canonical_id TEXT, ordinal INTEGER, label TEXT, content TEXT, embedding vector(' + appConfig.vectorDimensions + '), sparse_json JSONB, updated_at TIMESTAMPTZ);',
+    'CREATE INDEX IF NOT EXISTS idx_document_chunks_canonical_id ON document_chunks(canonical_id, ordinal);',
+    'CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_cosine ON document_chunks USING hnsw (embedding vector_cosine_ops);',
     'CREATE TABLE IF NOT EXISTS search_runs (id BIGSERIAL PRIMARY KEY, query_text TEXT, filters_json JSONB, total_results INTEGER, live_source_count INTEGER, canonical_count INTEGER, created_at TIMESTAMPTZ);',
     'CREATE TABLE IF NOT EXISTS similarity_runs (id BIGSERIAL PRIMARY KEY, title TEXT, extraction_method TEXT, extracted_characters INTEGER, score INTEGER, risk_level TEXT, top_match_id TEXT, created_at TIMESTAMPTZ);',
     'CREATE TABLE IF NOT EXISTS graph_edges (source_id TEXT, target_id TEXT, edge_type TEXT, weight DOUBLE PRECISION, created_at TIMESTAMPTZ);',
@@ -56,6 +62,18 @@ export function buildPostgresMigrationSql() {
     statements.push(
       `INSERT INTO documents (canonical_id, source, type, title, year, organization, authors_json, keywords_json, summary, links_json, embedding, sparse_json, raw_json, updated_at) VALUES (${sqlString(document.canonicalId)}, ${sqlString(document.source)}, ${sqlString(document.type)}, ${sqlString(document.title)}, ${document.year ?? 'NULL'}, ${sqlString(document.organization)}, ${sqlJson(document.authors)}, ${sqlJson(document.keywords)}, ${sqlString(document.summary)}, ${sqlJson(document.links)}, ${sqlString(toPgvectorLiteral(document.vector || []))}::vector, ${sqlJson(document.sparseVector || {})}, ${sqlJson(document.rawRecord)}, ${sqlString(document.updatedAt)});`
     );
+    const canonicalId = document.canonicalId || document.id;
+    const sourceKeys = [document.source, ...(document.alternateSources || [])].filter(Boolean);
+    for (const sourceKey of sourceKeys) {
+      statements.push(
+        `INSERT INTO source_records (canonical_id, source_key, source_document_id, source_label, detail_url, original_url, raw_json, updated_at) VALUES (${sqlString(canonicalId)}, ${sqlString(sourceKey)}, ${sqlString(document.sourceIds?.[sourceKey] || canonicalId)}, ${sqlString(document.sourceLabel || sourceKey)}, ${sqlString(document.links?.detail || '')}, ${sqlString(document.links?.original || document.links?.detail || '')}, ${sqlJson(document.rawRecord || document)}, ${sqlString(document.updatedAt)});`
+      );
+    }
+    buildDocumentPassages(document).slice(0, 6).forEach((passage, index) => {
+      statements.push(
+        `INSERT INTO document_chunks (chunk_id, canonical_id, ordinal, label, content, embedding, sparse_json, updated_at) VALUES (${sqlString(`${canonicalId}::${index + 1}`)}, ${sqlString(canonicalId)}, ${index + 1}, ${sqlString(passage.label)}, ${sqlString(passage.text)}, ${sqlString(toPgvectorLiteral(document.vector || []))}::vector, ${sqlJson(document.sparseVector || {})}, ${sqlString(document.updatedAt)});`
+      );
+    });
   }
 
   for (const edge of edges) {

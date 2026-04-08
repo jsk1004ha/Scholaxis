@@ -51,6 +51,7 @@
           <div class="action-row">
             <a class="button button--primary" href="./results.html">관련 결과 더 보기</a>
             <a class="button button--ghost" data-similarity-link href="./similarity.html">유사도 분석으로 이동</a>
+            <a class="button button--ghost" data-source-link href="#" target="_blank" rel="noreferrer noopener">원문/상세 링크</a>
             <button class="button button--ghost" data-save-library type="button">내 라이브러리에 저장</button>
           </div>
         </article>
@@ -65,15 +66,50 @@
             </article>
 
             <article class="card">
+              <span class="section-eyebrow">Grounded metadata</span>
+              <h2>원문 접근과 출처 메타데이터</h2>
+              <div class="stack">
+                <p class="muted-copy" data-detail-novelty></p>
+                <div class="action-row">
+                  <a class="button button--ghost" data-detail-original-link href="#" target="_blank" rel="noreferrer noopener">원문 열기</a>
+                  <a class="button button--ghost" data-detail-detail-link href="#" target="_blank" rel="noreferrer noopener">상세 페이지 열기</a>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
               <span class="section-eyebrow">Intelligence network map</span>
               <h2>영향 관계 맵</h2>
               <div class="network" data-network-root></div>
             </article>
 
             <article class="card">
-              <span class="section-eyebrow">Related items</span>
-              <h2>함께 읽을 자료</h2>
-              <div class="result-list" data-related-results></div>
+              <span class="section-eyebrow">Reference trail</span>
+              <h2>선행 참고문헌</h2>
+              <div class="result-list" data-reference-results></div>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Citation trail</span>
+              <h2>후속 인용/확장 자료</h2>
+              <div class="result-list" data-citation-results></div>
+            </article>
+
+
+            <article class="card">
+              <span class="section-eyebrow">Path tracing</span>
+              <h2>인용/추천 경로</h2>
+              <ul data-graph-paths>
+                <li>경로 정보를 계산 중입니다.</li>
+              </ul>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Source grounding</span>
+              <h2>활성 출처 상태</h2>
+              <ul data-source-status>
+                <li>출처 상태를 계산 중입니다.</li>
+              </ul>
             </article>
           </div>
 
@@ -94,6 +130,31 @@
             </article>
 
             <article class="card">
+              <span class="section-eyebrow">Comparison matrix</span>
+              <h3>추천/인용/참고 비교 포인트</h3>
+              <ul data-comparison-matrix>
+                <li>비교 포인트를 계산 중입니다.</li>
+              </ul>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Suggested queries</span>
+              <h3>다음 탐색 제안</h3>
+              <div class="chip-row" data-suggested-queries>
+                <span class="muted-copy">추천 질의를 계산 중입니다.</span>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Alternate grounding</span>
+              <h3>연결된 출처와 원문 링크</h3>
+              <p class="muted-copy" data-detail-source-links>원문/상세 링크를 확인하는 중입니다.</p>
+              <ul data-alternate-sources>
+                <li>연결된 출처를 계산 중입니다.</li>
+              </ul>
+            </article>
+
+            <article class="card">
               <span class="section-eyebrow">Why it matters</span>
               <h3>이 논문을 먼저 읽어야 하는 이유</h3>
               <ul>
@@ -107,6 +168,12 @@
               <span class="section-eyebrow">Next reading set</span>
               <h3>추천 비교 문헌</h3>
               <div class="result-list" data-detail-recommendations></div>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Related items</span>
+              <h3>함께 읽을 자료</h3>
+              <div class="result-list" data-related-results></div>
             </article>
           </div>
         </section>

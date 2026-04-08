@@ -256,6 +256,16 @@ async function searchScienceOn(query, limit) {
   return rows.slice(0, limit);
 }
 
+
+function buildKiprisDetailLink(query = '', rawId = '', title = '') {
+  const base = 'https://www.kipris.or.kr/kportal/search/total_search.do';
+  const params = new URLSearchParams();
+  params.set('queryText', title || query || rawId || '');
+  params.set('query', title || query || rawId || '');
+  if (rawId) params.set('patentNumber', rawId);
+  return `${base}?${params.toString()}`;
+}
+
 function parseXmlItems(xml, itemTag = 'item') {
   return [...xml.matchAll(new RegExp(`<${itemTag}>([\\s\\S]*?)<\\/${itemTag}>`, 'g'))].map((match) => match[1]);
 }
@@ -322,8 +332,8 @@ async function searchKiprisPublic(query, limit) {
         openAccess: false,
         sourceIds: { kipris: xmlValue(item, 'VdkVgwKey') || xmlValue(item, 'GNV') || null },
         links: {
-          detail: sourceDetailUrl('kipris', query),
-          original: sourceDetailUrl('kipris', query),
+          detail: buildKiprisDetailLink(query, xmlValue(item, 'VdkVgwKey') || xmlValue(item, 'GNV') || '', bestTitle),
+          original: buildKiprisDetailLink(query, xmlValue(item, 'VdkVgwKey') || xmlValue(item, 'GNV') || '', bestTitle),
           image: xmlValue(item, 'src') || null
         },
         rawRecord: item
@@ -758,8 +768,8 @@ async function searchConfiguredXmlApi(source, query, limit) {
         summary: 'KIPRIS Plus Open API 검색 결과입니다.',
         keywords: normalizeKeywordBag(`${query} ${xmlValue(item, 'inventionTitle')}`).slice(0, 8),
         links: {
-          detail: sourceDetailUrl('kipris', query),
-          original: sourceDetailUrl('kipris', query)
+          detail: buildKiprisDetailLink(query, xmlValue(item, 'applicationNumber') || '', xmlValue(item, 'inventionTitle') || ''),
+          original: buildKiprisDetailLink(query, xmlValue(item, 'applicationNumber') || '', xmlValue(item, 'inventionTitle') || '')
         },
         rawRecord: item
       })
