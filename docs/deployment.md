@@ -56,6 +56,31 @@ npm run validate:postgres
 This command exits successfully only when Scholaxis is configured for the
 recommended PostgreSQL + pgvector path and the schema/pgvector extension are reachable.
 
+### `validate:postgres` troubleshooting
+
+`npm run validate:postgres` prints a structured readiness report before it exits.
+Interpret the top-level `status` like this:
+
+- `validated` — the serious-use PostgreSQL + pgvector lane is configured correctly and the schema is reachable.
+- `configuration-required` — PostgreSQL + pgvector is selected, but one or more prerequisites still need to be fixed.
+- `development-fallback` — the app is still running in SQLite/local-vector mode; this is acceptable for local quickstart, but not the recommended serious-use path.
+
+Common fixes:
+
+- `storage-backend` failed → set `SCHOLAXIS_STORAGE_BACKEND=postgres`
+- `vector-backend` failed → set `SCHOLAXIS_VECTOR_BACKEND=pgvector`
+- `connection-config` failed → set `DATABASE_URL` or the standard `PG*` variables
+- `psql-cli` failed → install PostgreSQL client tools or point `PSQL_BIN` at a working `psql`
+- `schema-sync` failed → run `npm run migrate:postgres -- --apply` after the connection settings are correct
+
+You can compare the CLI validator with the live runtime view through:
+
+```bash
+curl http://127.0.0.1:3000/api/admin/infra
+```
+
+The `seriousUsePath` payload mirrors the same readiness contract used by `validate:postgres`.
+
 ## Scheduler / worker split
 
 Queue the default infrastructure jobs:
