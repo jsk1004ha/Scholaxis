@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 
 export async function extractDocxText(buffer) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
-    return { text: '', method: 'docx-none', warnings: ['empty-docx-buffer'] };
+    return { text: '', method: 'docx-none', warnings: ['empty-docx-buffer'], confidence: 0, structured: false };
   }
 
   const tempDir = await mkdtemp(path.join(tmpdir(), 'scholaxis-docx-'));
@@ -43,13 +43,17 @@ export async function extractDocxText(buffer) {
     return {
       text: stdout.trim(),
       method: 'python-zipfile-docx-structured',
-      warnings: []
+      warnings: [],
+      confidence: 88,
+      structured: true,
     };
   } catch (error) {
     return {
       text: '',
       method: 'docx-error',
-      warnings: [error.message]
+      warnings: [error.message],
+      confidence: 12,
+      structured: false,
     };
   } finally {
     await rm(tempDir, { recursive: true, force: true });

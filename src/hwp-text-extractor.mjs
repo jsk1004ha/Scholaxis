@@ -21,7 +21,7 @@ function extractPrintableChunks(buffer) {
 
 export async function extractHwpxText(buffer) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
-    return { text: '', method: 'hwpx-none', warnings: ['empty-hwpx-buffer'] };
+    return { text: '', method: 'hwpx-none', warnings: ['empty-hwpx-buffer'], confidence: 0, structured: false };
   }
 
   const tempDir = await mkdtemp(path.join(tmpdir(), 'scholaxis-hwpx-'));
@@ -84,12 +84,16 @@ export async function extractHwpxText(buffer) {
       text: stdout.trim(),
       method: 'python-zipfile-hwpx',
       warnings: [],
+      confidence: 86,
+      structured: true,
     };
   } catch (error) {
     return {
       text: '',
       method: 'hwpx-error',
       warnings: [error.message],
+      confidence: 12,
+      structured: false,
     };
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -98,7 +102,7 @@ export async function extractHwpxText(buffer) {
 
 export async function extractHwpText(buffer) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
-    return { text: '', method: 'hwp-none', warnings: ['empty-hwp-buffer'] };
+    return { text: '', method: 'hwp-none', warnings: ['empty-hwp-buffer'], confidence: 0, structured: false };
   }
 
   const tempDir = await mkdtemp(path.join(tmpdir(), 'scholaxis-hwp-'));
@@ -142,6 +146,8 @@ export async function extractHwpText(buffer) {
       text: bestText,
       method: pythonText.length >= chunkText.length ? 'hwp-heuristic-python' : 'hwp-heuristic-chunks',
       warnings,
+      confidence: pythonText.length >= chunkText.length ? 48 : 42,
+      structured: false,
     };
   } catch (error) {
     const fallback = sanitizeExtractedText(buffer.toString('utf8')) || extractPrintableChunks(buffer);
@@ -149,6 +155,8 @@ export async function extractHwpText(buffer) {
       text: fallback,
       method: fallback ? 'hwp-best-effort-fallback' : 'hwp-error',
       warnings: ['binary-hwp-best-effort-only', error.message],
+      confidence: fallback ? 30 : 0,
+      structured: false,
     };
   } finally {
     await rm(tempDir, { recursive: true, force: true });

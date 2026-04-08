@@ -43,7 +43,7 @@ async function ocrImage(imagePath) {
 
 export async function extractPdfTextWithOcr(pdfBuffer) {
   if (!Buffer.isBuffer(pdfBuffer) || !pdfBuffer.length) {
-    return { text: '', method: 'ocr-none', warnings: ['empty-pdf-buffer'] };
+    return { text: '', method: 'ocr-none', warnings: ['empty-pdf-buffer'], confidence: 0, structured: false };
   }
 
   const hasTesseract = await commandExists('tesseract');
@@ -55,7 +55,9 @@ export async function extractPdfTextWithOcr(pdfBuffer) {
       warnings: [
         !hasTesseract ? 'tesseract-not-installed' : null,
         !hasPpm ? 'pdf-rasterizer-not-installed' : null
-      ].filter(Boolean)
+      ].filter(Boolean),
+      confidence: 0,
+      structured: false,
     };
   }
 
@@ -80,13 +82,17 @@ export async function extractPdfTextWithOcr(pdfBuffer) {
     return {
       text: pages.join('\n').trim(),
       method: 'tesseract-ocr',
-      warnings: []
+      warnings: [],
+      confidence: 46,
+      structured: false,
     };
   } catch (error) {
     return {
       text: '',
       method: 'ocr-error',
-      warnings: [error.message]
+      warnings: [error.message],
+      confidence: 0,
+      structured: false,
     };
   } finally {
     await rm(tempDir, { recursive: true, force: true });

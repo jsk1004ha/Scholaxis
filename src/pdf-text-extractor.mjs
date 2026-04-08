@@ -111,7 +111,7 @@ async function tryPdftotext(buffer) {
 
 export async function extractPdfText(pdfBuffer) {
   if (!Buffer.isBuffer(pdfBuffer) || !pdfBuffer.length) {
-    return { text: '', method: 'none', warnings: ['empty-pdf-buffer'] };
+    return { text: '', method: 'none', warnings: ['empty-pdf-buffer'], confidence: 0, structured: false };
   }
 
   try {
@@ -120,7 +120,9 @@ export async function extractPdfText(pdfBuffer) {
       return {
         text,
         method: 'pdftotext',
-        warnings: []
+        warnings: [],
+        confidence: 82,
+        structured: true,
       };
     }
   } catch {
@@ -139,7 +141,9 @@ export async function extractPdfText(pdfBuffer) {
     return {
       text,
       method: 'heuristic-stream-parser',
-      warnings: ['pdftotext-unavailable-or-failed']
+      warnings: ['pdftotext-unavailable-or-failed'],
+      confidence: 56,
+      structured: false,
     };
   }
 
@@ -150,6 +154,8 @@ export async function extractPdfText(pdfBuffer) {
   return {
     text: rawFallback.replace(/\s+/g, ' ').trim(),
     method: 'raw-fallback',
-    warnings: ['low-confidence-pdf-extraction']
+    warnings: ['low-confidence-pdf-extraction'],
+    confidence: 28,
+    structured: false,
   };
 }
