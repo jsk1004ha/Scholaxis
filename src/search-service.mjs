@@ -906,18 +906,14 @@ async function executeSearchCatalog({
     return documents
       .filter((item) => (region === 'all' ? true : item.region === region))
       .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-      .map((item) =>
-        applyPreferredSourceBoost(
-          ...Object.values(
-            applyQueryProfileBoost(
-              item,
-              scoreDocument(item, queryTokens, queryTerms, queryVector, querySparse, corpusStats),
-              queryProfile
-            )
-          ),
-          preferredSources
-        )
-      );
+      .map((item) => {
+        const boosted = applyQueryProfileBoost(
+          item,
+          scoreDocument(item, queryTokens, queryTerms, queryVector, querySparse, corpusStats),
+          queryProfile
+        );
+        return applyPreferredSourceBoost(boosted.item, boosted.scoreBundle, preferredSources);
+      });
   }
 
   async function attachVectorBoost(entries = []) {
@@ -1001,18 +997,14 @@ async function executeSearchCatalog({
         return documents
           .filter((item) => (region === 'all' ? true : item.region === region))
           .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
-          .map((item) =>
-            applyPreferredSourceBoost(
-              ...Object.values(
-                applyQueryProfileBoost(
-                  item,
-                  scoreDocument(item, fallbackTokens, fallbackTerms, fallbackVector, fallbackSparse, corpusStats),
-                  queryProfile
-                )
-              ),
-              preferredSources
-            )
-          );
+          .map((item) => {
+            const boosted = applyQueryProfileBoost(
+              item,
+              scoreDocument(item, fallbackTokens, fallbackTerms, fallbackVector, fallbackSparse, corpusStats),
+              queryProfile
+            );
+            return applyPreferredSourceBoost(boosted.item, boosted.scoreBundle, preferredSources);
+          });
       }
 
       const localFallback = await attachVectorBoost(rankFallbackDocuments(mergedSourceData));
