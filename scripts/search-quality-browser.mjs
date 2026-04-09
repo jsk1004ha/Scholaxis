@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,6 +19,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const REPORT_DIR = path.resolve('.omx/reports');
+const FIXTURE_PATH = path.resolve('tests/fixtures/search-quality-cases.json');
 const API_RUNS = Number(process.env.SCHOLAXIS_QUALITY_API_RUNS || 120);
 const BROWSER_RUNS = Number(process.env.SCHOLAXIS_QUALITY_BROWSER_RUNS || 24);
 const LIVE_SAMPLE_RUNS = Number(process.env.SCHOLAXIS_QUALITY_LIVE_SAMPLE_RUNS || 0);
@@ -595,6 +596,63 @@ async function runBrowserCheck(chromePath, url) {
   };
 }
 
+async function startBrowserVerificationServer() {
+  const nodeBin = process.execPath;
+  const child = spawn(nodeBin, ['src/server.mjs'], {
+    cwd: path.resolve('.'),
+    env: {
+      ...process.env,
+      PORT: process.env.SCHOLAXIS_BROWSER_PORT || '4310',
+      HOST: '127.0.0.1',
+      SCHOLAXIS_LOCAL_MODEL_AUTOSTART: 'false',
+      SCHOLAXIS_WARM_SEARCH_INDEX_ON_START: 'false',
+      SCHOLAXIS_EMBEDDING_PROVIDER: process.env.SCHOLAXIS_BROWSER_EMBEDDING_PROVIDER || 'hash',
+      SCHOLAXIS_RERANKER_PROVIDER: process.env.SCHOLAXIS_BROWSER_RERANKER_PROVIDER || 'heuristic',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const output = [];
+  let resolved = false;
+
+  const ready = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      reject(new Error(`browser-server-start-timeout\n${output.join('')}`));
+    }, 30000);
+
+    function onChunk(chunk) {
+      const text = chunk.toString();
+      output.push(text);
+      const match = text.match(/Scholaxis server listening on (http:\/\/127\.0\.0\.1:\d+)/);
+      if (match && !resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        resolve(match[1]);
+      }
+    }
+
+    child.stdout.on('data', onChunk);
+    child.stderr.on('data', onChunk);
+    child.once('exit', (code, signal) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      reject(new Error(`browser-server-exit:${code ?? 'null'}:${signal ?? 'none'}\n${output.join('')}`));
+    });
+  });
+
+  const baseUrl = await ready;
+  return {
+    baseUrl,
+    stop: async () => {
+      child.kill('SIGTERM');
+      await once(child, 'exit').catch(() => {});
+    },
+  };
+}
+
 function buildImprovementIdeas(report) {
   const ideas = [];
   if (report.bucketSummary['source-filtered']) {
@@ -667,6 +725,7 @@ export function buildMarkdownReport(report = {}) {
 async function main() {
   await mkdir(REPORT_DIR, { recursive: true });
 
+  const fixtureSet = await loadSearchQualityFixtureSet(FIXTURE_PATH);
   const server = createServer();
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -695,25 +754,34 @@ async function main() {
 
   const chromePath = pickChrome();
   const browserResults = [];
-  for (const scenario of plan.browserScenarios) {
-    if (!chromePath) {
+  let browserServer = null;
+  try {
+    for (const scenario of plan.browserScenarios) {
+      if (!chromePath) {
+        browserResults.push({
+          query: scenario.query,
+          intent: scenario.intent,
+          language: scenario.language,
+          pass: false,
+          skipped: true,
+          error: 'No Chrome/Edge binary found for browser testing.'
+        });
+        continue;
+      }
+      browserServer ||= await startBrowserVerificationServer();
+      const browser = await runBrowserCheck(
+        chromePath,
+        buildSearchUrl(browserServer.baseUrl, scenario).replace('/api/search?', '/results.html?')
+      );
       browserResults.push({
         query: scenario.query,
         intent: scenario.intent,
         language: scenario.language,
-        pass: false,
-        skipped: true,
-        error: 'No Chrome/Edge binary found for browser testing.'
+        ...browser,
       });
-      continue;
     }
-    const browser = await runBrowserCheck(chromePath, buildSearchUrl(baseUrl, scenario).replace('/api/search?', '/results.html?'));
-    browserResults.push({
-      query: scenario.query,
-      intent: scenario.intent,
-      language: scenario.language,
-      ...browser,
-    });
+  } finally {
+    await browserServer?.stop();
   }
 
   const scenarioResults = [...fixedResults, ...randomResults, ...liveResults];
