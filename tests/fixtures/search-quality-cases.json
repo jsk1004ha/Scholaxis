@@ -198,6 +198,71 @@
       }
     },
     {
+      "id": "ko-source-catalog-science-fair",
+      "query": "전람회",
+      "labels": [
+        "korean",
+        "broad_topic"
+      ],
+      "expectations": {
+        "minTotal": 1,
+        "maxAcceptedRank": 3,
+        "source": "science_fair",
+        "type": "fair_entry",
+        "titleIncludes": [
+          "사막화",
+          "연구"
+        ]
+      },
+      "provenance": {
+        "canonicalId": "seed-fair-science-desert",
+        "basis": "science fair source-keyword regression"
+      }
+    },
+    {
+      "id": "ko-source-catalog-rne",
+      "query": "RNE",
+      "labels": [
+        "english",
+        "source_filtered"
+      ],
+      "expectations": {
+        "minTotal": 1,
+        "maxAcceptedRank": 3,
+        "source": "rne_report",
+        "type": "report",
+        "titleIncludes": [
+          "미세플라스틱",
+          "정화 전략"
+        ]
+      },
+      "provenance": {
+        "canonicalId": "seed-report-rne-river",
+        "basis": "rne source-keyword regression"
+      }
+    },
+    {
+      "id": "ko-source-catalog-student-invention",
+      "query": "발명품",
+      "labels": [
+        "korean",
+        "broad_topic"
+      ],
+      "expectations": {
+        "minTotal": 1,
+        "maxAcceptedRank": 3,
+        "source": "student_invention_fair",
+        "type": "fair_entry",
+        "titleIncludes": [
+          "휴대용 전압 공급장치"
+        ]
+      },
+      "provenance": {
+        "canonicalId": "seed-fair-student-energy",
+        "basis": "student invention source-keyword regression"
+      }
+    },
+    {
       "id": "ko-crosslingual-graph",
       "query": "학술 그래프 검색",
       "labels": [

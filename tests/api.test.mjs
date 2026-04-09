@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { Blob } from 'node:buffer';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { createServer, startServer } from '../src/server.mjs';
 import { createGraphBackendServer } from '../src/graph-backend-server.mjs';
 import { buildPostgresMigrationSql } from '../src/postgres-migration.mjs';
@@ -154,6 +157,44 @@ function samplePdfBuffer(text = 'Hello PDF world') {
     `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length ${length} >>\nstream\n${stream}\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF`,
     'latin1'
   );
+}
+
+function runIsolatedSearchQueries(queries = []) {
+  const dbPath = path.join(tmpdir(), `scholaxis-search-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+  const script = `
+    import { searchCatalog } from './src/search-service.mjs';
+    const queries = ${JSON.stringify(queries)};
+    const output = [];
+    for (const query of queries) {
+      const result = await searchCatalog({ q: query, autoLive: false, live: false, forceRefresh: false });
+      output.push({
+        query,
+        total: result.total,
+        fallbackMode: result.fallbackMode,
+        items: result.items.slice(0, 5).map((item) => ({
+          canonicalId: item.canonicalId,
+          sourceKey: item.sourceKey,
+          type: item.type,
+          title: item.title
+        }))
+      });
+    }
+    process.stdout.write(JSON.stringify(output));
+  `;
+
+  const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: path.resolve(process.cwd()),
+    env: {
+      ...process.env,
+      SCHOLAXIS_DB_PATH: dbPath,
+      SCHOLAXIS_EMBEDDING_PROVIDER: 'hash',
+      SCHOLAXIS_RERANKER_PROVIDER: 'heuristic',
+      SCHOLAXIS_LOCAL_MODEL_AUTOSTART: '0',
+    },
+    encoding: 'utf8',
+  });
+
+  return JSON.parse(stdout.trim().split('\n').at(-1) || '[]');
 }
 
 test('health endpoint returns ok', async () => {
@@ -887,6 +928,15 @@ test('search supports Korean to English and English to Korean semantic retrieval
   assert.ok(englishPayload.items.some((item) => /휴대용 전압 공급장치/.test(item.title)));
 
   await closeServer(server);
+});
+
+test('generic fair/RNE source queries surface representative seeded category results', () => {
+  const results = runIsolatedSearchQueries(['전람회', 'RNE', '발명품']);
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  assert.ok(byQuery.get('전람회')?.items.some((item) => item.sourceKey === 'science_fair'));
+  assert.ok(byQuery.get('RNE')?.items.some((item) => item.sourceKey === 'rne_report' && item.type === 'report'));
+  assert.ok(byQuery.get('발명품')?.items.some((item) => item.sourceKey === 'student_invention_fair'));
 });
 
 

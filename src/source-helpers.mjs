@@ -180,8 +180,8 @@ export function expandQueryVariants(query = '') {
 
 const QUERY_PROFILE_HINTS = {
   patent: ['patent', '특허', 'kipris', '실용신안'],
-  report: ['report', '보고서', 'ntis', '과제', '성과'],
-  fair: ['science fair', 'student invention', '발명', '전람회', 'rne', 'r&e'],
+  report: ['report', '보고서', 'ntis', '과제', '성과', 'rne', 'r&e', '알앤이'],
+  fair: ['science fair', 'student invention', '발명', '전람회', 'rne', 'r&e', '알앤이', '과학전람회', '발명품경진대회'],
   humanities: ['문학', '역사', '철학', '예술', '미술', '연극', 'humanities', 'archaeology'],
   education: ['교육', '학습', '수학 불안', '국어 교육', 'pedagogy', 'education'],
   biomedical: ['bio', '의료', '유전자', '면역', '임플란트', 'medical', 'genetic', 'immun', 'clinical'],
@@ -189,17 +189,28 @@ const QUERY_PROFILE_HINTS = {
   earth_space: ['기후', '산불', '우주', '위성', '홍수', '지진', 'climate', 'wildfire', 'space', 'satellite', 'flood', 'earthquake'],
 };
 
+function isRneLikeQuery(raw = '', normalized = '') {
+  const compactNormalized = String(normalized || '').replace(/\s+/g, '');
+  return (
+    /\br\s*&\s*e\b/i.test(raw) ||
+    /\brne\b/i.test(raw) ||
+    compactNormalized.includes('알앤이')
+  );
+}
+
 export function classifyQueryProfile(query = '') {
   const raw = String(query || '').trim();
   const normalized = normalizeText(raw);
   const tokens = unique(tokenize(raw));
   const joined = [normalized, ...tokens].join(' ');
   const has = (group) => QUERY_PROFILE_HINTS[group].some((hint) => joined.includes(normalizeText(hint)));
+  const rneLikeQuery = isRneLikeQuery(raw, normalized);
 
   const types = [];
   if (has('patent')) types.push('patent');
-  if (has('report')) types.push('report');
+  if (has('report') || rneLikeQuery) types.push('report');
   if (has('fair')) types.push('fair_entry');
+  if (rneLikeQuery) types.push('fair_entry');
   if (!types.length) types.push('paper');
 
   const domains = [];
