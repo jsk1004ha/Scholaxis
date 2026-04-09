@@ -517,6 +517,9 @@ async function initSimilarityPage() {
   const sectionComparisons = qs('[data-section-comparisons]');
   const semanticDiff = qs('[data-semantic-diff]');
   const risk = qs('[data-risk]');
+  const confidenceSummary = qs('[data-confidence-summary]');
+  const confidenceReasons = qs('[data-confidence-reasons]');
+  const confidenceWarnings = qs('[data-confidence-warnings]');
   const compared = qs('[data-compared-paper]');
   const recommendations = qs('[data-recommendations]');
   const fileName = qs('[data-upload-name]');
@@ -580,6 +583,30 @@ async function initSimilarityPage() {
         result.confidence ? `confidence ${result.confidence.label || 'unknown'} ${result.confidence.score || 0}%` : '',
         result.relationship ? `관계: ${result.relationship}` : ''
       ].filter(Boolean).join(' · ');
+    }
+    if (confidenceSummary) {
+      const coverage = result.confidence?.structureCoverage;
+      confidenceSummary.textContent = result.confidence
+        ? [
+            `결론 confidence ${result.confidence.label || 'unknown'} ${result.confidence.score || 0}%`,
+            coverage ? `입력 섹션 ${coverage.inputSections || 0}개 / 직접 대응 ${coverage.matchedSections || 0}개` : '',
+            result.extraction?.degraded ? '추출 degraded 상태가 반영되었습니다.' : '',
+          ].filter(Boolean).join(' · ')
+        : 'confidence 정보를 아직 계산하지 못했습니다.';
+    }
+    if (confidenceReasons) {
+      confidenceReasons.innerHTML = (result.confidence?.reasons ?? []).length
+        ? result.confidence.reasons.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
+        : '<li>confidence 근거 정보가 없습니다.</li>';
+    }
+    if (confidenceWarnings) {
+      const warnings = [
+        ...(result.confidence?.warnings ?? []),
+        ...(result.extraction?.degraded ? ['파일 추출이 degraded 상태여서 결론을 보수적으로 해석해야 합니다.'] : []),
+      ];
+      confidenceWarnings.innerHTML = warnings.length
+        ? warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
+        : '<li>현재 확인된 degraded 구간이 없습니다.</li>';
     }
     if (context && result.sameTopicStatement) {
       context.textContent = `${result.sameTopicStatement} ${result.sharedContext || ''}`.trim();
