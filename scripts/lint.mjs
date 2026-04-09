@@ -55,7 +55,8 @@ for (const file of files) {
   if (/console\.log\(/.test(contents) && !file.endsWith('src/server.mjs') && !file.startsWith('scripts/')) violations.push(`${file}: unexpected console.log`);
   if (/debugger;/.test(contents)) violations.push(`${file}: debugger statement found`);
   contents.split('\n').forEach((line, index) => {
-    if (/\s+$/.test(line)) violations.push(`${file}:${index + 1}: trailing whitespace`);
+    const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line;
+    if (/[ \t]+$/.test(normalizedLine)) violations.push(`${file}:${index + 1}: trailing whitespace`);
   });
 }
 

@@ -3,7 +3,8 @@ import { appConfig } from './config.mjs';
 import { dedupeDocuments } from './dedup-service.mjs';
 import { attachSemanticVectors } from './embedding-service.mjs';
 import { loadDocumentsFromPostgres } from './postgres-store.mjs';
-import { getStoredDocuments } from './storage.mjs';
+import { getStoredDocuments, getStoredDocumentsLite } from './storage.mjs';
+import { buildDenseVector, buildSparseVector, textBundle, normalizeText } from './vector-service.mjs';
 
 const indexState = {
   key: '',
@@ -37,17 +38,33 @@ function buildIndexFingerprint(documents = []) {
     .join('|');
 }
 
-async function loadPersistedDocuments() {
+async function loadPersistedDocuments({ fastEmbeddings = false } = {}) {
   if (appConfig.storageBackend === 'postgres') {
     return loadDocumentsFromPostgres();
   }
-  return getStoredDocuments();
+  return getStoredDocumentsLite();
 }
 
-export async function loadSearchIndexDocuments({ liveDocuments = [] } = {}) {
-  const persistedDocuments = await loadPersistedDocuments();
+function attachFastSemanticVectors(documents = [], dimensions = appConfig.vectorDimensions) {
+  return documents.map((document) => {
+    const text = textBundle(document);
+    const vector = buildDenseVector(text, dimensions);
+    return {
+      ...document,
+      vector,
+      semanticVector: vector,
+      sparseVector: buildSparseVector(text),
+      searchText: normalizeText(text),
+      embeddingProvider: 'hash-projection',
+      embeddingModel: 'local-hash-projection',
+    };
+  });
+}
+
+export async function loadSearchIndexDocuments({ liveDocuments = [], fastEmbeddings = false } = {}) {
+  const persistedDocuments = await loadPersistedDocuments({ fastEmbeddings });
   const merged = dedupeDocuments([...seedCatalog, ...persistedDocuments, ...(liveDocuments || [])]);
-  const fingerprint = buildIndexFingerprint(merged);
+  const fingerprint = `${buildIndexFingerprint(merged)}::fast=${fastEmbeddings ? 1 : 0}`;
 
   if (fingerprint && fingerprint === indexState.key && indexState.documents.length) {
     indexState.cacheHits += 1;
@@ -56,7 +73,9 @@ export async function loadSearchIndexDocuments({ liveDocuments = [] } = {}) {
 
   indexState.cacheMisses += 1;
   indexState.key = fingerprint;
-  indexState.documents = await attachSemanticVectors(merged, appConfig.vectorDimensions);
+  indexState.documents = fastEmbeddings
+    ? attachFastSemanticVectors(merged, appConfig.vectorDimensions)
+    : await attachSemanticVectors(merged, appConfig.vectorDimensions);
   indexState.builtAt = new Date().toISOString();
   return indexState.documents;
 }

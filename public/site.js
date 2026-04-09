@@ -30,7 +30,11 @@ function qsa(selector, parent = document) {
 
 function setText(selector, value) {
   const node = qs(selector);
-  if (node) node.textContent = value;
+  if (node) {
+    node.classList.remove('loading-copy');
+    node.classList.remove('loading-copy--title');
+    node.textContent = value;
+  }
 }
 
 function setLink(anchor, href) {
@@ -80,6 +84,110 @@ function buildSearchParams(form) {
     if (typeof value === 'string' && value.trim()) params.append(key, value.trim());
   }
   return params;
+}
+
+function createSkeletonLines(count, variant = 'medium') {
+  return Array.from({ length: count }, (_, index) => {
+    const size =
+      index === 0 && variant === 'card'
+        ? 'skeleton-line--title'
+        : index === count - 1
+          ? 'skeleton-line--short'
+          : variant === 'tiny'
+            ? 'skeleton-line--tiny'
+            : 'skeleton-line--medium';
+    return `<span class="skeleton-line ${size}"></span>`;
+  }).join('');
+}
+
+function createResultSkeletonCard() {
+  return `
+    <article class="result-card">
+      <div class="result-card__meta">
+        <span class="skeleton-pill"></span>
+        <span class="skeleton-line skeleton-line--tiny"></span>
+        <span class="skeleton-line skeleton-line--tiny"></span>
+      </div>
+      <div class="skeleton-stack">
+        ${createSkeletonLines(1, 'card')}
+        ${createSkeletonLines(3)}
+      </div>
+      <div class="result-card__footer">
+        <div class="skeleton-stack">${createSkeletonLines(2, 'tiny')}</div>
+        <div class="skeleton-stack">${createSkeletonLines(2, 'tiny')}</div>
+      </div>
+      <div class="action-row">
+        <span class="skeleton-pill"></span>
+        <span class="skeleton-pill"></span>
+      </div>
+    </article>
+  `;
+}
+
+function createSectionSkeleton(count = 3) {
+  return Array.from({ length: count }, () => `<div class="panel-surface skeleton-stack">${createSkeletonLines(3)}</div>`).join('');
+}
+
+function setLiveStatus(node, message, tone = 'loading') {
+  if (!node) return;
+  node.textContent = message;
+  node.className = `live-status live-status--${tone}`;
+}
+
+function setButtonBusy(button, busy, busyLabel = '처리 중...') {
+  if (!button) return;
+  if (!button.dataset.label) {
+    button.dataset.label = button.textContent || '';
+  }
+  button.disabled = busy;
+  button.classList.toggle('is-loading', busy);
+  button.textContent = busy ? busyLabel : button.dataset.label;
+}
+
+function cycleStatusMessages(node, messages, intervalMs = 1400, tone = 'loading') {
+  if (!node || !messages?.length) {
+    return () => {};
+  }
+  let index = 0;
+  setLiveStatus(node, messages[index], tone);
+  const timer = window.setInterval(() => {
+    index = (index + 1) % messages.length;
+    setLiveStatus(node, messages[index], tone);
+  }, intervalMs);
+  return () => window.clearInterval(timer);
+}
+
+function renderResultsLoadingState(resultsRoot) {
+  if (!resultsRoot) return;
+  resultsRoot.innerHTML = Array.from({ length: 3 }, () => createResultSkeletonCard()).join('');
+}
+
+function renderSourceListLoading(sourceRoot) {
+  if (!sourceRoot) return;
+  sourceRoot.innerHTML = Array.from({ length: 4 }, () => `<li><span class="skeleton-line skeleton-line--medium"></span></li>`).join('');
+}
+
+function renderEmptyState(resultsRoot, queryText = '') {
+  if (!resultsRoot) return;
+  const suggestions = [queryText, '국내 우선 AI 반도체', 'KCI 교육 AI', '배터리 안전성']
+    .filter(Boolean)
+    .slice(0, 4);
+  resultsRoot.innerHTML = `
+    <article class="card empty-state">
+      <div>
+        <span class="section-eyebrow">No results yet</span>
+        <h3>검색 결과가 충분하지 않습니다</h3>
+        <p>질의를 조금 더 넓히거나 국내/해외 범위를 바꾸면 더 많은 source-grounded 후보를 볼 수 있습니다.</p>
+      </div>
+      <div class="empty-state__suggestions">
+        ${suggestions.map((query) => `<a class="chip" href="./results.html?q=${encodeURIComponent(query)}">${escapeHtml(query)}</a>`).join('')}
+      </div>
+      <div class="empty-state__actions">
+        <a class="button button--primary" href="./index.html">홈으로 돌아가기</a>
+        <a class="button button--ghost" href="./similarity.html">유사도 분석으로 이동</a>
+      </div>
+    </article>
+  `;
 }
 
 function createPaperCard(paper) {
@@ -151,7 +259,7 @@ function renderSearchPayload(searchPayload, resultsRoot) {
   }
 
   if (!(searchPayload.items ?? []).length) {
-    resultsRoot.innerHTML = '<article class="card"><h3>검색 결과 없음</h3><p>다른 키워드나 필터로 다시 시도해 보세요.</p></article>';
+    renderEmptyState(resultsRoot, searchPayload.query);
     return;
   }
 
@@ -183,6 +291,7 @@ async function initResultsPage() {
   const resultsRoot = qs('[data-results-root]');
   if (!resultsRoot) return;
   const progressRoot = qs('[data-search-progress]');
+  const sourceRoot = qs('[data-source-list]');
 
   const params = new URLSearchParams(window.location.search);
   const query = {
@@ -193,25 +302,26 @@ async function initResultsPage() {
     live: params.get('live') || '',
     autoLive: params.get('autoLive') || '',
   };
-  resultsRoot.innerHTML = '<article class="card"><h3>검색 준비 중</h3><p>로컬 인덱스와 라이브 소스를 병렬로 조회하고 있습니다.</p></article>';
-  if (progressRoot) progressRoot.textContent = '검색 스트리밍 연결 중…';
+  renderResultsLoadingState(resultsRoot);
+  renderSourceListLoading(sourceRoot);
+  setLiveStatus(progressRoot, '검색 스트리밍 연결 중…', 'loading');
 
   const searchPayload = await fetchSearchStream(query, {
     onSummary(payload) {
       setText('[data-query-label]', payload.query || query.q);
-      if (progressRoot) progressRoot.textContent = payload.summary || '검색을 시작했습니다.';
+      setLiveStatus(progressRoot, payload.summary || '검색을 시작했습니다.', 'loading');
     },
     onProgress(payload) {
-      if (progressRoot) progressRoot.textContent = payload.message || '검색을 진행 중입니다.';
-      if (payload.sourceStatus) renderSourceList(payload, qs('[data-source-list]'));
+      setLiveStatus(progressRoot, payload.message || '검색을 진행 중입니다.', 'loading');
+      if (payload.sourceStatus) renderSourceList(payload, sourceRoot);
     },
     onResults(payload) {
       renderSearchPayload(payload, resultsRoot);
-      if (progressRoot) progressRoot.textContent = '결과 초안을 렌더링했습니다.';
+      setLiveStatus(progressRoot, '결과 초안을 렌더링했습니다.', 'success');
     },
     onDone(payload) {
       renderSearchPayload(payload, resultsRoot);
-      if (progressRoot) progressRoot.textContent = `스트리밍 완료 · ${payload.total}개 결과`;
+      setLiveStatus(progressRoot, `스트리밍 완료 · ${payload.total}개 결과`, 'success');
     },
   });
   renderSearchPayload(searchPayload, resultsRoot);
@@ -245,12 +355,45 @@ function renderNetwork(nodes) {
     .join('');
 }
 
+function primeDetailLoadingState() {
+  const detailStatus = qs('[data-detail-status]');
+  const networkRoot = qs('[data-network-root]');
+  const referenceRoot = qs('[data-reference-results]');
+  const citationRoot = qs('[data-citation-results]');
+  const relatedRoot = qs('[data-related-results]');
+  const recommendationsRoot = qs('[data-detail-recommendations]');
+  const healthSectionsRoot = qs('[data-detail-health-sections]');
+  const comparisonMatrixRoot = qs('[data-comparison-matrix]');
+  const graphPathsRoot = qs('[data-graph-paths]');
+  const sourceStatusRoot = qs('[data-source-status]');
+  const alternateSourcesRoot = qs('[data-alternate-sources]');
+  const tagsRoot = qs('[data-detail-tags]');
+  const suggestedQueriesRoot = qs('[data-suggested-queries]');
+
+  setLiveStatus(detailStatus, '상세 분석을 준비하는 중입니다.', 'loading');
+  if (networkRoot) networkRoot.innerHTML = `<div class="panel-surface skeleton-stack">${createSkeletonLines(4)}</div>`;
+  if (referenceRoot) referenceRoot.innerHTML = createSectionSkeleton(2);
+  if (citationRoot) citationRoot.innerHTML = createSectionSkeleton(2);
+  if (relatedRoot) relatedRoot.innerHTML = createSectionSkeleton(2);
+  if (recommendationsRoot) recommendationsRoot.innerHTML = createSectionSkeleton(2);
+  if (healthSectionsRoot) healthSectionsRoot.innerHTML = createSectionSkeleton(2);
+  if (comparisonMatrixRoot) comparisonMatrixRoot.innerHTML = `<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>`;
+  if (graphPathsRoot) graphPathsRoot.innerHTML = `<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>`;
+  if (sourceStatusRoot) sourceStatusRoot.innerHTML = `<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>`;
+  if (alternateSourcesRoot) alternateSourcesRoot.innerHTML = `<li><span class="skeleton-line skeleton-line--medium"></span></li>`;
+  if (tagsRoot) tagsRoot.innerHTML = '<span class="skeleton-pill"></span><span class="skeleton-pill"></span>';
+  if (suggestedQueriesRoot) suggestedQueriesRoot.innerHTML = '<span class="skeleton-pill"></span><span class="skeleton-pill"></span><span class="skeleton-pill"></span>';
+}
+
 async function initDetailPage() {
   const root = qs('[data-detail-root]');
   if (!root) return;
+  primeDetailLoadingState();
+  const detailStatus = qs('[data-detail-status]');
 
   const id = new URLSearchParams(window.location.search).get('id');
   if (!id) {
+    setLiveStatus(detailStatus, '문서 ID가 없어 상세 분석을 시작할 수 없습니다.', 'critical');
     setText('[data-detail-title]', '상세 문서가 선택되지 않았습니다.');
     setText('[data-detail-subtitle]', '검색 결과에서 문서를 선택한 뒤 다시 열어 주세요.');
     setText('[data-detail-authors]', 'detail-id-missing');
@@ -265,6 +408,7 @@ async function initDetailPage() {
   try {
     paper = await fetchPaper(id);
   } catch (error) {
+    setLiveStatus(detailStatus, '상세 데이터를 불러오지 못했습니다.', 'critical');
     setText('[data-detail-title]', '상세 문서를 불러오지 못했습니다.');
     setText('[data-detail-subtitle]', '문서 ID 또는 서버 상태를 확인해 주세요.');
     setText('[data-detail-authors]', String(error?.message || 'detail-load-failed'));
@@ -295,6 +439,13 @@ async function initDetailPage() {
     paper.detailHealth
       ? `${detailHealthLabel(paper.detailHealth.status)} · 완성도 ${paper.detailHealth.score}% · ${paper.detailHealth.summary}`
       : '상세 상태를 계산하지 못했습니다.',
+  );
+  setLiveStatus(
+    detailStatus,
+    paper.detailHealth?.status === 'degraded'
+      ? '부분 제한이 있지만 핵심 상세 데이터를 불러왔습니다.'
+      : '상세 분석이 준비되었습니다.',
+    paper.detailHealth?.status === 'degraded' ? 'warning' : 'success',
   );
 
   const tagsRoot = qs('[data-detail-tags]');
@@ -526,21 +677,60 @@ async function initSimilarityPage() {
   const extractionSummary = qs('[data-extraction-summary]');
   const topMatches = qs('[data-top-matches]');
   const submitButton = qs('button[type="submit"]', form);
+  const scoreRing = score?.closest('.score-ring');
+  const similarityStatus = qs('[data-similarity-status]');
+  const flowHint = qs('[data-similarity-flow-hint]');
+
+  const primeSimilarityLoadingState = (message = '비교 문헌과 섹션 대응을 계산하고 있습니다.') => {
+    if (score) score.textContent = '분석 중';
+    scoreRing?.classList.add('is-loading');
+    setLiveStatus(similarityStatus, message, 'loading');
+    if (context) context.innerHTML = createSkeletonLines(3);
+    if (novelty) novelty.innerHTML = createSkeletonLines(3);
+    if (structure) structure.innerHTML = createSkeletonLines(3);
+    if (differentiation) differentiation.innerHTML = createSkeletonLines(3);
+    if (differentiators) differentiators.innerHTML = '<span class="skeleton-pill"></span><span class="skeleton-pill"></span>';
+    if (sectionComparisons) sectionComparisons.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
+    if (semanticDiff) semanticDiff.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
+    if (recommendations) recommendations.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
+    if (topMatches) topMatches.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
+    if (extractionSummary) extractionSummary.textContent = message;
+    if (flowHint) {
+      flowHint.textContent = '업로드 → 텍스트 추출 → 섹션 대응 → 차이/주의점 요약 순서로 진행됩니다.';
+    }
+  };
+
+  primeSimilarityLoadingState('업로드 전에도 연결 문헌과 비교 흐름을 준비할 수 있습니다.');
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
-    if (submitButton) submitButton.disabled = true;
+    setButtonBusy(submitButton, true, '유사도 분석 중...');
+    primeSimilarityLoadingState('문서 추출과 섹션 비교를 수행하는 중입니다.');
+    const stopStatusCycle = cycleStatusMessages(
+      similarityStatus,
+      ['문서를 업로드하고 있습니다.', '텍스트를 추출하고 있습니다.', '섹션 대응을 계산하고 있습니다.', '차이와 주의점을 정리하고 있습니다.'],
+      1300,
+      'loading',
+    );
     let result;
     try {
       result = await analyzeSimilarity(formData);
     } catch (error) {
+      stopStatusCycle();
       if (extractionSummary) {
         extractionSummary.textContent = `유사도 분석 요청이 실패했습니다: ${error.message || 'similarity-request-failed'}`;
       }
-      if (submitButton) submitButton.disabled = false;
+      if (flowHint) {
+        flowHint.textContent = '요청 실패로 분석을 완료하지 못했습니다. 파일 형식이나 서버 상태를 확인해 주세요.';
+      }
+      setLiveStatus(similarityStatus, '유사도 분석 요청이 실패했습니다.', 'critical');
+      scoreRing?.classList.remove('is-loading');
+      setButtonBusy(submitButton, false);
       return;
     }
+    stopStatusCycle();
+    scoreRing?.classList.remove('is-loading');
     if (score) score.textContent = `${result.similarityScore}%`;
     if (context) context.textContent = result.sharedContext;
     if (novelty) novelty.textContent = result.novelty;
@@ -649,7 +839,17 @@ async function initSimilarityPage() {
         : '<li>상위 비교 문헌이 없습니다.</li>';
     }
     if (fileName) fileName.textContent = result.reportName || result.title || '업로드된 파일 없음';
-    if (submitButton) submitButton.disabled = false;
+    setLiveStatus(
+      similarityStatus,
+      result.extraction?.degraded ? '분석은 완료됐지만 추출 품질에 제한이 있습니다.' : '유사도 분석이 완료되었습니다.',
+      result.extraction?.degraded ? 'warning' : 'success',
+    );
+    if (flowHint) {
+      flowHint.textContent = result.extraction?.degraded
+        ? '추출 degraded 상태를 반영해 결과를 보수적으로 해석하세요.'
+        : '핵심 공통점과 차별점, 상위 비교 문헌까지 한 흐름으로 검토할 수 있습니다.';
+    }
+    setButtonBusy(submitButton, false);
   });
 
   const linkedPaperId = new URLSearchParams(window.location.search).get('paperId');
@@ -673,6 +873,10 @@ async function initSimilarityPage() {
       if (extractionSummary) {
         extractionSummary.textContent = '상세 문서의 초록/기여 요약을 미리 불러왔습니다. 업로드 파일 없이도 비교를 시작할 수 있습니다.';
       }
+      setLiveStatus(similarityStatus, '연결 문헌을 기준으로 비교 준비가 완료되었습니다.', 'success');
+      if (flowHint) {
+        flowHint.textContent = '현재 연결된 문헌의 초록/기여 요약을 바탕으로 바로 비교를 시작할 수 있습니다.';
+      }
       if (fileName && fileName.textContent === '업로드된 파일 없음') {
         fileName.textContent = linkedPaper.title || linkedPaperId;
       }
@@ -680,6 +884,7 @@ async function initSimilarityPage() {
       if (extractionSummary) {
         extractionSummary.textContent = `연결 문서를 미리 불러오지 못했습니다: ${error.message || linkedPaperId}`;
       }
+      setLiveStatus(similarityStatus, '연결 문헌을 불러오지 못했습니다.', 'warning');
     }
   }
 
@@ -705,6 +910,12 @@ async function initAdminPage() {
   const similarityRoot = qs('[data-admin-similarity]');
   const startupRoot = qs('[data-admin-startup]');
   if (!summary || !alertsRoot || !metricsRoot || !requestsRoot || !similarityRoot || !startupRoot) return;
+  summary.textContent = '운영 요약을 불러오는 중입니다…';
+  alertsRoot.innerHTML = createSectionSkeleton(2);
+  metricsRoot.innerHTML = createSectionSkeleton(2);
+  startupRoot.innerHTML = createSectionSkeleton(2);
+  similarityRoot.innerHTML = createSectionSkeleton(2);
+  requestsRoot.innerHTML = '<tr><td colspan="5"><span class="skeleton-line skeleton-line--medium"></span></td></tr>';
 
   const renderSummary = async () => {
     const [summaryPayload, opsPayload] = await Promise.all([fetchAdminSummary(), fetchAdminOps()]);
@@ -771,9 +982,12 @@ async function initAdminPage() {
 
   await renderSummary();
 
-  qs('[data-refresh-cache]')?.addEventListener('click', async () => {
+  qs('[data-refresh-cache]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    setButtonBusy(button, true, '캐시를 비우는 중...');
     await clearCache({});
     await renderSummary();
+    setButtonBusy(button, false);
   });
 }
 
@@ -787,6 +1001,10 @@ async function initLibraryPage() {
   const recommendationRoot = qs('[data-recommendation-feed]');
   const saveSearchForm = qs('[data-save-search-form]');
   const profileForm = qs('[data-profile-form]');
+  if (libraryRoot) libraryRoot.innerHTML = createSectionSkeleton(2);
+  if (searchesRoot) searchesRoot.innerHTML = createSectionSkeleton(2);
+  if (recommendationRoot) recommendationRoot.innerHTML = createSectionSkeleton(2);
+  if (authState) authState.textContent = '세션 상태를 확인하는 중입니다…';
 
   const refresh = async () => {
     const me = await fetchMe().catch(() => ({ user: null }));

@@ -1,6 +1,19 @@
 import { once } from 'node:events';
 import { createServer } from '../src/server.mjs';
 
+async function closeServer(server) {
+  if (!server || !server.listening) return;
+  await new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 const server = createServer();
 server.listen(0, '127.0.0.1');
 await once(server, 'listening');
@@ -35,5 +48,5 @@ await check('/api/similarity/report', {
 });
 await check('/');
 
-server.close();
+await closeServer(server);
 console.log('Smoke checks passed.');

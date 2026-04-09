@@ -10,10 +10,10 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "test": "NODE_ENV=test node --test --test-concurrency=1",
+    "test": "NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node --test --test-concurrency=1 tests/api.test.mjs tests/search-quality-browser.test.mjs tests/search-quality-harness.test.mjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "node scripts/typecheck.mjs",
-    "smoke": "NODE_ENV=test node scripts/smoke-test.mjs",
+    "smoke": "NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node scripts/smoke-test.mjs",
     "sync": "node scripts/sync-sources.mjs",
     "scheduler": "node scripts/start-scheduler.mjs",
     "worker": "node scripts/start-worker.mjs",

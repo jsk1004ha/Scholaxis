@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Scholaxis · Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="admin">
@@ -13,12 +16,20 @@
           <div class="brand">Scholaxis</div>
           <nav>
             <a href="./index.html">탐색</a>
+            <a href="./results.html">검색 결과</a>
+            <a href="./detail.html">상세 분석</a>
+            <a href="./similarity.html">유사도 리포트</a>
             <a href="./library.html">내 라이브러리</a>
             <a class="is-active" href="./admin.html">관리</a>
           </nav>
         </div>
       </header>
       <main class="page">
+        <article class="result-hero">
+          <span class="section-eyebrow">Operations</span>
+          <h1>운영 상태와 진단 대시보드</h1>
+          <p>부팅 상태, 최근 요청, 유사도 실행, 캐시/저장소 지표를 한곳에서 확인해 문제를 빠르게 파악합니다.</p>
+        </article>
         <article class="card">
           <h2>운영 경보</h2>
           <div class="dashboard-grid" data-admin-alerts></div>
@@ -61,6 +72,22 @@
           <button class="button button--primary" data-refresh-cache>캐시 비우기</button>
         </article>
       </main>
+      <footer class="footer">
+        <div class="footer__inner footer-grid">
+          <div>
+            <strong>운영 원칙</strong>
+            <p>예쁜 대시보드보다 부팅 상태, 경보, 요청 로그, 유사도 실행 기록을 명확하게 읽는 것을 우선합니다.</p>
+          </div>
+          <div>
+            <strong>진단 흐름</strong>
+            <p>문제 징후를 찾은 뒤 요청 로그와 요약 JSON으로 내려가며 원인을 확인할 수 있습니다.</p>
+          </div>
+          <div>
+            <strong>즉시 조치</strong>
+            <p>캐시 비우기 같은 빠른 액션은 가장 마지막에 배치해 상태를 먼저 이해하도록 구성했습니다.</p>
+          </div>
+        </div>
+      </footer>
     </div>
     <script type="module" src="./site.js"></script>
   </body>

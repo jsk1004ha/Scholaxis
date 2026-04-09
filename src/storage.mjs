@@ -631,6 +631,22 @@ const getAllDocumentsStmt = db.prepare(`
   ORDER BY canonical_id ASC
 `);
 
+const getLightweightDocumentsStmt = db.prepare(`
+  SELECT
+    canonical_id AS canonicalId,
+    source,
+    type,
+    title,
+    year,
+    organization,
+    authors_json AS authorsJson,
+    keywords_json AS keywordsJson,
+    summary,
+    links_json AS linksJson
+  FROM documents
+  ORDER BY canonical_id ASC
+`);
+
 export function persistGraphEdges(edges = []) {
   if (usePostgresStorage()) {
     persistGraphEdgesToPostgresSync(edges);
@@ -823,6 +839,26 @@ export function getStoredDocuments() {
     rawRecord: JSON.parse(row.rawJson || 'null'),
     updatedAt: row.updatedAt
   }, row.rawJson));
+}
+
+export function getStoredDocumentsLite() {
+  if (usePostgresStorage()) return getStoredDocumentsFromPostgresSync();
+  return getLightweightDocumentsStmt.all().map((row) => ({
+    canonicalId: row.canonicalId,
+    id: row.canonicalId,
+    source: row.source,
+    type: row.type,
+    title: row.title,
+    year: row.year,
+    organization: row.organization,
+    authors: JSON.parse(row.authorsJson || '[]'),
+    keywords: JSON.parse(row.keywordsJson || '[]'),
+    summary: row.summary || '',
+    links: JSON.parse(row.linksJson || '{}'),
+    methods: [],
+    highlights: [],
+    alternateSources: row.source ? [row.source] : [],
+  }));
 }
 
 export function createUser({ email, displayName, passwordDigest }) {

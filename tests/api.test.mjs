@@ -63,6 +63,19 @@ async function waitForListening(server, timeoutMs = 2000) {
   });
 }
 
+async function closeServer(server) {
+  if (!server || !server.listening) return;
+  await new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 
 
 async function sampleDocxBuffer() {
@@ -146,7 +159,7 @@ test('health endpoint returns ok', async () => {
   assert.ok(payload.runtime.ocr);
   assert.ok(payload.runtime.sourceRuntime);
   assert.ok(payload.runtime.storage);
-  server.close();
+  await closeServer(server);
 });
 
 test('startServer falls back to the next port when requested port is already occupied', async () => {
@@ -165,8 +178,8 @@ test('startServer falls back to the next port when requested port is already occ
   assert.equal(response.status, 200);
   assert.equal(payload.ok, true);
 
-  server.close();
-  blocker.close();
+  await closeServer(server);
+  await closeServer(blocker);
 });
 
 
@@ -182,7 +195,7 @@ test('cache clear endpoint responds with diagnostics', async () => {
   assert.equal(response.status, 200);
   assert.equal(payload.ok, true);
   assert.ok(payload.runtime.cache || payload.runtime);
-  server.close();
+  await closeServer(server);
 });
 
 test('sources status endpoint exposes cache/runtime diagnostics', async () => {
@@ -196,7 +209,7 @@ test('sources status endpoint exposes cache/runtime diagnostics', async () => {
   assert.equal(typeof payload.runtime.cache.entries, 'number');
   assert.equal(typeof payload.runtime.cache.ttlMs, 'number');
   assert.ok(payload.runtime.storage);
-  server.close();
+  await closeServer(server);
 });
 
 test('storage stats endpoint returns sqlite diagnostics', async () => {
@@ -206,7 +219,7 @@ test('storage stats endpoint returns sqlite diagnostics', async () => {
   assert.equal(response.status, 200);
   assert.equal(payload.ready, true);
   assert.ok(payload.dbPath);
-  server.close();
+  await closeServer(server);
 });
 
 test('auth and library flow works end-to-end', async () => {
@@ -320,7 +333,7 @@ test('auth and library flow works end-to-end', async () => {
   assert.equal(meResponse.status, 200);
   assert.equal(mePayload.user.email, email);
 
-  server.close();
+  await closeServer(server);
 });
 
 test('auth login/logout endpoints rotate session state cleanly', async () => {
@@ -374,7 +387,7 @@ test('auth login/logout endpoints rotate session state cleanly', async () => {
   assert.equal(meResponse.status, 200);
   assert.equal(mePayload.user.email, email);
 
-  server.close();
+  await closeServer(server);
 });
 
 test('profile endpoint saves user preferences', async () => {
@@ -423,7 +436,7 @@ test('profile endpoint saves user preferences', async () => {
   assert.equal(profilePayload.profile.crossLanguageOptIn, true);
   assert.deepEqual(profilePayload.profile.researchInterests, ['OCR', '추천 시스템']);
 
-  server.close();
+  await closeServer(server);
 });
 
 
@@ -439,7 +452,7 @@ test('recommendations endpoint returns data', async () => {
   assert.ok(payload.recommendations[0].recommendationRationale.sourceGrounding);
   assert.equal(typeof payload.recommendations[0].recommendationRationale.sourceGrounding.evidenceCount, 'number');
   assert.ok(Array.isArray(payload.recommendations[0].recommendationRationale.sourceGrounding.graphSignals));
-  server.close();
+  await closeServer(server);
 });
 
 test('personalized recommendation feed uses profile and library context', async () => {
@@ -478,7 +491,7 @@ test('personalized recommendation feed uses profile and library context', async 
   assert.ok(Array.isArray(payload.items));
   assert.ok(payload.items.length >= 1);
   assert.ok(Array.isArray(payload.items[0].explanation));
-  server.close();
+  await closeServer(server);
 });
 
 test('citations and references endpoints return graph-backed expansions', async () => {
@@ -495,7 +508,7 @@ test('citations and references endpoints return graph-backed expansions', async 
   assert.equal(referencesResponse.status, 200);
   assert.ok(Array.isArray(referencesPayload.references));
 
-  server.close();
+  await closeServer(server);
 });
 
 test('graph and postgres migration endpoints expose expected payload formats', async () => {
@@ -523,7 +536,7 @@ test('graph and postgres migration endpoints expose expected payload formats', a
   assert.match(migrationResponse.headers.get('content-type') || '', /^text\/plain/);
   assert.equal(migrationText, buildPostgresMigrationSql());
 
-  server.close();
+  await closeServer(server);
 });
 
 test('admin summary endpoint returns runtime and recent requests', async () => {
@@ -534,7 +547,7 @@ test('admin summary endpoint returns runtime and recent requests', async () => {
   assert.ok(payload.storage);
   assert.ok(payload.runtime);
   assert.ok(Array.isArray(payload.recentRequests));
-  server.close();
+  await closeServer(server);
 });
 
 test('admin ops endpoint returns startup, alerts, and similarity runs', async () => {
@@ -567,7 +580,7 @@ test('admin ops endpoint returns startup, alerts, and similarity runs', async ()
   assert.ok(payload.runtime.worker);
   assert.ok(Array.isArray(payload.jobs));
 
-  server.close();
+  await closeServer(server);
 });
 
 test('admin infra and jobs endpoints expose search infrastructure controls', async () => {
@@ -603,7 +616,7 @@ test('admin infra and jobs endpoints expose search infrastructure controls', asy
   assert.ok(Array.isArray(jobsPayload.jobs));
   assert.ok(jobsPayload.jobs.length >= 1);
 
-  server.close();
+  await closeServer(server);
 });
 
 test('search stream endpoint emits summary, progress, results, and done events', async () => {
@@ -615,7 +628,7 @@ test('search stream endpoint emits summary, progress, results, and done events',
   assert.match(text, /event: progress/);
   assert.match(text, /event: results/);
   assert.match(text, /event: done/);
-  server.close();
+  await closeServer(server);
 });
 
 test('search endpoint returns canonicalized Korean-first research results', async () => {
@@ -629,7 +642,7 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   assert.ok(['heuristic', 'http', 'hybrid-local', 'ollama'].includes(payload.reranking.backend));
   assert.equal(payload.crossLingual.enabled, false);
   assert.ok(payload.canonicalCount >= 1);
-  server.close();
+  await closeServer(server);
 });
 
 test('search endpoint does not dump unrelated seed results for unmatched queries', async () => {
@@ -644,7 +657,7 @@ test('search endpoint does not dump unrelated seed results for unmatched queries
     assert.equal(payload.fallbackMode, 'exploratory');
     assert.ok(payload.items.every((item) => item.exploratory === true));
   }
-  server.close();
+  await closeServer(server);
 });
 
 test('search endpoint blocks dense-only collisions for compact Korean queries', async () => {
@@ -655,7 +668,7 @@ test('search endpoint blocks dense-only collisions for compact Korean queries', 
   if (payload.total > 0) {
     assert.equal(payload.fallbackMode, 'exploratory');
   }
-  server.close();
+  await closeServer(server);
 });
 
 test('search endpoint rejects generic multi-term semantic collisions', async () => {
@@ -666,7 +679,7 @@ test('search endpoint rejects generic multi-term semantic collisions', async () 
   if (payload.total > 0) {
     assert.equal(payload.fallbackMode, 'exploratory');
   }
-  server.close();
+  await closeServer(server);
 });
 
 test('detail endpoint returns related materials and alternate source metadata', async () => {
@@ -695,7 +708,7 @@ test('detail endpoint returns related materials and alternate source metadata', 
   assert.ok(Array.isArray(payload.detailHealth.links));
   assert.ok(Array.isArray(payload.detailHealth.sections));
   assert.ok(payload.detailHealth.sections.some((section) => section.key === 'graph'));
-  server.close();
+  await closeServer(server);
 });
 
 test('detail expansion endpoint returns graph narrative and comparison matrix', async () => {
@@ -714,7 +727,7 @@ test('detail expansion endpoint returns graph narrative and comparison matrix', 
   assert.ok(payload.expansion.detailHealth);
   assert.ok(Array.isArray(payload.expansion.detailHealth.warnings));
   assert.ok(payload.expansion.detailHealth.sections.some((section) => section.key === 'recommendations'));
-  server.close();
+  await closeServer(server);
 });
 
 test('similarity report returns matches and recommendations', async () => {
@@ -756,7 +769,7 @@ test('similarity report returns matches and recommendations', async () => {
   assert.ok(payload.topMatches[0].denseScore >= 0);
   assert.ok(payload.topMatches[0].sparseScore >= 0);
   assert.equal(typeof payload.verdict, 'string');
-  server.close();
+  await closeServer(server);
 });
 
 test('search remains stable across repeated Korean, English, and mixed-language exact queries', async () => {
@@ -779,7 +792,7 @@ test('search remains stable across repeated Korean, English, and mixed-language 
     }
   }
 
-  server.close();
+  await closeServer(server);
 });
 
 test('search includes documents persisted in local storage', async () => {
@@ -815,7 +828,7 @@ test('search includes documents persisted in local storage', async () => {
   const payload = await response.json();
   assert.equal(response.status, 200);
   assert.ok(payload.items.some((item) => item.canonicalId === storedId || item.id === storedId));
-  server.close();
+  await closeServer(server);
 });
 
 test('search supports Korean to English and English to Korean semantic retrieval', async () => {
@@ -835,7 +848,7 @@ test('search supports Korean to English and English to Korean semantic retrieval
   assert.equal(englishToKorean.status, 200);
   assert.ok(englishPayload.items.some((item) => /휴대용 전압 공급장치/.test(item.title)));
 
-  server.close();
+  await closeServer(server);
 });
 
 
@@ -891,7 +904,7 @@ test('similarity analyze accepts multipart PDF uploads', async () => {
   assert.match(payload.extraction.preview, /Hello PDF world/);
   assert.ok(['high', 'moderate', 'low'].includes(payload.extraction.confidenceLabel));
   assert.ok(payload.confidence);
-  server.close();
+  await closeServer(server);
 });
 
 test('similarity analyze accepts multipart DOCX uploads with structured extraction confidence', async () => {
@@ -915,7 +928,7 @@ test('similarity analyze accepts multipart DOCX uploads with structured extracti
   assert.ok(payload.extraction.confidence >= 80);
   assert.equal(payload.extraction.degraded, false);
   assert.ok(payload.confidence);
-  server.close();
+  await closeServer(server);
 });
 
 test('similarity analyze accepts multipart HWPX uploads', async () => {
@@ -935,7 +948,7 @@ test('similarity analyze accepts multipart HWPX uploads', async () => {
   assert.equal(payload.extraction.structured, true);
   assert.ok(payload.extraction.confidence >= 80);
   assert.ok(Array.isArray(payload.sectionComparisons));
-  server.close();
+  await closeServer(server);
 });
 
 test('similarity analyze marks binary HWP extraction as degraded when confidence is limited', async () => {
@@ -956,7 +969,7 @@ test('similarity analyze marks binary HWP extraction as degraded when confidence
   assert.ok(payload.extraction.warnings.includes('binary-hwp-best-effort-only'));
   assert.ok(payload.confidence);
   assert.ok(['high', 'moderate', 'low'].includes(payload.confidence.label));
-  server.close();
+  await closeServer(server);
 });
 
 
@@ -1170,7 +1183,7 @@ test('vector backend server supports upsert and search', async () => {
   assert.equal(searchResponse.status, 200);
   assert.equal(searchPayload.hits[0].id, 'doc-1');
 
-  server.close();
+  await closeServer(server);
 });
 
 test('graph backend server supports upsert and neighbor queries', async () => {
@@ -1193,7 +1206,7 @@ test('graph backend server supports upsert and neighbor queries', async () => {
   assert.equal(neighborResponse.status, 200);
   assert.equal(neighborPayload.edges[0].targetId, 'paper:b');
 
-  server.close();
+  await closeServer(server);
 });
 
 test('reranker backend server reranks candidates', async () => {
@@ -1231,5 +1244,5 @@ test('reranker backend server reranks candidates', async () => {
   const payload = await response.json();
   assert.equal(response.status, 200);
   assert.equal(payload.results[0].id, 'doc-1');
-  server.close();
+  await closeServer(server);
 });

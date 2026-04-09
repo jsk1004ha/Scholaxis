@@ -21,7 +21,8 @@ import {
   normalizeText,
   sparseOverlapScore,
   tokenize,
-  unique
+  unique,
+  attachVectors
 } from './vector-service.mjs';
 import { embedText } from './embedding-service.mjs';
 import { searchVectorCandidates, syncDocumentVectors } from './vector-index-service.mjs';
@@ -399,6 +400,17 @@ function uniqueById(items = []) {
   });
 }
 
+async function resolveWithTimeout(operation, fallbackValue, timeoutMs = 1500) {
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((resolve) => setTimeout(() => resolve(fallbackValue), timeoutMs)),
+    ]);
+  } catch {
+    return fallbackValue;
+  }
+}
+
 function candidateMatchesPaper(paper, candidate) {
   const paperTokens = new Set(tokenize([paper.title, ...(paper.keywords || [])].join(' ')));
   const candidateTokens = new Set(tokenize([candidate.title, ...(candidate.keywords || [])].join(' ')));
@@ -407,6 +419,112 @@ function candidateMatchesPaper(paper, candidate) {
     candidate.semanticVector || candidate.vector || []
   );
   return [...paperTokens].some((token) => candidateTokens.has(token)) || denseSimilarity >= 0.32;
+}
+
+function heuristicSourceKeys(document = {}) {
+  return unique([document.source, ...(document.alternateSources || [])].filter(Boolean));
+}
+
+function buildHeuristicRecommendations(paper, sourceData = [], limit = 5, userProfile = null) {
+  const paperSources = heuristicSourceKeys(paper);
+  return sourceData
+    .filter((candidate) => (candidate.canonicalId || candidate.id) !== (paper.canonicalId || paper.id))
+    .filter((candidate) => candidateMatchesPaper(paper, candidate))
+    .map((candidate) => {
+      const keywordOverlap = unique((paper.keywords || []).filter((keyword) => (candidate.keywords || []).includes(keyword)));
+      const candidateSources = heuristicSourceKeys(candidate);
+      const sharedSourceKeys = candidateSources.filter((source) => paperSources.includes(source));
+      const sameRegion = paper.region && candidate.region && paper.region === candidate.region ? 1 : 0;
+      const score =
+        keywordOverlap.length * 14 +
+        Math.min(candidate.citations || 0, 120) * 0.18 +
+        (sameRegion ? 4 : 0) +
+        (userProfile?.preferredSources?.includes(candidate.source) ? 6 : 0) +
+        Math.max(0, (candidate.year || 2020) - 2020);
+
+      return {
+        ...candidate,
+        recommendationScore: Number(score.toFixed(2)),
+        recommendationRationale: {
+          keywordOverlap,
+          authorOverlap: [],
+          resolvedAuthorMatches: [],
+          sharedMethods: unique((paper.methods || []).filter((method) => (candidate.methods || []).includes(method))),
+          sharedTitleTokens: unique(tokenize([paper.title, candidate.title].join(' '))).slice(0, 6),
+          interestOverlap: [],
+          referenceLinked: false,
+          citationLinked: false,
+          authorAffinityLinked: false,
+          similarLinked: false,
+          topicBridgeLinked: false,
+          sourceDiversityPenalty: candidate.source === paper.source ? 0.04 : 0,
+          provenanceBoost: Number((sharedSourceKeys.length * 0.02).toFixed(4)),
+          noveltyBoost: keywordOverlap.length <= 2 ? 0.05 : 0,
+          sourceGrounding: {
+            paperSources,
+            candidateSources,
+            sharedSourceKeys,
+            graphSignals: [],
+            metadataSignals: [
+              keywordOverlap.length ? 'shared_keywords' : null,
+              sharedSourceKeys.length ? 'shared_source_keys' : null,
+            ].filter(Boolean),
+            evidenceCount: keywordOverlap.length + sharedSourceKeys.length,
+          },
+        },
+        explanation: [
+          keywordOverlap.length ? `공통 키워드: ${keywordOverlap.slice(0, 4).join(', ')}` : null,
+          sharedSourceKeys.length ? `공유 provenance 단서: ${sharedSourceKeys.join(', ')}` : null,
+          sameRegion ? '같은 지역 연구 흐름에서 연결됨' : null,
+        ].filter(Boolean),
+      };
+    })
+    .sort((left, right) => right.recommendationScore - left.recommendationScore)
+    .slice(0, limit);
+}
+
+function buildHeuristicNeighborhood(paper, sourceData = [], limit = appConfig.citationExpansionLimit, userProfile = null) {
+  const relatedPool = sourceData
+    .filter((candidate) => (candidate.canonicalId || candidate.id) !== (paper.canonicalId || paper.id))
+    .filter((candidate) => candidateMatchesPaper(paper, candidate));
+
+  const references = relatedPool
+    .filter((candidate) => (candidate.year || 0) <= (paper.year || Number.MAX_SAFE_INTEGER))
+    .sort((left, right) => (right.citations || 0) - (left.citations || 0))
+    .slice(0, limit);
+
+  const citations = relatedPool
+    .filter((candidate) => (candidate.year || 0) >= (paper.year || 0))
+    .sort((left, right) => (right.citations || 0) - (left.citations || 0))
+    .slice(0, limit);
+
+  const recommendations = buildHeuristicRecommendations(paper, sourceData, Math.max(4, limit), userProfile);
+  const related = uniqueById([...recommendations, ...citations, ...references]).slice(0, 4);
+  const paperId = paper.canonicalId || paper.id;
+  const graph = {
+    references: references.map((candidate) => ({
+      sourceId: paperId,
+      targetId: candidate.canonicalId || candidate.id,
+      edgeType: 'references',
+      weight: 0.62,
+    })),
+    citations: citations.map((candidate) => ({
+      sourceId: candidate.canonicalId || candidate.id,
+      targetId: paperId,
+      edgeType: 'cited_by',
+      weight: 0.58,
+    })),
+    authorAffinity: [],
+    similar: recommendations.slice(0, 3).map((candidate) => ({
+      sourceId: paperId,
+      targetId: candidate.canonicalId || candidate.id,
+      edgeType: 'similar',
+      weight: 0.55,
+    })),
+    topicBridges: [],
+  };
+
+  return { references, citations, recommendations, related, graph };
 }
 
 async function rankExploratoryCandidates({
@@ -781,8 +899,11 @@ function buildGraphEdgesFromResults(results = []) {
   }));
 }
 
-async function buildSearchIndexDocuments(liveDocuments = []) {
-  return loadSearchIndexDocuments({ liveDocuments });
+async function buildSearchIndexDocuments(options = {}) {
+  if (Array.isArray(options)) {
+    return loadSearchIndexDocuments({ liveDocuments: options });
+  }
+  return loadSearchIndexDocuments(options || {});
 }
 
 function buildSynchronizationKey(documents = []) {
@@ -807,7 +928,7 @@ async function synchronizeIndexedArtifacts(documents = []) {
 }
 
 export async function warmSearchIndex() {
-  const documents = await buildSearchIndexDocuments();
+  const documents = await buildSearchIndexDocuments({ fastEmbeddings: true });
   const sync = await synchronizeIndexedArtifacts(documents);
   return {
     documents: documents.length,
@@ -961,7 +1082,7 @@ async function executeSearchCatalog({
   }
 
   let liveBundle = { documents: [], statuses: [] };
-  let mergedSourceData = await buildSearchIndexDocuments();
+  let mergedSourceData = await buildSearchIndexDocuments({ fastEmbeddings: true });
   emitSearchEvent(onEvent, 'progress', {
     stage: 'seed-index',
     query: q,
@@ -993,7 +1114,7 @@ async function executeSearchCatalog({
           })
         : { documents: [], statuses: [] };
     liveBundle = mergeLiveBundles(originalLiveBundle, translatedLiveBundle);
-    mergedSourceData = await buildSearchIndexDocuments(liveBundle.documents);
+    mergedSourceData = await buildSearchIndexDocuments({ liveDocuments: liveBundle.documents, fastEmbeddings: true });
     rankedEntries = await attachVectorBoost(rankDocuments(mergedSourceData));
     emitSearchEvent(onEvent, 'progress', {
       stage: 'live-merged',
@@ -1067,7 +1188,7 @@ async function executeSearchCatalog({
         const fallbackBundle = mergeLiveBundles(liveFallbackOriginal, liveFallbackTranslated);
         if (fallbackBundle.documents.length) {
           liveBundle = mergeLiveBundles(liveBundle, fallbackBundle);
-          mergedSourceData = await buildSearchIndexDocuments(liveBundle.documents);
+          mergedSourceData = await buildSearchIndexDocuments({ liveDocuments: liveBundle.documents, fastEmbeddings: true });
           rankedEntries = await attachVectorBoost(rankFallbackDocuments(mergedSourceData));
           if (rankedEntries.length) {
             emitSearchEvent(onEvent, 'progress', {
@@ -1182,21 +1303,26 @@ export async function searchCatalogStream(options = {}, onEvent = null) {
 }
 
 export async function getPaperById(id) {
-  const sourceData = await buildSearchIndexDocuments();
+  const sourceData = await resolveWithTimeout(buildSearchIndexDocuments({ fastEmbeddings: true }), []);
   const paper = sourceData.find((item) => item.id === id || item.canonicalId === id);
   if (!paper) return null;
 
-  await syncDocumentGraph(sourceData);
-  const graphTraversal = traceDocumentGraph(paper.canonicalId || paper.id, sourceData, appConfig.citationExpansionLimit);
-  const graph = graphTraversal.graph || getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit);
-  const citations = await getCitationsById(id, appConfig.citationExpansionLimit);
-  const references = await getReferencesById(id, appConfig.citationExpansionLimit);
-  const recommendations = await buildRecommendationSet({
-    paper,
-    documents: sourceData,
-    userProfile: null,
-    limit: 4,
+  void syncDocumentGraph(sourceData).catch((error) => {
+    console.warn(`[detail-graph-sync] background graph synchronization failed: ${error.message}`);
   });
+  const graphTraversal = traceDocumentGraph(paper.canonicalId || paper.id, sourceData, appConfig.citationExpansionLimit);
+  const heuristic = buildHeuristicNeighborhood(paper, sourceData, appConfig.citationExpansionLimit, null);
+  const graph = {
+    ...(graphTraversal.graph || getDocumentGraph(paper.canonicalId || paper.id, appConfig.citationExpansionLimit) || {}),
+    references: heuristic.graph.references,
+    citations: heuristic.graph.citations,
+    similar: heuristic.graph.similar,
+    authorAffinity: [],
+    topicBridges: [],
+  };
+  const citations = heuristic.citations;
+  const references = heuristic.references;
+  const recommendations = heuristic.recommendations.slice(0, 4);
   const related = uniqueById([...recommendations, ...citations, ...references])
     .filter((item) => (item.canonicalId || item.id) !== (paper.canonicalId || paper.id))
     .slice(0, 4);
@@ -1307,15 +1433,10 @@ export async function expandPaperById(id) {
 }
 
 export async function getRecommendationsById(id, limit = 5, userProfile = null) {
-  const paper = await getPaperById(id);
+  const paper = await resolveWithTimeout(getPaperById(id), null);
   if (!paper) return [];
-  const sourceData = await buildSearchIndexDocuments();
-  return buildRecommendationSet({
-    paper,
-    documents: sourceData,
-    userProfile,
-    limit,
-  });
+  const sourceData = await resolveWithTimeout(buildSearchIndexDocuments({ fastEmbeddings: true }), []);
+  return buildHeuristicRecommendations(paper, sourceData, limit, userProfile);
 }
 
 export async function getPersonalizedRecommendations({
@@ -1323,19 +1444,22 @@ export async function getPersonalizedRecommendations({
   libraryItems = [],
   limit = 8
 } = {}) {
-  const sourceData = await buildSearchIndexDocuments();
+  const sourceData = await resolveWithTimeout(buildSearchIndexDocuments({ fastEmbeddings: true }), []);
   const libraryIds = new Set((libraryItems || []).map((item) => item.canonicalId).filter(Boolean));
   const aggregated = new Map();
 
   for (const item of (libraryItems || []).slice(0, 5)) {
     const paper = sourceData.find((candidate) => (candidate.canonicalId || candidate.id) === item.canonicalId);
     if (!paper) continue;
-    const recommendations = await buildRecommendationSet({
-      paper,
-      documents: sourceData,
-      userProfile,
-      limit: Math.max(limit, 6),
-    });
+    const recommendations = await resolveWithTimeout(
+      buildRecommendationSet({
+        paper,
+        documents: sourceData,
+        userProfile,
+        limit: Math.max(limit, 6),
+      }),
+      [],
+    );
     for (const recommendation of recommendations) {
       const key = recommendation.canonicalId || recommendation.id;
       if (!key || libraryIds.has(key)) continue;
@@ -1409,37 +1533,15 @@ export async function getPersonalizedRecommendations({
 }
 
 export async function getCitationsById(id, limit = appConfig.citationExpansionLimit) {
-  const sourceData = await buildSearchIndexDocuments();
+  const sourceData = await resolveWithTimeout(buildSearchIndexDocuments({ fastEmbeddings: true }), []);
   const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);
   if (!paper) return [];
-  const graph = getDocumentGraph(id, limit);
-  const direct = graph.citations
-    .map((edge) => sourceData.find((item) => (item.canonicalId || item.id) === edge.sourceId))
-    .filter(Boolean);
-  if (direct.length >= limit) return direct.slice(0, limit);
-  const fallback = sourceData
-    .filter((candidate) => (candidate.canonicalId || candidate.id) !== id)
-    .filter((candidate) => (candidate.year || 0) >= (paper.year || 0))
-    .filter((candidate) => candidateMatchesPaper(paper, candidate))
-    .sort((a, b) => (b.citations || 0) - (a.citations || 0))
-    .slice(0, limit - direct.length);
-  return uniqueById([...direct, ...fallback]).slice(0, limit);
+  return buildHeuristicNeighborhood(paper, sourceData, limit).citations.slice(0, limit);
 }
 
 export async function getReferencesById(id, limit = appConfig.citationExpansionLimit) {
-  const sourceData = await buildSearchIndexDocuments();
+  const sourceData = await resolveWithTimeout(buildSearchIndexDocuments({ fastEmbeddings: true }), []);
   const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);
   if (!paper) return [];
-  const graph = getDocumentGraph(id, limit);
-  const direct = graph.references
-    .map((edge) => sourceData.find((item) => (item.canonicalId || item.id) === edge.targetId))
-    .filter(Boolean);
-  if (direct.length >= limit) return direct.slice(0, limit);
-  const fallback = sourceData
-    .filter((candidate) => (candidate.canonicalId || candidate.id) !== id)
-    .filter((candidate) => (candidate.year || 0) <= (paper.year || Number.MAX_SAFE_INTEGER))
-    .filter((candidate) => candidateMatchesPaper(paper, candidate))
-    .sort((a, b) => (b.citations || 0) - (a.citations || 0))
-    .slice(0, limit - direct.length);
-  return uniqueById([...direct, ...fallback]).slice(0, limit);
+  return buildHeuristicNeighborhood(paper, sourceData, limit).references.slice(0, limit);
 }

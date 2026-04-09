@@ -19,15 +19,17 @@
             <a class="is-active" href="./results.html">검색 결과</a>
             <a href="./detail.html">상세 분석</a>
             <a href="./similarity.html">유사도 리포트</a>
+            <a href="./library.html">내 라이브러리</a>
+            <a href="./admin.html">관리</a>
           </nav>
         </div>
       </header>
 
       <main class="page layout">
         <aside class="sidebar">
-          <span class="section-eyebrow">Advanced filters</span>
-          <h2>Refine Intelligence</h2>
-          <p>국내 연구 우선·자료 유형·소스별 흐름을 빠르게 좁힙니다.</p>
+          <span class="section-eyebrow">Search controls</span>
+          <h2>탐색 범위를 명확하게 좁히기</h2>
+          <p>국내 우선 여부, 자료 유형, 현재 질의를 함께 조정해 지금 보고 싶은 결과군을 빠르게 정리합니다.</p>
           <form class="stack inline-search" data-inline-search>
             <div>
               <label class="label" for="search-inline">검색어</label>
@@ -62,11 +64,11 @@
         <section>
           <article class="result-hero">
             <span class="section-eyebrow">Integrated search</span>
-            <h1 data-query-label>AI 반도체 설계 자동화</h1>
-            <p data-results-summary>
-              질의와 가장 유사한 문헌부터 source-grounded 기준으로 정렬한 결과입니다.
+            <h1 class="loading-copy loading-copy--title" data-query-label>검색 결과를 준비하는 중입니다.</h1>
+            <p class="loading-copy" data-results-summary>
+              질의와 가장 가까운 문헌, 출처, 다음 탐색 흐름을 정리하고 있습니다.
             </p>
-            <p class="muted-copy" data-search-progress aria-live="polite">검색 스트리밍을 준비하고 있습니다.</p>
+            <p class="live-status live-status--loading" data-search-progress aria-live="polite">검색 스트리밍을 준비하고 있습니다.</p>
             <div class="chip-row" style="margin-top: 1rem" data-related-queries></div>
             <div class="action-row" style="margin-top: 1rem">
               <span class="pill" data-results-count>0개 결과</span>
@@ -77,6 +79,23 @@
           <div class="result-list" data-results-root></div>
         </section>
       </main>
+
+      <footer class="footer">
+        <div class="footer__inner footer-grid">
+          <div>
+            <strong>검색 기준</strong>
+            <p>질의 해석 · 활성 소스 · 결과 요약 · 다음 탐색 제안을 한 화면에서 연결합니다.</p>
+          </div>
+          <div>
+            <strong>근거 중심 탐색</strong>
+            <p>문서 유형·출처·원문 링크를 분명하게 보여 주고, 상세 분석으로 자연스럽게 이어집니다.</p>
+          </div>
+          <div>
+            <strong>다음 단계</strong>
+            <p>상세 분석, 유사도 비교, 저장 라이브러리로 이어지는 흐름을 유지합니다.</p>
+          </div>
+        </div>
+      </footer>
     </div>
     <script type="module" src="./site.js"></script>
   </body>

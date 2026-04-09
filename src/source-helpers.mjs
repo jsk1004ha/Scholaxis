@@ -43,13 +43,14 @@ export function decodeEntities(text = '') {
 }
 
 export function stripTags(text = '') {
-  return decodeEntities(
+  const normalized = decodeEntities(
     decodeEntities(
       String(text)
         .replace(/<!\[CDATA\[|\]\]>/g, ' ')
-        .replace(/<[^>]+>/g, ' ')
     )
-  ).replace(/\s+/g, ' ').trim();
+  );
+
+  return decodeEntities(normalized.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
 export function textBetween(source, start, end) {

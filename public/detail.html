@@ -19,29 +19,32 @@
             <a href="./results.html">검색 결과</a>
             <a class="is-active" href="./detail.html">상세 분석</a>
             <a href="./similarity.html">유사도 리포트</a>
+            <a href="./library.html">내 라이브러리</a>
+            <a href="./admin.html">관리</a>
           </nav>
         </div>
       </header>
 
       <main class="page">
         <article class="detail-hero" data-detail-root>
-          <span class="pill" data-detail-badge>SCI-E</span>
-          <p class="lead" data-detail-source>SCI-E · 2024</p>
-          <h1 data-detail-title>Quantum Neural Architectures for Scholarly Knowledge Graph Expansion</h1>
-          <p data-detail-subtitle>학술 지식 그래프 확장을 위한 양자 신경 아키텍처</p>
-          <p data-detail-authors>Sung-min Lee · Ji-hoon Kim — SNU Department of AI Convergence</p>
+          <span class="pill" data-detail-badge>Loading</span>
+          <p class="lead loading-copy" data-detail-source>문헌 메타데이터를 불러오는 중입니다.</p>
+          <div class="live-status live-status--loading" data-detail-status>상세 분석을 준비하는 중입니다.</div>
+          <h1 class="loading-copy loading-copy--title" data-detail-title>선택한 문헌의 상세 분석을 준비하는 중입니다.</h1>
+          <p class="loading-copy" data-detail-subtitle>제목, 출처, 추천 흐름, 원문 링크를 순서대로 정리합니다.</p>
+          <p class="loading-copy" data-detail-authors>저자와 기관 정보를 불러오는 중입니다.</p>
           <div class="metric-grid">
             <div class="metric-card">
               <strong>인용수</strong>
-              <span data-metric-citations>0</span>
+              <span data-metric-citations>-</span>
             </div>
             <div class="metric-card">
               <strong>참고문헌</strong>
-              <span data-metric-references>0</span>
+              <span data-metric-references>-</span>
             </div>
             <div class="metric-card">
               <strong>영향도</strong>
-              <span data-metric-impact>0</span>
+              <span data-metric-impact>-</span>
             </div>
             <div class="metric-card">
               <strong>속도</strong>
@@ -54,22 +57,32 @@
             <a class="button button--ghost" data-source-link href="#" target="_blank" rel="noreferrer noopener">원문/상세 링크</a>
             <button class="button button--ghost" data-save-library type="button">내 라이브러리에 저장</button>
           </div>
+          <div class="flow-hint">
+            이 문서를 기준점으로 추천 문헌, 인용/참고 흐름, 유사도 분석까지 바로 이어서 탐색할 수 있습니다.
+          </div>
+          <div class="section-nav">
+            <a class="chip" href="#detail-summary">핵심 요약</a>
+            <a class="chip" href="#detail-metadata">출처 메타데이터</a>
+            <a class="chip" href="#detail-network">영향 관계 맵</a>
+            <a class="chip" href="#detail-queries">다음 탐색 제안</a>
+            <a class="chip" href="#detail-recommendations">추천 비교 문헌</a>
+          </div>
         </article>
 
         <section class="detail-grid">
           <div class="stack">
-            <article class="card">
+            <article class="card" id="detail-summary">
               <span class="section-eyebrow">Abstract</span>
               <h2>핵심 요약</h2>
-              <p data-detail-abstract></p>
+              <p class="loading-copy" data-detail-abstract>초록과 핵심 기여를 불러오는 중입니다.</p>
               <div class="tag-row" style="margin-top: 1rem" data-detail-tags></div>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-metadata">
               <span class="section-eyebrow">Grounded metadata</span>
               <h2>원문 접근과 출처 메타데이터</h2>
               <div class="stack">
-                <p class="muted-copy" data-detail-novelty></p>
+                <p class="muted-copy loading-copy" data-detail-novelty>기여 요약과 메타데이터 상태를 계산하는 중입니다.</p>
                 <ul data-detail-metadata>
                   <li>메타데이터를 확인하는 중입니다.</li>
                 </ul>
@@ -81,20 +94,20 @@
               </div>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-network">
               <span class="section-eyebrow">Intelligence network map</span>
               <h2>영향 관계 맵</h2>
               <p class="muted-copy" data-graph-section-summary>그래프 경로를 계산 중입니다.</p>
               <div class="network" data-network-root></div>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-references">
               <span class="section-eyebrow">Reference trail</span>
               <h2>선행 참고문헌</h2>
               <div class="result-list" data-reference-results></div>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-citations">
               <span class="section-eyebrow">Citation trail</span>
               <h2>후속 인용/확장 자료</h2>
               <div class="result-list" data-citation-results></div>
@@ -109,7 +122,7 @@
               </ul>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-grounding">
               <span class="section-eyebrow">Source grounding</span>
               <h2>활성 출처 상태</h2>
               <ul data-source-status>
@@ -122,10 +135,10 @@
             <article class="card">
               <span class="section-eyebrow">Research insight</span>
               <h3>빠른 인사이트</h3>
-              <p data-detail-insight></p>
+              <p class="loading-copy" data-detail-insight>이 문헌을 왜 먼저 읽어야 하는지 정리하는 중입니다.</p>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-health">
               <span class="section-eyebrow">Reliability & degraded state</span>
               <h3>상세 페이지 상태</h3>
               <p class="muted-copy" data-detail-health-summary>상세 상태를 계산 중입니다.</p>
@@ -138,7 +151,7 @@
             <article class="card">
               <span class="section-eyebrow">Graph narrative</span>
               <h3>읽어야 하는 이유와 비교 포인트</h3>
-              <p data-detail-explanation-summary>그래프 기반 설명이 여기에 표시됩니다.</p>
+              <p class="loading-copy" data-detail-explanation-summary>그래프 기반 설명과 비교 포인트를 정리하는 중입니다.</p>
               <ul data-detail-explanation-points>
                 <li>관련 그래프 설명을 계산 중입니다.</li>
               </ul>
@@ -152,7 +165,7 @@
               </ul>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-queries">
               <span class="section-eyebrow">Suggested queries</span>
               <h3>다음 탐색 제안</h3>
               <div class="chip-row" data-suggested-queries>
@@ -163,7 +176,7 @@
             <article class="card">
               <span class="section-eyebrow">Alternate grounding</span>
               <h3>연결된 출처와 원문 링크</h3>
-              <p class="muted-copy" data-detail-source-links>원문/상세 링크를 확인하는 중입니다.</p>
+              <p class="muted-copy loading-copy" data-detail-source-links>연결 가능한 원문/상세 링크를 확인하는 중입니다.</p>
               <ul data-alternate-sources>
                 <li>연결된 출처를 계산 중입니다.</li>
               </ul>
@@ -179,22 +192,39 @@
               </ul>
             </article>
 
-            <article class="card">
+            <article class="card" id="detail-recommendations">
               <span class="section-eyebrow">Next reading set</span>
               <h3>추천 비교 문헌</h3>
-              <p class="muted-copy" data-detail-recommendations-summary>추천 비교 문헌을 계산 중입니다.</p>
+              <p class="muted-copy loading-copy" data-detail-recommendations-summary>추천 비교 문헌과 후속 읽기 순서를 계산 중입니다.</p>
               <div class="result-list" data-detail-recommendations></div>
             </article>
 
             <article class="card">
               <span class="section-eyebrow">Related items</span>
               <h3>함께 읽을 자료</h3>
-              <p class="muted-copy" data-detail-related-summary>함께 읽을 자료를 계산 중입니다.</p>
+              <p class="muted-copy loading-copy" data-detail-related-summary>함께 읽으면 좋은 자료 흐름을 계산 중입니다.</p>
               <div class="result-list" data-related-results></div>
             </article>
           </div>
         </section>
       </main>
+
+      <footer class="footer">
+        <div class="footer__inner footer-grid">
+          <div>
+            <strong>문서 정체성</strong>
+            <p>제목, 출처, 링크, 주요 메타데이터를 먼저 파악한 뒤 네트워크와 추천 흐름으로 확장하세요.</p>
+          </div>
+          <div>
+            <strong>근거 기반 확장</strong>
+            <p>추천·인용·참고문헌·그래프 설명은 원문 탐색을 돕기 위한 보조 정보로 제공됩니다.</p>
+          </div>
+          <div>
+            <strong>연속 탐색</strong>
+            <p>관심 문서는 라이브러리에 저장하고, 유사도 분석으로 차별점 검토까지 이어갈 수 있습니다.</p>
+          </div>
+        </div>
+      </footer>
     </div>
     <script type="module" src="./site.js"></script>
   </body>

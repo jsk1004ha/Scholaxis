@@ -19,16 +19,40 @@
             <a href="./results.html">검색 결과</a>
             <a href="./detail.html">상세 분석</a>
             <a class="is-active" href="./similarity.html">유사도 리포트</a>
+            <a href="./library.html">내 라이브러리</a>
+            <a href="./admin.html">관리</a>
           </nav>
         </div>
       </header>
 
       <main class="page analysis-shell">
         <article class="result-hero">
-          <span class="section-eyebrow">Secondary workflow</span>
+          <span class="section-eyebrow">Similarity workflow</span>
+          <div class="live-status live-status--loading" data-similarity-status>비교 워크플로우를 준비하는 중입니다.</div>
           <h1>유사 자료 분석 리포트</h1>
-          <p>보고서·논문 초안을 업로드하면 기존 연구와의 공통점, 차별점, 주의 지점을 한눈에 읽을 수 있습니다.</p>
+          <p class="loading-copy">보고서·논문 초안을 업로드하면 공통점, 차별점, 주의 지점을 근거 중심으로 읽을 수 있습니다.</p>
+          <div class="flow-hint" data-similarity-flow-hint>
+            업로드 → 텍스트 추출 → 섹션 대응 → 차이/주의점 요약 순서로 진행됩니다.
+          </div>
         </article>
+
+        <section class="step-grid">
+          <article class="step-card">
+            <span class="section-eyebrow">Step 1</span>
+            <h3>문서 입력</h3>
+            <p>파일 업로드 또는 텍스트 직접 입력으로 비교를 시작합니다.</p>
+          </article>
+          <article class="step-card">
+            <span class="section-eyebrow">Step 2</span>
+            <h3>추출과 대응</h3>
+            <p>텍스트 추출 상태와 섹션 대응 정도를 함께 확인합니다.</p>
+          </article>
+          <article class="step-card">
+            <span class="section-eyebrow">Step 3</span>
+            <h3>차이와 주의점</h3>
+            <p>공통점, 차별점, confidence, top matches를 한 흐름으로 읽습니다.</p>
+          </article>
+        </section>
 
         <section class="analysis-grid">
           <form class="upload-card" data-upload-form>
@@ -49,10 +73,10 @@
 
           <article class="analysis-card analysis-card--dark">
             <span class="section-eyebrow">Similarity score</span>
-            <div class="score-ring">
-              <strong data-score>85%</strong>
+            <div class="score-ring is-loading">
+              <strong data-score>분석 대기</strong>
             </div>
-            <p style="margin-top: 1rem">비교 문헌: <span data-compared-paper><a href="./detail.html?id=paper-quantum-graph-2024">paper-quantum-graph-2024</a></span></p>
+            <p class="loading-copy" style="margin-top: 1rem">비교 문헌: <span data-compared-paper>분석이 시작되면 표시됩니다.</span></p>
           </article>
         </section>
 
@@ -60,24 +84,18 @@
           <article class="analysis-card">
             <span class="section-eyebrow">Shared context</span>
             <h3>공통점</h3>
-            <p data-shared-context>
-              Attention 기반 하이브리드 학습 구조와 멀티모달 벡터 비교 방식이 기존 SCI-E 논문과 높은 구조적 유사성을 보입니다.
-            </p>
+            <p class="loading-copy" data-shared-context>분석을 시작하면 공통점이 여기에 표시됩니다.</p>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Novelty</span>
             <h3>차별점</h3>
-            <p data-novelty>
-              Edge inference feedback loop와 국내 특허/KCI 우선 랭킹을 결합한 파이프라인 설계는 차별점으로 평가됩니다.
-            </p>
+            <p class="loading-copy" data-novelty>분석을 시작하면 차별점이 여기에 표시됩니다.</p>
             <div class="keyword-row" data-differentiators></div>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Structure</span>
             <h3>섹션 구조 비교</h3>
-            <p data-structure>
-              서론/방법/결과 흐름에서 어떤 구간이 비슷한지, 어떤 구간이 다른지 비교합니다.
-            </p>
+            <p class="loading-copy" data-structure>서론/방법/결과 흐름의 유사점과 차이점을 비교하는 중입니다.</p>
             <ul data-section-comparisons>
               <li>섹션 비교 결과가 여기에 표시됩니다.</li>
             </ul>
@@ -85,9 +103,7 @@
           <article class="analysis-card">
             <span class="section-eyebrow">Differentiation</span>
             <h3>차별성 분석 요약</h3>
-            <p data-differentiation>
-              고유 키워드와 구조 차이를 기반으로 차별화 전략을 요약합니다.
-            </p>
+            <p class="loading-copy" data-differentiation>분석을 시작하면 차별성 요약이 여기에 표시됩니다.</p>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Semantic diff</span>
@@ -99,9 +115,7 @@
           <article class="analysis-card">
             <span class="section-eyebrow">Risk</span>
             <h3>주의 포인트</h3>
-            <p data-risk>
-              데이터 전처리와 평가 지표 정의 일부가 기존 문헌과 겹치므로 방법론 설명과 실험 분리 서술이 필요합니다.
-            </p>
+            <p class="loading-copy" data-risk>분석을 시작하면 주의 포인트가 여기에 표시됩니다.</p>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Confidence & degraded state</span>
@@ -137,6 +151,23 @@
           </article>
         </section>
       </main>
+
+      <footer class="footer">
+        <div class="footer__inner footer-grid">
+          <div>
+            <strong>분석 원칙</strong>
+            <p>유사도는 화려한 AI 요약보다 추출 상태, 비교 근거, 차별 포인트를 분명하게 보여 주는 데 집중합니다.</p>
+          </div>
+          <div>
+            <strong>주의 구간</strong>
+            <p>confidence, degraded 상태, 추출 실패 가능성을 숨기지 않고 바로 드러냅니다.</p>
+          </div>
+          <div>
+            <strong>후속 탐색</strong>
+            <p>가장 가까운 비교 문헌과 상세 분석 화면으로 이어져 탐색을 계속할 수 있습니다.</p>
+          </div>
+        </div>
+      </footer>
     </div>
     <script type="module" src="./site.js"></script>
   </body>

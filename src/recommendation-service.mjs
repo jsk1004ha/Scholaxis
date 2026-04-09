@@ -1,7 +1,7 @@
 import { appConfig } from './config.mjs';
 import { getDocumentGraph } from './graph-service.mjs';
 import { searchVectorCandidates } from './vector-index-service.mjs';
-import { cosineSimilarity, normalizeText, tokenize, unique } from './vector-service.mjs';
+import { buildDenseVector, cosineSimilarity, normalizeText, tokenize, unique } from './vector-service.mjs';
 
 function canonicalId(document) {
   return document.canonicalId || document.id;
@@ -42,9 +42,17 @@ export async function buildRecommendationSet({
   limit = 5,
 }) {
   const baseId = canonicalId(paper);
+  const vectorQuery = [paper.title, ...(paper.keywords || []), ...(paper.methods || [])].filter(Boolean).join(' ');
+  const queryVector =
+    Array.isArray(paper.vector) && paper.vector.length
+      ? paper.vector
+      : Array.isArray(paper.semanticVector) && paper.semanticVector.length
+        ? paper.semanticVector
+        : buildDenseVector(vectorQuery, appConfig.vectorDimensions);
   const graph = getDocumentGraph(baseId, appConfig.recommendationCandidateLimit);
   const vectorHits = await searchVectorCandidates({
-    query: [paper.title, ...(paper.keywords || []), ...(paper.methods || [])].filter(Boolean).join(' '),
+    query: vectorQuery,
+    queryVector,
     documents,
     limit: appConfig.recommendationCandidateLimit,
   });

@@ -18,9 +18,38 @@ import {
   textBetween
 } from './source-helpers.mjs';
 import { unique } from './vector-service.mjs';
+import { execFileSync } from 'node:child_process';
 import { clearSourceCache, getCachedSourceResult, getSourceCacheDiagnostics, setCachedSourceResult } from './source-cache.mjs';
 
 const BROWSERISH_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
+
+
+function fetchTextWithPythonDecoding(url, { timeoutMs = 12000, userAgent = BROWSERISH_USER_AGENT } = {}) {
+  const pythonScript = [
+    'import ssl, urllib.request',
+    'def decode_best(raw):',
+    "    for enc in ('cp949','euc-kr','utf-8','latin1'):",
+    '        try:',
+    '            text = raw.decode(enc)',
+    "            if any('가' <= ch <= '힣' for ch in text) or enc in ('utf-8','latin1'):",
+    '                return text',
+    '        except Exception:',
+    '            continue',
+    "    return raw.decode('utf-8', 'replace')",
+    'ctx = ssl.create_default_context()',
+    'ctx.check_hostname = False',
+    'ctx.verify_mode = ssl.CERT_NONE',
+    `url = ${JSON.stringify(url)}`,
+    `timeout = ${Math.max(1, Math.ceil(12000 / 1000))}`,
+    `user_agent = ${JSON.stringify(BROWSERISH_USER_AGENT)}`,
+    "req = urllib.request.Request(url, headers={'User-Agent': user_agent})",
+    'with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:',
+    '    raw = resp.read()',
+    'print(decode_best(raw))',
+  ].join('\n');
+
+  return execFileSync('python3', ['-c', pythonScript], { encoding: 'utf8' });
+}
 
 function sourceDetailUrl(source, query = '') {
   const encoded = encodeURIComponent(query);
@@ -216,7 +245,7 @@ async function searchRiss(query, limit) {
 
 async function searchScienceOn(query, limit) {
   const url = `${appConfig.scienceOnSearchUrl}?page=1&searchKeyword=${encodeURIComponent(query)}&prefixQuery=&collectionQuery=&showQuery=${encodeURIComponent(query)}&resultCount=${limit}&sortName=RANK&sortOrder=DESC`;
-  const html = await fetchText(url, { timeoutMs: 12000, userAgent: BROWSERISH_USER_AGENT });
+  const html = fetchTextWithPythonDecoding(url, { timeoutMs: 12000, userAgent: BROWSERISH_USER_AGENT });
   const rows = [];
   const matches = [...html.matchAll(/setSrchCookieDetail\('\d+','([\s\S]*?)',\s*'([^']+)'\);[\s\S]{0,200}?fncArticleDetail\('([^']+)'\);[\s\S]{0,1200}?<p class="info mgt5px">([\s\S]*?)<\/p>/g)];
 
