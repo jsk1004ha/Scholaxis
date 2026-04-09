@@ -166,6 +166,8 @@ function normalizeSimilarityCompat(report, overrides = {}) {
     differentiationAnalysis: report.differentiationAnalysis || null,
     recommendations: report.recommendations,
     topMatches: report.topMatches || [],
+    priorStudies: report.priorStudies || [],
+    priorStudiesMeta: report.priorStudiesMeta || { referenceDerivedCount: 0, catalogCount: 0 },
     extraction: report.extraction || null,
     confidence: report.confidence || null,
   };

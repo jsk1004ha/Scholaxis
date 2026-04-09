@@ -19,6 +19,15 @@ const SECTION_PATTERNS = [
   { key: 'conclusion', label: '결론', patterns: [/^conclusion$/i, /^결론$/, /^향후 과제$/, /^future work$/i] }
 ];
 
+const REFERENCE_SECTION_PATTERNS = [
+  /^references?$/i,
+  /^reference(s)? and notes$/i,
+  /^bibliography$/i,
+  /^참고문헌$/,
+  /^인용문헌$/,
+  /^문헌정보$/,
+];
+
 async function buildSimilarityCatalog() {
   return loadSearchIndexDocuments();
 }
@@ -292,6 +301,142 @@ function buildSimilarityConfidence({
   };
 }
 
+function findReferenceSectionStart(lines = []) {
+  return lines.findIndex((line) => REFERENCE_SECTION_PATTERNS.some((pattern) => pattern.test(normalizeText(line))));
+}
+
+function isReferenceEntryStart(line = '') {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (/^\[?\d{1,3}\]?[\.\)]?\s+/.test(trimmed)) return true;
+  if (/^[A-Z][A-Za-z'’\-]+(?:,\s*[A-Z][A-Za-z'’\-]+)+(?:,|\s).*\b(19|20)\d{2}[a-z]?\b/.test(trimmed)) return true;
+  return false;
+}
+
+function stripReferenceLead(entry = '') {
+  return String(entry)
+    .replace(/^\[?\d{1,3}\]?[\.\)]?\s*/, '')
+    .replace(/^\([0-9]{1,3}\)\s*/, '')
+    .trim();
+}
+
+function extractReferenceTitle(entry = '') {
+  const normalizedEntry = stripReferenceLead(entry);
+  const quotedTitleMatch = normalizedEntry.match(/[“"']([^“"']{8,180})[”"']/);
+  if (quotedTitleMatch?.[1]) return quotedTitleMatch[1].trim();
+
+  const afterYear = normalizedEntry.replace(/^.*?\b(19|20)\d{2}[a-z]?\b[\).,:;]?\s*/, '').trim();
+  const segments = afterYear
+    .split(/\.\s+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const bestSegment =
+    segments.find((segment) => tokenize(segment).length >= 3 && !/^(vol|no|pp|doi|retrieved|available|from)\b/i.test(segment)) ||
+    segments[0] ||
+    normalizedEntry;
+
+  return bestSegment
+    .replace(/[“”"']/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractReferenceDerivedStudies(text = '', limit = 6) {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd());
+  const startIndex = findReferenceSectionStart(lines);
+  const inlineReferenceMatch =
+    startIndex === -1
+      ? String(text || '').match(/(?:^|\s)(references?|reference(?:s)? and notes|bibliography|참고문헌|인용문헌|문헌정보)([\s\S]*)$/i)
+      : null;
+  const rawReferenceBody =
+    startIndex !== -1
+      ? lines.slice(startIndex + 1).join('\n')
+      : inlineReferenceMatch?.[2] || '';
+
+  if (!rawReferenceBody.trim()) return [];
+
+  const referenceLines = rawReferenceBody
+    .replace(/\s+(?=\[?\d{1,3}\]?[\.\)]?\s+)/g, '\n')
+    .replace(/\s+(?=[A-Z][A-Za-z'’\-]+(?:,\s*[A-Z][A-Za-z'’\-]+)+(?:,|\s).*\b(19|20)\d{2}[a-z]?\b)/g, '\n')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!referenceLines.length) return [];
+
+  const entries = [];
+  let current = [];
+
+  for (const line of referenceLines) {
+    if (isReferenceEntryStart(line) && current.length) {
+      entries.push(current.join(' ').replace(/\s+/g, ' ').trim());
+      current = [line];
+      continue;
+    }
+    current.push(line);
+  }
+
+  if (current.length) entries.push(current.join(' ').replace(/\s+/g, ' ').trim());
+
+  const deduped = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const cleaned = stripReferenceLead(entry);
+    if (cleaned.length < 24) continue;
+    const title = extractReferenceTitle(cleaned);
+    if (!title || tokenize(title).length < 3) continue;
+    const dedupeKey = normalizeText(title);
+    if (!dedupeKey || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    const yearMatch = cleaned.match(/\b(19|20)\d{2}[a-z]?\b/);
+    deduped.push({
+      title,
+      rawCitation: cleaned,
+      year: yearMatch?.[0] || '',
+      source: 'PDF 참고문헌',
+      sourceType: 'reference',
+      type: 'reference',
+      confidenceLabel: 'high',
+      reason: '원문 PDF의 참고문헌 섹션에서 직접 추출한 선행연구 후보입니다.',
+    });
+    if (deduped.length >= limit) break;
+  }
+
+  return deduped;
+}
+
+function buildCatalogPriorStudies(ranked = []) {
+  return ranked.map((match) => ({
+    id: match.id,
+    title: match.title,
+    year: match.year,
+    source: match.source,
+    sourceType: 'catalog',
+    type: match.type,
+    confidenceLabel: match.score >= 84 ? 'high' : match.score >= 62 ? 'moderate' : 'low',
+    reason: match.reason,
+    score: match.score,
+    relationship: match.relationship,
+    detailUrl: match.links?.detail || '',
+    originalUrl: match.links?.original || '',
+  }));
+}
+
+function mergePriorStudies(referenceDerived = [], catalogDerived = [], limit = 8) {
+  const merged = [];
+  const seen = new Set();
+  for (const item of [...referenceDerived, ...catalogDerived]) {
+    const dedupeKey = normalizeText(item.title || item.rawCitation || '');
+    if (!dedupeKey || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    merged.push(item);
+    if (merged.length >= limit) break;
+  }
+  return merged;
+}
+
 function relationshipLabel(score = 0) {
   if (score >= 84) return 'same_topic';
   if (score >= 62) return 'related';
@@ -388,6 +533,9 @@ export async function buildSimilarityReport({ title = '업로드 문서', text =
   const semanticDiff = buildSemanticDiff(inputSections, strongest, sectionComparisons);
   const differentiationAnalysis = buildDifferentiationAnalysis(textTokens, strongest, sectionComparisons);
   const relationship = relationshipLabel(score);
+  const referenceDerivedStudies = extractReferenceDerivedStudies(text);
+  const catalogPriorStudies = buildCatalogPriorStudies(ranked);
+  const priorStudies = mergePriorStudies(referenceDerivedStudies, catalogPriorStudies);
   const confidence = buildSimilarityConfidence({
     text,
     textTokens,
@@ -418,6 +566,11 @@ export async function buildSimilarityReport({ title = '업로드 문서', text =
       originalUrl: match.links?.original || match.links?.detail || '',
       detailUrl: match.links?.detail || match.links?.original || ''
     })),
+    priorStudies,
+    priorStudiesMeta: {
+      referenceDerivedCount: referenceDerivedStudies.length,
+      catalogCount: catalogPriorStudies.length,
+    },
     sectionComparisons,
     semanticDiff,
     differentiationAnalysis,

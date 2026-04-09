@@ -24,6 +24,8 @@ const EMPTY_SIMILARITY_RESPONSE = {
   risk: '',
   recommendations: [],
   topMatches: [],
+  priorStudies: [],
+  priorStudiesMeta: { referenceDerivedCount: 0, catalogCount: 0 },
   sectionComparisons: [],
   semanticDiff: { summary: '', insights: [] },
 };

@@ -142,9 +142,16 @@ async function sampleStructuredHwpxBuffer() {
   return execFileSync('python3', ['-c', py]);
 }
 
-function samplePdfBuffer() {
+function samplePdfBuffer(text = 'Hello PDF world') {
+  const escaped = String(text)
+    .replaceAll('\\', '\\\\')
+    .replaceAll('(', '\\(')
+    .replaceAll(')', '\\)')
+    .replaceAll('\n', '\\n');
+  const stream = `BT\n/F1 12 Tf\n72 72 Td\n(${escaped}) Tj\nET`;
+  const length = Buffer.byteLength(stream, 'latin1');
   return Buffer.from(
-    `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 39 >>\nstream\nBT\n/F1 12 Tf\n72 72 Td\n(Hello PDF world) Tj\nET\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF`,
+    `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length ${length} >>\nstream\n${stream}\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF`,
     'latin1'
   );
 }
@@ -766,9 +773,40 @@ test('similarity report returns matches and recommendations', async () => {
   assert.ok(['high', 'moderate', 'low'].includes(payload.confidence.label));
   assert.ok(Array.isArray(payload.confidence.reasons));
   assert.ok(Array.isArray(payload.confidence.warnings));
+  assert.ok(Array.isArray(payload.priorStudies));
   assert.ok(payload.topMatches[0].denseScore >= 0);
   assert.ok(payload.topMatches[0].sparseScore >= 0);
   assert.equal(typeof payload.verdict, 'string');
+  await closeServer(server);
+});
+
+test('similarity report prioritizes reference-derived prior studies when a references section exists', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/similarity/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: '멀티모달 연구 초안',
+      text: `Abstract
+멀티모달 학술 그래프 검색과 연구 추천을 다루는 초안입니다.
+
+Method
+벡터 검색, 인용 그래프, 주제 키워드 결합 랭킹을 사용합니다.
+
+References
+[1] Smith, J. 2024. Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval.
+[2] Lee, H. 2023. Climate Risk Knowledge Distillation for Public Policy Research.`
+    })
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(payload.priorStudies));
+  assert.ok(payload.priorStudies.length >= 2);
+  assert.equal(payload.priorStudies[0].sourceType, 'reference');
+  assert.match(payload.priorStudies[0].title, /Quantum Neural Architectures/i);
+  assert.equal(payload.analysis.priorStudies[0].sourceType, 'reference');
+  assert.ok(payload.priorStudiesMeta.referenceDerivedCount >= 2);
+  assert.ok(payload.topMatches.length > 0);
   await closeServer(server);
 });
 
@@ -904,6 +942,36 @@ test('similarity analyze accepts multipart PDF uploads', async () => {
   assert.match(payload.extraction.preview, /Hello PDF world/);
   assert.ok(['high', 'moderate', 'low'].includes(payload.extraction.confidenceLabel));
   assert.ok(payload.confidence);
+  await closeServer(server);
+});
+
+test('similarity analyze lifts bibliography entries from uploaded PDFs into prior studies', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const form = new FormData();
+  form.set('title', '참고문헌 PDF 테스트');
+  form.set(
+    'report',
+    new Blob([
+      samplePdfBuffer(`Abstract
+멀티모달 학술 그래프 검색 초안입니다.
+References
+[1] Smith, J. 2024. Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval.
+[2] Lee, H. 2023. Climate Risk Knowledge Distillation for Public Policy Research.`)
+    ], { type: 'application/pdf' }),
+    'references.pdf',
+  );
+
+  const response = await fetch(`${baseUrl}/api/similarity/analyze`, {
+    method: 'POST',
+    body: form
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(payload.priorStudies));
+  assert.equal(payload.priorStudies[0].sourceType, 'reference');
+  assert.match(payload.priorStudies[0].title, /Quantum Neural Architectures/i);
+  assert.ok(payload.priorStudiesMeta.referenceDerivedCount >= 1);
+  assert.ok(payload.analysis.priorStudies.length >= payload.priorStudies.length);
   await closeServer(server);
 });
 

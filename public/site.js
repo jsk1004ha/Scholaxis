@@ -673,6 +673,8 @@ async function initSimilarityPage() {
   const confidenceWarnings = qs('[data-confidence-warnings]');
   const compared = qs('[data-compared-paper]');
   const recommendations = qs('[data-recommendations]');
+  const priorStudiesSummary = qs('[data-prior-studies-summary]');
+  const priorStudies = qs('[data-prior-studies]');
   const fileName = qs('[data-upload-name]');
   const extractionSummary = qs('[data-extraction-summary]');
   const topMatches = qs('[data-top-matches]');
@@ -693,6 +695,8 @@ async function initSimilarityPage() {
     if (sectionComparisons) sectionComparisons.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
     if (semanticDiff) semanticDiff.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
     if (recommendations) recommendations.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
+    if (priorStudies) priorStudies.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
+    if (priorStudiesSummary) priorStudiesSummary.textContent = 'PDF 참고문헌과 발견 문헌을 함께 정리하고 있습니다.';
     if (topMatches) topMatches.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
     if (extractionSummary) extractionSummary.textContent = message;
     if (flowHint) {
@@ -811,6 +815,35 @@ async function initSimilarityPage() {
     }
     if (recommendations) {
       recommendations.innerHTML = (result.recommendations ?? []).map((item) => `<li>${item}</li>`).join('');
+    }
+    if (priorStudiesSummary) {
+      const meta = result.priorStudiesMeta || {};
+      priorStudiesSummary.textContent = [
+        meta.referenceDerivedCount ? `PDF 참고문헌 ${meta.referenceDerivedCount}건 우선` : '',
+        meta.catalogCount ? `발견 문헌 ${meta.catalogCount}건 병행` : '',
+      ].filter(Boolean).join(' · ') || '추출된 참고문헌이 없으면 발견 문헌만 표시합니다.';
+    }
+    if (priorStudies) {
+      priorStudies.innerHTML = (result.priorStudies ?? []).length
+        ? result.priorStudies
+            .map((item) => {
+              const detailHref = item.id ? `./detail.html?id=${encodeURIComponent(item.id)}` : '';
+              const externalHref = item.originalUrl || item.detailUrl || '';
+              return `
+                <li>
+                  <strong>${escapeHtml(item.title)}</strong>
+                  <div>${escapeHtml(item.source || '')}${item.year ? ` · ${escapeHtml(item.year)}` : ''}${item.sourceType === 'reference' ? ' · 참고문헌 직접추출' : ' · 발견 문헌'}</div>
+                  <div class="muted-copy">${escapeHtml(item.reason || '')}</div>
+                  ${item.rawCitation ? `<div class="muted-copy">${escapeHtml(item.rawCitation)}</div>` : ''}
+                  <div class="action-row">
+                    ${detailHref ? `<a class="button button--ghost" href="${detailHref}">상세 보기</a>` : ''}
+                    ${externalHref ? `<a class="button button--ghost" href="${externalHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
+                  </div>
+                </li>
+              `;
+            })
+            .join('')
+        : '<li>선행연구 후보를 아직 추출하지 못했습니다.</li>';
     }
     if (extractionSummary) {
       extractionSummary.textContent = result.extraction
