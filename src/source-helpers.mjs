@@ -127,6 +127,12 @@ export function normalizeKeywordBag(query = '') {
   return unique(normalizeText(query).split(' ').filter((token) => token.length >= 2));
 }
 
+export function isGuidanceOnlyFairDocument(document = {}) {
+  const source = String(document.source || document.sourceKey || '').trim();
+  const title = stripTags(document.title || '');
+  return ['science_fair', 'student_invention_fair'].includes(source) && /^\(지도논문\)/.test(title);
+}
+
 export function hasBrokenEncoding(text = '') {
   const value = String(text || '');
   if (!value.trim()) return false;

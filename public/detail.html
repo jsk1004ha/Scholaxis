@@ -30,6 +30,13 @@
           <span class="pill" data-detail-badge>Loading</span>
           <p class="lead loading-copy" data-detail-source>문헌 메타데이터를 불러오는 중입니다.</p>
           <div class="live-status live-status--loading" data-detail-status>상세 분석을 준비하는 중입니다.</div>
+          <div class="analysis-progress" aria-label="상세 분석 진행률">
+            <div class="analysis-progress__bar analysis-progress__bar--animated" data-detail-progress-bar style="width: 8%"></div>
+          </div>
+          <p class="muted-copy" data-detail-progress-label>작업을 준비하는 중입니다.</p>
+          <div class="action-row">
+            <button class="button button--ghost" data-detail-cancel type="button" hidden>상세 분석 취소</button>
+          </div>
           <h1 class="loading-copy loading-copy--title" data-detail-title>선택한 문헌의 상세 분석을 준비하는 중입니다.</h1>
           <p class="loading-copy" data-detail-subtitle>제목, 출처, 추천 흐름, 원문 링크를 순서대로 정리합니다.</p>
           <p class="loading-copy" data-detail-authors>저자와 기관 정보를 불러오는 중입니다.</p>

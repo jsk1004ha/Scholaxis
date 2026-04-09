@@ -186,6 +186,32 @@ export const seedCatalog = [
     }
   },
   {
+    id: 'seed-fair-science-magnetic-pendulum',
+    canonicalId: 'seed-fair-science-magnetic-pendulum',
+    type: 'fair_entry',
+    source: 'science_fair',
+    title: '자석진자를 이용한 카오스 운동에 대한 연구',
+    englishTitle: 'A Study on Chaotic Motion Using a Magnetic Pendulum',
+    authors: [],
+    organization: '제52회 전국과학전람회',
+    sourceLabel: '전국과학전람회',
+    year: null,
+    citations: 0,
+    openAccess: true,
+    region: 'domestic',
+    language: 'ko',
+    keywords: ['자기진자', '자석진자', '카오스', '비선형 진자', '전람회'],
+    abstract: '중력과 외부 힘이 작용하는 비선형 진자인 자석 진자의 운동을 실험과 수치 해석으로 비교하고, 퍼텐셜 에너지와 Lyapunov 지수를 통해 카오스 운동을 이해하는 연구.',
+    summary: '자석 진자의 카오스 운동을 실험과 수치 해석으로 비교한 전국과학전람회 연구 사례입니다.',
+    novelty: '자석 진자의 비선형 운동을 실험 결과와 이론 해석으로 함께 다룹니다.',
+    methods: ['실험', '수치 해석', 'Lyapunov 지수 분석'],
+    highlights: ['전국과학전람회', '자석진자', '카오스 운동'],
+    links: {
+      detail: 'https://www.science.go.kr/mps/1079/bbs/423/moveBbsNttDetail.do?nttSn=23152&page=4&searchKrwd=%EC%A7%84%EC%9E%90',
+      original: 'https://www.science.go.kr/mps/1079/bbs/423/moveBbsNttDetail.do?nttSn=23152&page=4&searchKrwd=%EC%A7%84%EC%9E%90'
+    }
+  },
+  {
     id: 'seed-report-rne-river',
     canonicalId: 'seed-report-rne-river',
     type: 'report',

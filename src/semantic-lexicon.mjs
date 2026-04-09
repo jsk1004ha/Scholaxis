@@ -70,6 +70,7 @@ const RAW_GROUPS = [
   ['학생 발명', 'student invention'],
   ['전람회', 'science fair'],
   ['발명품', 'invention exhibit'],
+  ['자기진자', '자석진자', 'magnetic pendulum'],
   ['에너지 하베스팅', 'energy harvesting'],
   ['문서 분석', 'document analysis'],
   ['광학', 'optical'],

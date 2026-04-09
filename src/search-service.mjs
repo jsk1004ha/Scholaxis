@@ -38,6 +38,15 @@ const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'ntis', '
 const HEURISTIC_EMBEDDING_PROVIDERS = new Set(['hash-projection', 'heuristic-hash', 'local-hash-projection', 'local-semantic-projection']);
 let lastSynchronizedIndexKey = '';
 
+function scheduleBackgroundWork(task) {
+  if (process.env.NODE_ENV === 'test') return;
+  setTimeout(() => {
+    Promise.resolve()
+      .then(task)
+      .catch(() => {});
+  }, 0);
+}
+
 function classifySourceType(type) {
   if (['paper', 'thesis', 'patent', 'report', 'fair_entry'].includes(type)) return type;
   return 'paper';
@@ -1263,8 +1272,12 @@ async function executeSearchCatalog({
   }));
   const sourceStatus = mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses);
   persistGraphEdges(buildGraphEdgesFromResults(results));
-  void synchronizeIndexedArtifacts(mergedSourceData).catch((error) => {
-    console.warn(`[search-sync] background artifact synchronization failed: ${error.message}`);
+  scheduleBackgroundWork(async () => {
+    try {
+      await synchronizeIndexedArtifacts(mergedSourceData);
+    } catch (error) {
+      console.warn(`[search-sync] background artifact synchronization failed: ${error.message}`);
+    }
   });
   persistSearchRun({ query: q, filters, total: reranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
 
@@ -1307,8 +1320,12 @@ export async function getPaperById(id) {
   const paper = sourceData.find((item) => item.id === id || item.canonicalId === id);
   if (!paper) return null;
 
-  void syncDocumentGraph(sourceData).catch((error) => {
-    console.warn(`[detail-graph-sync] background graph synchronization failed: ${error.message}`);
+  scheduleBackgroundWork(async () => {
+    try {
+      await syncDocumentGraph(sourceData);
+    } catch (error) {
+      console.warn(`[detail-graph-sync] background graph synchronization failed: ${error.message}`);
+    }
   });
   const graphTraversal = traceDocumentGraph(paper.canonicalId || paper.id, sourceData, appConfig.citationExpansionLimit);
   const heuristic = buildHeuristicNeighborhood(paper, sourceData, appConfig.citationExpansionLimit, null);
@@ -1388,9 +1405,11 @@ export async function getPaperById(id) {
 export async function expandPaperById(id) {
   const paper = await getPaperById(id);
   if (!paper) return null;
-  const citations = await getCitationsById(id, appConfig.citationExpansionLimit);
-  const references = await getReferencesById(id, appConfig.citationExpansionLimit);
-  const recommendations = await getRecommendationsById(id, 6, null);
+  const [citations, references, recommendations] = await Promise.all([
+    getCitationsById(id, appConfig.citationExpansionLimit),
+    getReferencesById(id, appConfig.citationExpansionLimit),
+    getRecommendationsById(id, 6, null),
+  ]);
 
   return {
     paper,
@@ -1437,6 +1456,25 @@ export async function getRecommendationsById(id, limit = 5, userProfile = null) 
   if (!paper) return [];
   const sourceData = await resolveWithTimeout(buildSearchIndexDocuments({ fastEmbeddings: true }), []);
   return buildHeuristicRecommendations(paper, sourceData, limit, userProfile);
+}
+
+export async function getGraphById(id, limit = appConfig.citationExpansionLimit) {
+  const sourceData = await resolveWithTimeout(buildSearchIndexDocuments({ fastEmbeddings: true }), []);
+  const paper = sourceData.find((item) => (item.canonicalId || item.id) === id);
+  if (!paper) return null;
+
+  const storedGraph = getDocumentGraph(paper.canonicalId || paper.id, limit) || {};
+  const heuristic = buildHeuristicNeighborhood(paper, sourceData, limit, null);
+
+  return {
+    references: (storedGraph.references || []).length ? storedGraph.references : heuristic.graph.references,
+    citations: (storedGraph.citations || []).length ? storedGraph.citations : heuristic.graph.citations,
+    authors: storedGraph.authors || [],
+    authorAffinity: storedGraph.authorAffinity || [],
+    similar: (storedGraph.similar || []).length ? storedGraph.similar : heuristic.graph.similar,
+    topicBridges: storedGraph.topicBridges || [],
+    pathTrace: storedGraph.pathTrace || [],
+  };
 }
 
 export async function getPersonalizedRecommendations({

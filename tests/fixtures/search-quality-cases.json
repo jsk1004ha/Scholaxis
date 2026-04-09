@@ -220,6 +220,28 @@
       }
     },
     {
+      "id": "ko-source-catalog-magnetic-pendulum",
+      "query": "자기진자 전람회",
+      "labels": [
+        "korean",
+        "narrow_technical"
+      ],
+      "expectations": {
+        "minTotal": 1,
+        "maxAcceptedRank": 3,
+        "source": "science_fair",
+        "type": "fair_entry",
+        "titleIncludes": [
+          "자석진자",
+          "카오스"
+        ]
+      },
+      "provenance": {
+        "canonicalId": "seed-fair-science-magnetic-pendulum",
+        "basis": "magnetic pendulum science fair regression"
+      }
+    },
+    {
       "id": "ko-source-catalog-rne",
       "query": "RNE",
       "labels": [

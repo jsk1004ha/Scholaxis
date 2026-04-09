@@ -1,11 +1,15 @@
 import {
   analyzeSimilarity,
+  analyzeSimilarityAsync,
+  cancelAnalysisJob,
   clearCache,
   fetchAdminOps,
   fetchAdminSummary,
+  fetchAnalysisJob,
   fetchLibrary,
   fetchMe,
   fetchPaper,
+  fetchPaperAsync,
   fetchProfile,
   fetchRecommendationFeed,
   fetchSavedSearches,
@@ -157,6 +161,28 @@ function cycleStatusMessages(node, messages, intervalMs = 1400, tone = 'loading'
   return () => window.clearInterval(timer);
 }
 
+function progressFromJob(job = null) {
+  if (!job) return { percent: 8, label: '작업을 준비하는 중입니다.', tone: 'loading', animated: true };
+  if (job.status === 'queued') return { percent: Math.max(10, Math.min(24, Number(job.progress || 16))), label: job.stageLabel || '작업이 대기열에 있습니다.', tone: 'loading', animated: true };
+  if (job.status === 'running') return { percent: Math.max(24, Math.min(92, Number(job.progress || 55))), label: job.stageLabel || '작업을 계산하고 있습니다.', tone: 'loading', animated: true };
+  if (job.status === 'completed') return { percent: 100, label: '작업이 완료되었습니다.', tone: 'success', animated: false };
+  if (job.status === 'cancelled') return { percent: 100, label: '작업이 취소되었습니다.', tone: 'warning', animated: false };
+  return { percent: 100, label: '작업이 실패했습니다.', tone: 'critical', animated: false };
+}
+
+function setAnalysisProgress({ bar, labelNode, statusNode, cancelButton, job }) {
+  const progress = progressFromJob(job);
+  if (bar) {
+    bar.style.width = `${progress.percent}%`;
+    bar.classList.toggle('analysis-progress__bar--animated', progress.animated);
+  }
+  if (labelNode) labelNode.textContent = progress.label;
+  if (statusNode && job) setLiveStatus(statusNode, progress.label, progress.tone);
+  if (cancelButton) {
+    cancelButton.hidden = !job || !['queued', 'running'].includes(job.status);
+  }
+}
+
 function renderResultsLoadingState(resultsRoot) {
   if (!resultsRoot) return;
   resultsRoot.innerHTML = Array.from({ length: 3 }, () => createResultSkeletonCard()).join('');
@@ -194,6 +220,7 @@ function createPaperCard(paper) {
   const article = document.createElement('article');
   article.className = 'result-card';
   const detailHref = `./detail.html?id=${encodeURIComponent(paper.id)}`;
+  const similarityHref = `./similarity.html?paperId=${encodeURIComponent(paper.id)}`;
   const sourceHref = paper.originalUrl || paper.sourceUrl || '#';
   article.innerHTML = `
     <div class="result-card__meta">
@@ -219,6 +246,7 @@ function createPaperCard(paper) {
     <div class="tag-row">${(paper.tags ?? []).map((tag) => `<span class="tag">${tag}</span>`).join('')}</div>
     <div class="action-row" style="margin-top: 0.75rem">
       <a class="button button--ghost" href="${detailHref}">상세 보기</a>
+      <a class="button button--ghost" href="${similarityHref}">유사도 분석</a>
       ${sourceHref !== '#' ? `<a class="button button--ghost" href="${sourceHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
     </div>
   `;
@@ -390,6 +418,9 @@ async function initDetailPage() {
   if (!root) return;
   primeDetailLoadingState();
   const detailStatus = qs('[data-detail-status]');
+  const detailProgressBar = qs('[data-detail-progress-bar]');
+  const detailProgressLabel = qs('[data-detail-progress-label]');
+  const detailCancelButton = qs('[data-detail-cancel]');
 
   const id = new URLSearchParams(window.location.search).get('id');
   if (!id) {
@@ -405,9 +436,45 @@ async function initDetailPage() {
     return;
   }
   let paper;
+  let currentDetailJobId = '';
+  let detailCancelled = false;
+  detailCancelButton?.addEventListener('click', async () => {
+    if (!currentDetailJobId) return;
+    detailCancelled = true;
+    await cancelAnalysisJob(currentDetailJobId).catch(() => null);
+    setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job: { status: 'cancelled', progress: 100 } });
+  });
+  const stopDetailStatusCycle = cycleStatusMessages(
+    detailStatus,
+    ['상세 분석 작업을 큐에 등록하는 중입니다.', '상세 메타데이터와 추천 흐름을 계산하고 있습니다.', '그래프/비교 정보를 정리하고 있습니다.'],
+    1400,
+    'loading',
+  );
   try {
-    paper = await fetchPaper(id);
+    paper = await fetchPaperAsync(id, {
+      intervalMs: 500,
+      timeoutMs: 45000,
+      isCancelled: () => detailCancelled,
+      onAccepted: (job) => {
+        currentDetailJobId = job.id;
+        setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job });
+      },
+      onProgress: (job) => {
+        setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job });
+      },
+    });
+    stopDetailStatusCycle();
+    setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job: { status: 'completed', progress: 100 } });
   } catch (error) {
+    stopDetailStatusCycle();
+    if (String(error?.message || '').startsWith('analysis-job-cancelled:')) {
+      setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job: { status: 'cancelled', progress: 100 } });
+      setText('[data-detail-title]', '상세 분석이 취소되었습니다.');
+      setText('[data-detail-subtitle]', '다시 열면 상세 분석을 새로 시작할 수 있습니다.');
+      setText('[data-detail-authors]', currentDetailJobId || 'detail-analysis-cancelled');
+      return;
+    }
+    setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job: { status: 'failed', progress: 100 } });
     setLiveStatus(detailStatus, '상세 데이터를 불러오지 못했습니다.', 'critical');
     setText('[data-detail-title]', '상세 문서를 불러오지 못했습니다.');
     setText('[data-detail-subtitle]', '문서 ID 또는 서버 상태를 확인해 주세요.');
@@ -681,7 +748,12 @@ async function initSimilarityPage() {
   const submitButton = qs('button[type="submit"]', form);
   const scoreRing = score?.closest('.score-ring');
   const similarityStatus = qs('[data-similarity-status]');
+  const similarityProgressBar = qs('[data-similarity-progress-bar]');
+  const similarityProgressLabel = qs('[data-similarity-progress-label]');
+  const similarityCancelButton = qs('[data-similarity-cancel]');
   const flowHint = qs('[data-similarity-flow-hint]');
+  let currentSimilarityJobId = '';
+  let similarityCancelled = false;
 
   const primeSimilarityLoadingState = (message = '비교 문헌과 섹션 대응을 계산하고 있습니다.') => {
     if (score) score.textContent = '분석 중';
@@ -705,10 +777,21 @@ async function initSimilarityPage() {
   };
 
   primeSimilarityLoadingState('업로드 전에도 연결 문헌과 비교 흐름을 준비할 수 있습니다.');
+  setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job: null });
+
+  similarityCancelButton?.addEventListener('click', async () => {
+    if (!currentSimilarityJobId) return;
+    similarityCancelled = true;
+    await cancelAnalysisJob(currentSimilarityJobId).catch(() => null);
+    setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job: { status: 'cancelled', progress: 100 } });
+    setButtonBusy(submitButton, false);
+  });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
+    currentSimilarityJobId = '';
+    similarityCancelled = false;
     setButtonBusy(submitButton, true, '유사도 분석 중...');
     primeSimilarityLoadingState('문서 추출과 섹션 비교를 수행하는 중입니다.');
     const stopStatusCycle = cycleStatusMessages(
@@ -719,9 +802,28 @@ async function initSimilarityPage() {
     );
     let result;
     try {
-      result = await analyzeSimilarity(formData);
+      result = await analyzeSimilarityAsync(formData, {
+        intervalMs: 500,
+        timeoutMs: 180000,
+        isCancelled: () => similarityCancelled,
+        onAccepted: (job) => {
+          currentSimilarityJobId = job.id;
+          setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job });
+        },
+        onProgress: (job) => {
+          setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job });
+        },
+      });
     } catch (error) {
       stopStatusCycle();
+      if (String(error?.message || '').startsWith('analysis-job-cancelled:')) {
+        setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job: { status: 'cancelled', progress: 100 } });
+        if (extractionSummary) extractionSummary.textContent = '유사도 분석 작업이 취소되었습니다.';
+        if (flowHint) flowHint.textContent = '취소 후 다시 실행하면 새 분석 작업이 시작됩니다.';
+        scoreRing?.classList.remove('is-loading');
+        setButtonBusy(submitButton, false);
+        return;
+      }
       if (extractionSummary) {
         extractionSummary.textContent = `유사도 분석 요청이 실패했습니다: ${error.message || 'similarity-request-failed'}`;
       }
@@ -734,6 +836,7 @@ async function initSimilarityPage() {
       return;
     }
     stopStatusCycle();
+    setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job: { status: 'completed', progress: 100 } });
     scoreRing?.classList.remove('is-loading');
     if (score) score.textContent = `${result.similarityScore}%`;
     if (context) context.textContent = result.sharedContext;
@@ -892,7 +995,10 @@ async function initSimilarityPage() {
 
   if (linkedPaperId) {
     try {
-      const linkedPaper = await fetchPaper(linkedPaperId);
+      const linkedPaper = await fetchPaperAsync(linkedPaperId, {
+        intervalMs: 500,
+        timeoutMs: 45000,
+      });
       const titleInput = qs('input[name="title"]', form);
       const textInput = qs('textarea[name="text"]', form);
       if (titleInput && !titleInput.value.trim()) {
@@ -943,6 +1049,18 @@ async function initAdminPage() {
   const similarityRoot = qs('[data-admin-similarity]');
   const startupRoot = qs('[data-admin-startup]');
   if (!summary || !alertsRoot || !metricsRoot || !requestsRoot || !similarityRoot || !startupRoot) return;
+
+  const me = await fetchMe().catch(() => ({ user: null }));
+  if (!me.user?.isAdmin) {
+    summary.textContent = '관리자 계정만 운영 대시보드를 볼 수 있습니다.';
+    alertsRoot.innerHTML = '<article class="alert-card alert-card--critical"><strong>접근 제한</strong><p>관리자 권한이 필요합니다.</p></article>';
+    metricsRoot.innerHTML = '<p class="muted-copy">관리자 전용 화면입니다.</p>';
+    startupRoot.innerHTML = '<p class="muted-copy">로그인한 관리자만 런타임 정보를 볼 수 있습니다.</p>';
+    similarityRoot.innerHTML = '<p class="muted-copy">관리자 권한이 필요합니다.</p>';
+    requestsRoot.innerHTML = '<tr><td colspan="5">관리자 권한이 필요합니다.</td></tr>';
+    return;
+  }
+
   summary.textContent = '운영 요약을 불러오는 중입니다…';
   alertsRoot.innerHTML = createSectionSkeleton(2);
   metricsRoot.innerHTML = createSectionSkeleton(2);
@@ -959,6 +1077,10 @@ async function initAdminPage() {
       <div class="stat-card"><span>Port</span><strong>${escapeHtml(opsPayload.startup.port)}</strong></div>
       <div class="stat-card"><span>Live Sources</span><strong>${opsPayload.startup.liveSourcesEnabled ? 'ON' : 'OFF'}</strong></div>
       <div class="stat-card"><span>Source Timeout</span><strong>${escapeHtml(opsPayload.startup.sourceTimeoutMs)}ms</strong></div>
+      <div class="stat-card"><span>Analysis Pool</span><strong>${escapeHtml(opsPayload.runtime.analysis.poolSize)}</strong></div>
+      <div class="stat-card"><span>Busy Workers</span><strong>${escapeHtml(opsPayload.runtime.analysis.busyWorkers)}</strong></div>
+      <div class="stat-card"><span>Queued Analysis</span><strong>${escapeHtml(opsPayload.runtime.analysis.queuedTasks)}</strong></div>
+      <div class="stat-card"><span>Async Jobs</span><strong>${escapeHtml(opsPayload.runtime.analysis.asyncJobs.running)}</strong></div>
     `;
 
     metricsRoot.innerHTML = Object.entries(opsPayload.storage)

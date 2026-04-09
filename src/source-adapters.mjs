@@ -1,4 +1,5 @@
 import { appConfig } from './config.mjs';
+import { expandSemanticLexiconTerms } from './semantic-lexicon.mjs';
 import {
   buildDocument,
   buildSourceStatus,
@@ -7,6 +8,7 @@ import {
   fetchJson,
   fetchText,
   hasBrokenEncoding,
+  isGuidanceOnlyFairDocument,
   isUsableSearchText,
   normalizeAuthors,
   normalizeKeywordBag,
@@ -17,7 +19,7 @@ import {
   summarizeDocument,
   textBetween
 } from './source-helpers.mjs';
-import { unique } from './vector-service.mjs';
+import { normalizeText, unique } from './vector-service.mjs';
 import { execFileSync } from 'node:child_process';
 import { clearSourceCache, getCachedSourceResult, getSourceCacheDiagnostics, setCachedSourceResult } from './source-cache.mjs';
 
@@ -105,6 +107,159 @@ function buildKciSearchUrls(query) {
 function pickQueryForGlobal(query) {
   const variants = expandQueryVariants(query);
   return variants.slice(-1)[0] || query;
+}
+
+const FAIR_QUERY_STOPWORDS = new Set([
+  '전람회',
+  '과학전람회',
+  '전국과학전람회',
+  '발명품',
+  '학생발명품경진대회',
+  '전국학생과학발명품경진대회',
+  '경진대회',
+  '대회'
+]);
+
+function buildKoreanTokenWindows(value = '') {
+  const compact = normalizeText(value).replace(/\s+/g, '');
+  if (!/^[가-힣]{4,}$/.test(compact)) return [];
+  const tokens = [];
+  for (let size = 2; size <= 3; size += 1) {
+    for (let index = 0; index <= compact.length - size; index += 1) {
+      tokens.push(compact.slice(index, index + size));
+    }
+  }
+  return tokens;
+}
+
+function buildScienceGoQueryVariants(query = '') {
+  const raw = String(query || '').trim();
+  if (!raw) return [];
+
+  const keywordTokens = normalizeKeywordBag(raw).filter((token) => !FAIR_QUERY_STOPWORDS.has(token));
+  const semanticTerms = expandSemanticLexiconTerms(keywordTokens)
+    .filter((token) => token.length >= 2 && !FAIR_QUERY_STOPWORDS.has(token));
+  const compactWindows = keywordTokens.flatMap((token) => buildKoreanTokenWindows(token));
+
+  return unique([
+    ...keywordTokens,
+    ...semanticTerms,
+    ...compactWindows,
+  ]).filter(Boolean);
+}
+
+function matchesScienceGoCandidateText(text = '', query = '') {
+  if (!String(query || '').trim()) return true;
+  const normalizedText = normalizeText(text);
+  const variants = buildScienceGoQueryVariants(query);
+  if (!variants.length) return matchesQueryText(text, query);
+  return variants.some((variant) => normalizedText.includes(normalizeText(variant)) || matchesQueryText(text, variant));
+}
+
+function buildScienceGoListUrl(baseUrl, query = '', page = 1) {
+  const url = new URL(baseUrl);
+  if (query) url.searchParams.set('searchKrwd', query);
+  if (page > 1) url.searchParams.set('page', String(page));
+  return url.toString();
+}
+
+function buildScienceGoDetailUrl(baseUrl, nttSn, searchTerm = '', page = 1) {
+  const url = new URL(baseUrl.replace('moveBbsNttList.do', 'moveBbsNttDetail.do'));
+  url.searchParams.set('nttSn', nttSn);
+  if (page > 1) url.searchParams.set('page', String(page));
+  if (searchTerm) url.searchParams.set('searchKrwd', searchTerm);
+  return url.toString();
+}
+
+export function extractScienceGoDetailFromHtml(html = '') {
+  const title = stripTags(textBetween(html, '<h3>', '</h3>'));
+  const contentBlock = html.match(/<div class="write-contents"[^>]*>([\s\S]*?)<\/div>/i)?.[1] || '';
+  const content = stripTags(contentBlock).replace(/\s+/g, ' ').trim();
+  return {
+    title,
+    content,
+    summary: summarizeDocument({ abstract: content }),
+  };
+}
+
+export function extractScienceGoDocumentsFromHtml(source, html, query = '', limit = 20, options = {}) {
+  const baseUrl =
+    options.baseUrl ||
+    (source === 'science_fair' ? appConfig.scienceFairUrl : appConfig.studentInventionFairUrl);
+  const page = options.page || 1;
+  const searchTerm = options.searchTerm || '';
+  const rows = [...html.matchAll(/<tbody class="singlerow"[\s\S]*?onclick="fn_moveBbsNttDetail\('([^']+)'[^"]*"[\s\S]*?<\/tbody>/g)];
+  const items = [];
+
+  for (const match of rows) {
+    const nttSn = match[1];
+    const block = match[0];
+    const tds = [...block.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((entry) => stripTags(entry[1])).filter(Boolean);
+    if (tds.length < 4) continue;
+
+    const year = safeYear(tds[1]);
+    const category = tds[2] || '';
+    const title = tds[3] || '';
+    const award = tds[4] || '';
+    const sourceLabel = source === 'science_fair' ? '전국과학전람회' : '전국학생과학발명품경진대회';
+    const candidate = buildDocument({
+      id: `${source}:${nttSn}`,
+      source,
+      sourceLabel,
+      type: 'fair_entry',
+      title,
+      englishTitle: title,
+      authors: [],
+      organization: sourceLabel,
+      year,
+      abstract: '',
+      summary: `${category} / ${award || '수상 정보 미상'} 항목입니다.`,
+      keywords: normalizeKeywordBag(`${title} ${category} ${award} ${sourceLabel}`).slice(0, 8),
+      highlights: [category, award].filter(Boolean),
+      links: {
+        detail: buildScienceGoDetailUrl(baseUrl, nttSn, searchTerm, page),
+        original: buildScienceGoDetailUrl(baseUrl, nttSn, searchTerm, page)
+      },
+      rawRecord: { nttSn, tds, page, searchTerm }
+    });
+
+    if (isGuidanceOnlyFairDocument(candidate)) continue;
+    const searchableText = [title, category, award, sourceLabel].filter(Boolean).join(' ');
+    if (query && !matchesScienceGoCandidateText(searchableText, query)) continue;
+
+    items.push(candidate);
+    if (items.length >= limit) break;
+  }
+
+  return items;
+}
+
+async function enrichScienceGoDocument(document = {}) {
+  if (!document?.links?.detail) return document;
+  try {
+    const html = await fetchText(document.links.detail, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+    const detail = extractScienceGoDetailFromHtml(html);
+    const abstract = detail.content || document.abstract || '';
+    return {
+      ...document,
+      title: detail.title || document.title,
+      englishTitle: detail.title || document.englishTitle,
+      abstract,
+      summary: detail.summary || document.summary,
+      keywords: normalizeKeywordBag([
+        detail.title || document.title,
+        abstract,
+        document.organization,
+        ...(document.highlights || []),
+      ].filter(Boolean).join(' ')).slice(0, 8),
+      rawRecord: {
+        ...(document.rawRecord || {}),
+        detailFetched: true,
+      }
+    };
+  } catch {
+    return document;
+  }
 }
 
 async function searchSemanticScholar(query, limit) {
@@ -485,17 +640,32 @@ async function searchDbpia(query, limit) {
   );
 }
 
-async function searchNtis(query, limit) {
-  const url = `${appConfig.ntisSearchUrl}?searchWord=${encodeURIComponent(query)}&dbt=project&sort=RANK%2FDESC`;
-  const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+const NTIS_EXCLUDED_ROW_PATTERNS = [
+  /검색결과가 없습니다/,
+  /철자가 정확한지/,
+  /다른 검색어로 검색해 보세요/,
+  /같은 뜻의 다른 단어/,
+  /선택한 조건에 대한/,
+  /^ntis$/i,
+  /^myntis$/i,
+  /검색목록 다운로드/,
+];
+
+function isNtisCandidateTitle(text = '') {
+  const value = stripTags(text).replace(/\s+/g, ' ').trim();
+  if (value.length < 4 || value.length > 160) return false;
+  if (NTIS_EXCLUDED_ROW_PATTERNS.some((pattern) => pattern.test(value))) return false;
+  return true;
+}
+
+export function extractNtisDocumentsFromHtml(html = '', query = '', limit = 10, url = appConfig.ntisSearchUrl) {
   const anchorRows = [...html.matchAll(/<a[^>]+(?:href|onclick)[^>]*>([\s\S]*?)<\/a>/g)]
     .map((match) => stripTags(match[1]))
-    .filter((item) => item.length >= 4 && item.length <= 160)
-    .filter((item) => !item.includes('검색 결과'))
+    .filter((item) => isNtisCandidateTitle(item))
     .filter((item) => isUsableSearchText(item, query));
   const listRows = [...html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)]
     .map((match) => stripTags(match[1]))
-    .filter((item) => item.length >= 4 && item.length <= 160)
+    .filter((item) => isNtisCandidateTitle(item))
     .filter((item) => isUsableSearchText(item, query));
   const rows = unique([...anchorRows, ...listRows]).slice(0, limit);
 
@@ -522,51 +692,51 @@ async function searchNtis(query, limit) {
   );
 }
 
+async function searchNtis(query, limit) {
+  const url = `${appConfig.ntisSearchUrl}?searchWord=${encodeURIComponent(query)}&dbt=project&sort=RANK%2FDESC`;
+  let html = '';
+  try {
+    html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+  } catch {
+    html = fetchTextWithPythonDecoding(url, { timeoutMs: 12000, userAgent: BROWSERISH_USER_AGENT });
+  }
+  return extractNtisDocumentsFromHtml(html, query, limit, url);
+}
+
 async function searchScienceGo(source, query, limit) {
   const baseUrl =
     source === 'science_fair'
       ? appConfig.scienceFairUrl
       : appConfig.studentInventionFairUrl;
-  const html = await fetchText(baseUrl, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
-  const rows = [...html.matchAll(/<tbody class="singlerow"[\s\S]*?onclick="fn_moveBbsNttDetail\('([^']+)'[^"]*"[\s\S]*?<\/tbody>/g)];
-  const items = [];
+  const searchTerms = query ? buildScienceGoQueryVariants(query).slice(0, 6) : [''];
+  const matched = [];
+  const seen = new Set();
+  const maxPages = query ? 6 : 1;
 
-  for (const match of rows) {
-    const nttSn = match[1];
-    const block = match[0];
-    const tds = [...block.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((entry) => stripTags(entry[1])).filter(Boolean);
-    if (tds.length < 4) continue;
-    const year = safeYear(tds[1]);
-    const category = tds[2] || '';
-    const title = tds[3] || '';
-    const award = tds[4] || '';
-    const candidateText = `${title} ${category} ${award}`.toLowerCase();
-    if (query && !candidateText.includes(query.toLowerCase()) && items.length >= limit) continue;
-    items.push(
-      buildDocument({
-        id: `${source}:${nttSn}`,
-        source,
-        sourceLabel: source === 'science_fair' ? '전국과학전람회' : '전국학생과학발명품경진대회',
-        type: 'fair_entry',
-        title,
-        englishTitle: title,
-        authors: [],
-        organization: source === 'science_fair' ? '전국과학전람회' : '전국학생과학발명품경진대회',
-        year,
-        abstract: '',
-        summary: `${category} / ${award || '수상 정보 미상'} 항목입니다.`,
-        keywords: normalizeKeywordBag(`${query} ${title} ${category} ${award}`).slice(0, 8),
-        highlights: [category, award].filter(Boolean),
-        links: {
-          detail: `${baseUrl.replace('moveBbsNttList.do', 'moveBbsNttDetail.do')}?nttSn=${nttSn}`,
-          original: `${baseUrl.replace('moveBbsNttList.do', 'moveBbsNttDetail.do')}?nttSn=${nttSn}`
-        },
-        rawRecord: { nttSn, tds }
-      })
-    );
+  for (const searchTerm of searchTerms.length ? searchTerms : ['']) {
+    for (let page = 1; page <= maxPages && matched.length < limit; page += 1) {
+      const url = buildScienceGoListUrl(baseUrl, searchTerm, page);
+      const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+      const docs = extractScienceGoDocumentsFromHtml(source, html, query, Math.max(limit * 2, 12), {
+        baseUrl,
+        page,
+        searchTerm,
+      });
+      if (!docs.length && searchTerm) break;
+      for (const doc of docs) {
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        matched.push(doc);
+        if (matched.length >= limit) break;
+      }
+    }
+    if (matched.length >= limit) break;
   }
 
-  return items.slice(0, limit);
+  const enrichCount = Math.min(matched.length, Math.max(limit, 4));
+  const enrichedHead = await Promise.all(matched.slice(0, enrichCount).map((document) => enrichScienceGoDocument(document)));
+  const enrichedMap = new Map(enrichedHead.map((document) => [document.id, document]));
+  return matched.map((document) => enrichedMap.get(document.id) || document).slice(0, limit);
 }
 
 export function extractRneReportDocumentsFromHtml(html, query = '') {

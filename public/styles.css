@@ -927,6 +927,29 @@ textarea {
   background: rgba(248, 113, 113, 0.08);
 }
 
+.analysis-progress {
+  position: relative;
+  width: min(100%, 420px);
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.analysis-progress__bar {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(113, 112, 255, 0.75), rgba(95, 208, 255, 0.95));
+  transition: width 220ms ease;
+}
+
+.analysis-progress__bar--animated {
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
 .skeleton-card,
 .skeleton-block,
 .skeleton-line,

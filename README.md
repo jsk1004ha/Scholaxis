@@ -376,6 +376,10 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - `SCHOLAXIS_SCHEDULER_INTERVAL_MS`
 - `SCHOLAXIS_WORKER_POLL_MS`
 - `SCHOLAXIS_WORKER_LEASE_MS`
+- `SCHOLAXIS_ANALYSIS_WORKERS`
+- `SCHOLAXIS_ANALYSIS_IDLE_SHUTDOWN_MS`
+- `SCHOLAXIS_ASYNC_JOB_TTL_MS`
+- `SCHOLAXIS_ADMIN_EMAILS`
 
 </details>
 
@@ -392,8 +396,15 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - **LibreTranslate 자동 기동** 기반 번역 백엔드 경로 지원
 - **reranker 서비스 계층** 및 로컬 HTTP reranker 실행 경로 추가
 - 검색 시 **translation + reranker diagnostics** 가 운영 API에 노출되도록 보강
+- `전국과학전람회 / 학생발명품경진대회 / R&E` 계열 검색에서 **실제 결과 중심 파싱** 으로 개선하고 `(지도논문)` 결과를 기본 검색 대상에서 제외
+- `자기진자 ↔ 자석진자` 같은 한국어 질의에 대해 **전람회 상세 결과** 가 더 잘 노출되도록 보강
+- NTIS no-result 안내문이 결과처럼 보이던 문제를 막기 위해 **안내/플레이스홀더 문구 필터** 추가
 - 저장 검색, 라이브러리 공유, 추천 피드 등 사용자 상태 기능 확장
 - 상세/유사도/검색 결과 화면을 **loading-first placeholder UI** 로 바꿔, 실제 데이터가 오기 전까지 하드코딩 예시 문헌이 보이지 않도록 개선
+- 검색 결과 카드에서 **유사도 분석으로 바로 이동** 가능
+- `detail.html`, `similarity.html` 이 **202 + polling 기반 async 분석 흐름** 을 사용하고, 진행바/취소 버튼으로 현재 상태를 보여주도록 개선
+- 무거운 상세/유사도 분석은 **analysis worker pool** 로 분리되어 요청마다 새 프로세스를 띄우지 않도록 최적화
+- admin 화면/API는 **로그인 + `SCHOLAXIS_ADMIN_EMAILS` allowlist** 로 제한
 - ScienceON 크롤링에 **cp949/euc-kr 우선 디코딩 + escaped `<em>` 제거** 를 적용해 한글 제목 깨짐과 강조 태그 노출을 완화
 
 ---
@@ -421,6 +432,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 ### 유사도 / 업로드 분석
 - `POST /api/similarity/report`
 - `POST /api/similarity/analyze`
+- `GET /api/analysis/jobs/:id`
+- `DELETE /api/analysis/jobs/:id`
 
 ### 운영 / 저장소
 - `GET /api/storage/stats`
@@ -447,6 +460,25 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - `POST /api/saved-searches`
 - `DELETE /api/saved-searches/:id`
 - `GET /api/recommendations/feed`
+
+### async 분석 사용 예시
+긴 분석은 `?async=1` 로 제출하고 job polling 으로 상태를 확인할 수 있습니다.
+
+```bash
+curl -X POST "http://127.0.0.1:3000/api/similarity/report?async=1" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"배터리 AI 초안","text":"배터리 열폭주 예측과 센서융합 기반 진단 연구 초안"}'
+
+curl "http://127.0.0.1:3000/api/analysis/jobs/<job-id>"
+curl -X DELETE "http://127.0.0.1:3000/api/analysis/jobs/<job-id>"
+```
+
+### admin 접근 제어
+admin API와 `admin.html` 은 로그인만으로는 열리지 않으며, 아래 allowlist 에 포함된 이메일만 접근할 수 있습니다.
+
+```bash
+export SCHOLAXIS_ADMIN_EMAILS=admin1@example.com,admin2@example.com
+```
 
 </details>
 

@@ -18,13 +18,10 @@ import {
   parseCookies,
   verifyPassword
 } from './auth-service.mjs';
-import { extractPdfText } from './pdf-text-extractor.mjs';
-import { extractDocxText } from './docx-text-extractor.mjs';
-import { extractHwpText, extractHwpxText } from './hwp-text-extractor.mjs';
-import { extractPdfTextWithOcr, getOcrDiagnostics } from './ocr-service.mjs';
+import { getOcrDiagnostics } from './ocr-service.mjs';
 import {
-  expandPaperById,
   getCitationsById,
+  getGraphById,
   getPersonalizedRecommendations,
   getPaperById,
   getReferencesById,
@@ -65,7 +62,13 @@ import {
   saveSearch,
   updateUserProfile
 } from './storage.mjs';
-import { buildSimilarityReport } from './similarity-service.mjs';
+import {
+  cancelAsyncAnalysisJob,
+  getAnalysisRuntimeDiagnostics,
+  getAsyncAnalysisJob,
+  runAnalysisTask,
+  submitAsyncAnalysisJob,
+} from './analysis-runtime.mjs';
 import { getEmbeddingDiagnostics } from './embedding-service.mjs';
 import { ensureLocalModelBackend, getLocalModelDiagnostics } from './local-model-runtime.mjs';
 import { getSemanticDiagnostics } from './semantic-service.mjs';
@@ -120,70 +123,54 @@ function requireSession(req, res) {
   return ctx;
 }
 
+function getAdminEmailAllowlist() {
+  return String(process.env.SCHOLAXIS_ADMIN_EMAILS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isAdminEmail(email = '') {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return getAdminEmailAllowlist().includes(normalized);
+}
+
+function requireAdminSession(req, res) {
+  const ctx = requireSession(req, res);
+  if (!ctx) return null;
+  if (!isAdminEmail(ctx.session.email)) {
+    json(res, 403, { error: '관리자 권한이 필요합니다.' });
+    return null;
+  }
+  return ctx;
+}
+
 function notFound(res, message = 'Not found') {
   json(res, 404, { error: message });
 }
 
-function normalizeSimilarityCompat(report, overrides = {}) {
-  const comparedPaperId = report.topMatches?.[0]?.id || null;
-  const verdict =
-    report.riskLevel === 'high'
-      ? 'same-topic-likely'
-      : report.riskLevel === 'moderate'
-        ? 'topic-overlap-possible'
-        : 'topic-overlap-uncertain';
+function wantsAsyncResponse(req, searchParams) {
+  return searchParams.get('async') === '1' || String(req.headers.prefer || '').includes('respond-async');
+}
+
+function buildAsyncAcceptedPayload(job = {}) {
   return {
-    reportName: overrides.title || report.title,
-    similarityScore: report.score,
-    comparedPaperId,
-    sharedContext: report.sharedThemes?.join(', ') || '공통 주제가 충분하지 않습니다.',
-    novelty: report.noveltySignals?.join(', ') || '차별화 포인트를 더 입력해 주세요.',
-    structure: report.sectionComparisons?.length
-      ? report.sectionComparisons
-          .slice(0, 3)
-          .map((section) => `${section.inputSection}→${section.matchedSection}(${section.divergence})`)
-          .join(', ')
-      : '섹션 비교를 위한 구조 정보가 부족합니다.',
-    differentiation:
-      report.differentiationAnalysis?.summary || '차별점 분석 요약을 생성할 수 없습니다.',
-    differentiators: report.differentiationAnalysis?.uniqueTerms || [],
-    verdict,
-    sameTopicStatement: report.sameTopicStatement || '',
-    topicVerdict:
-      report.riskLevel === 'high'
-        ? '주제가 매우 가깝습니다. 같은 문제를 다루는 선행 연구로 보고 차별점을 명확히 정리해야 합니다.'
-        : report.riskLevel === 'moderate'
-          ? '주제가 부분적으로 겹칩니다. 같은 문제군일 가능성이 있으므로 비교 근거를 함께 읽어야 합니다.'
-          : '주제가 완전히 같다고 단정하기는 어렵습니다. 관련 연구로 검토하되 과도하게 동일 주제로 보지는 마세요.',
-    risk:
-      report.riskLevel === 'high'
-        ? '유사도가 높습니다. 핵심 기여와 실험 차별점을 명확히 분리하세요.'
-        : report.riskLevel === 'moderate'
-          ? '일부 핵심 표현이 겹칩니다. 비교 연구와의 차이를 명확히 서술하세요.'
-          : '현재는 심각한 중복 위험이 높지 않지만, 관련 연구 대비 차별점을 유지하세요.',
-    sectionComparisons: report.sectionComparisons || [],
-    semanticDiff: report.semanticDiff || { summary: '', insights: [] },
-    differentiationAnalysis: report.differentiationAnalysis || null,
-    recommendations: report.recommendations,
-    topMatches: report.topMatches || [],
-    priorStudies: report.priorStudies || [],
-    priorStudiesMeta: report.priorStudiesMeta || { referenceDerivedCount: 0, catalogCount: 0 },
-    extraction: report.extraction || null,
-    confidence: report.confidence || null,
+    ok: true,
+    async: true,
+    job,
+    statusUrl: `/api/analysis/jobs/${encodeURIComponent(job.id)}`,
+    pollAfterMs: 500,
   };
 }
 
 async function buildSimilarityFromRequest(body, fallbackTitle = '업로드 문서') {
-  const report = await buildSimilarityReport({
-    title: body.title || body.reportName || fallbackTitle,
-    text: body.text || body.content || body.extractedText || '',
-    extraction: body.extraction || null,
-  });
-
-  return {
-    ...report,
-    analysis: normalizeSimilarityCompat(report, { title: body.title || body.reportName || fallbackTitle })
-  };
+  const payload = await runAnalysisTask(
+    'similarity-request',
+    { body, fallbackTitle },
+    { timeoutMs: 120000 }
+  );
+  return payload;
 }
 
 function buildAdminAlerts({ storage, ocr, sourceRuntime, recentRequests }) {
@@ -256,74 +243,11 @@ function writeSseEvent(res, event, payload) {
 }
 
 async function buildSimilarityFromMultipart(fields) {
-  const fileField = fields.report || fields.file || {};
-  const title = fileField.filename || fields.title?.value || '업로드 문서';
-  let extractedText = fields.text?.value || fields.content?.value || '';
-  let extraction = null;
-
-    if (!extractedText && fileField.buffer?.length) {
-      if (/\.pdf$/i.test(fileField.filename || '') || /application\/pdf/i.test(fileField.contentType || '')) {
-      extraction = await extractPdfText(fileField.buffer);
-      extractedText = extraction.text || '';
-      if ((!extractedText || extractedText.length < 80) && fileField.buffer?.length) {
-        const ocrExtraction = await extractPdfTextWithOcr(fileField.buffer);
-        if ((ocrExtraction.text || '').length > extractedText.length) {
-          extraction = ocrExtraction;
-          extractedText = ocrExtraction.text || extractedText;
-        } else if (ocrExtraction.warnings?.length) {
-          extraction = {
-            ...extraction,
-            warnings: [...new Set([...(extraction.warnings || []), ...ocrExtraction.warnings])]
-          };
-        }
-      }
-      } else if (/\.docx$/i.test(fileField.filename || '') || /wordprocessingml/.test(fileField.contentType || '')) {
-        extraction = await extractDocxText(fileField.buffer);
-        extractedText = extraction.text || '';
-      } else if (/\.hwpx$/i.test(fileField.filename || '') || /application\/haansofthwpx/i.test(fileField.contentType || '')) {
-        extraction = await extractHwpxText(fileField.buffer);
-        extractedText = extraction.text || '';
-      } else if (/\.hwp$/i.test(fileField.filename || '') || /application\/x-hwp/i.test(fileField.contentType || '')) {
-        extraction = await extractHwpText(fileField.buffer);
-        extractedText = extraction.text || '';
-      } else {
-        extractedText = fileField.buffer.toString('utf8').trim();
-        extraction = {
-        text: extractedText,
-        method: 'utf8-buffer',
-        warnings: []
-      };
-    }
-  }
-
-  const payload = await buildSimilarityFromRequest(
-    {
-      title,
-      text: extractedText || `${title} research manuscript scholarly similarity analysis`,
-      extraction,
-    },
-    title
+  return runAnalysisTask(
+    'similarity-multipart',
+    { fields },
+    { timeoutMs: 180000 }
   );
-
-  if (extraction) {
-    payload.extraction = {
-      method: extraction.method,
-      warnings: extraction.warnings,
-      extractedCharacters: (extraction.text || '').length,
-      preview: (extraction.text || '').slice(0, 240),
-      confidence: extraction.confidence ?? 0,
-      confidenceLabel:
-        (extraction.confidence ?? 0) >= 76
-          ? 'high'
-          : (extraction.confidence ?? 0) >= 52
-            ? 'moderate'
-            : 'low',
-      degraded: (extraction.confidence ?? 0) < 55 || Boolean(extraction.warnings?.length),
-      structured: Boolean(extraction.structured),
-    };
-  }
-
-  return payload;
 }
 
 export function createServer() {
@@ -442,10 +366,22 @@ export function createServer() {
       }
 
       if (pathname === '/api/admin/summary') {
-        return json(res, 200, { storage: getStorageDiagnostics(), recentRequests: getRecentRequestLogs(25), runtime: { ocr: await getOcrDiagnostics(), sourceRuntime: getSourceRuntimeDiagnostics() } });
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
+        return json(res, 200, {
+          storage: getStorageDiagnostics(),
+          recentRequests: getRecentRequestLogs(25),
+          runtime: {
+            ocr: await getOcrDiagnostics(),
+            sourceRuntime: getSourceRuntimeDiagnostics(),
+            analysis: getAnalysisRuntimeDiagnostics(),
+          }
+        });
       }
 
       if (pathname === '/api/admin/ops') {
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
         const ocr = await getOcrDiagnostics();
         const sourceRuntime = getSourceRuntimeDiagnostics();
         const storage = getStorageDiagnostics();
@@ -476,6 +412,7 @@ export function createServer() {
             embeddings: getEmbeddingDiagnostics(),
             searchIndex: getSearchIndexDiagnostics(),
             graphBackend: getGraphBackendDiagnostics(),
+            analysis: getAnalysisRuntimeDiagnostics(),
             parserMonitor: buildParserMonitorSummary(jobs),
             worker: {
               schedulerIntervalMs: appConfig.schedulerIntervalMs,
@@ -490,6 +427,8 @@ export function createServer() {
       }
 
       if (pathname === '/api/admin/infra') {
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
         const postgres = await getPostgresDiagnostics();
         return json(res, 200, {
           storageBackend: appConfig.storageBackend,
@@ -504,10 +443,14 @@ export function createServer() {
       }
 
       if (pathname === '/api/admin/jobs' && req.method === 'GET') {
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
         return json(res, 200, { jobs: listBackgroundJobs(50) });
       }
 
       if (pathname === '/api/admin/jobs' && req.method === 'POST') {
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
         const body = await readJsonBody(req);
         if (body.action === 'schedule-defaults') {
           return json(res, 200, { ok: true, jobs: enqueueRecurringInfraJobs() });
@@ -524,10 +467,26 @@ export function createServer() {
       }
 
       if (pathname === '/api/admin/postgres-migration') {
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.statusCode = 200;
         res.end(buildPostgresMigrationSql());
         return;
+      }
+
+      if (pathname.startsWith('/api/analysis/jobs/') && req.method === 'GET') {
+        const id = decodeURIComponent(pathname.split('/')[4] || '');
+        const job = getAsyncAnalysisJob(id);
+        if (!job) return notFound(res, 'Analysis job not found');
+        return json(res, 200, { job });
+      }
+
+      if (pathname.startsWith('/api/analysis/jobs/') && req.method === 'DELETE') {
+        const id = decodeURIComponent(pathname.split('/')[4] || '');
+        const job = cancelAsyncAnalysisJob(id);
+        if (!job) return notFound(res, 'Analysis job not found');
+        return json(res, 200, { ok: true, job });
       }
 
       if (pathname === '/api/auth/register' && req.method === 'POST') {
@@ -575,7 +534,7 @@ export function createServer() {
       if (pathname === '/api/auth/me') {
         const ctx = getSessionContext(req);
         return json(res, 200, {
-          user: ctx ? { id: ctx.session.userId, email: ctx.session.email, displayName: ctx.session.displayName } : null
+          user: ctx ? { id: ctx.session.userId, email: ctx.session.email, displayName: ctx.session.displayName, isAdmin: isAdminEmail(ctx.session.email) } : null
         });
       }
 
@@ -712,16 +671,20 @@ export function createServer() {
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/expand')) {
         const id = decodeURIComponent(pathname.split('/')[3] || '');
-        const expansion = await expandPaperById(id);
+        if (wantsAsyncResponse(req, searchParams)) {
+          const job = submitAsyncAnalysisJob('paper-expand', { id }, { timeoutMs: 45000 });
+          return json(res, 202, buildAsyncAcceptedPayload(job));
+        }
+        const expansion = await runAnalysisTask('paper-expand', { id }, { timeoutMs: 45000 });
         if (!expansion) return notFound(res, 'Paper not found');
         return json(res, 200, expansion);
       }
 
       if (pathname.startsWith('/api/papers/') && pathname.endsWith('/graph')) {
         const id = decodeURIComponent(pathname.split('/')[3] || '');
-        const paper = await getPaperById(id);
-        if (!paper) return notFound(res, 'Paper not found');
-        return json(res, 200, { graph: paper.graph || {} });
+        const graph = await getGraphById(id);
+        if (!graph) return notFound(res, 'Paper not found');
+        return json(res, 200, { graph });
       }
 
       if (pathname.startsWith('/api/papers/')) {
@@ -733,6 +696,19 @@ export function createServer() {
 
       if (pathname === '/api/similarity/report' && req.method === 'POST') {
         const body = await readJsonBody(req);
+        if (wantsAsyncResponse(req, searchParams)) {
+          const job = submitAsyncAnalysisJob(
+            'similarity-request',
+            { body, fallbackTitle: '업로드 문서' },
+            {
+              timeoutMs: 120000,
+              onComplete: async (payload) => {
+                persistSimilarityRun({ title: body.title || body.reportName || '업로드 문서', extraction: null, report: payload });
+              },
+            }
+          );
+          return json(res, 202, buildAsyncAcceptedPayload(job));
+        }
         const payload = await buildSimilarityFromRequest(body);
         persistSimilarityRun({ title: body.title || body.reportName || '업로드 문서', extraction: null, report: payload });
         return json(res, 200, payload);
@@ -742,6 +718,19 @@ export function createServer() {
         const contentType = req.headers['content-type'] || '';
         if (contentType.includes('application/json')) {
           const body = await readJsonBody(req);
+          if (wantsAsyncResponse(req, searchParams)) {
+            const job = submitAsyncAnalysisJob(
+              'similarity-request',
+              { body, fallbackTitle: '업로드 문서' },
+              {
+                timeoutMs: 120000,
+                onComplete: async (payload) => {
+                  persistSimilarityRun({ title: body.title || body.reportName || '업로드 문서', extraction: null, report: payload });
+                },
+              }
+            );
+            return json(res, 202, buildAsyncAcceptedPayload(job));
+          }
           const payload = await buildSimilarityFromRequest(body);
           persistSimilarityRun({ title: body.title || body.reportName || '업로드 문서', extraction: null, report: payload });
           return json(res, 200, payload);
@@ -749,12 +738,35 @@ export function createServer() {
 
         const rawBody = await readRawBody(req, 5_000_000);
         const fields = contentType.includes('multipart/form-data') ? parseMultipartForm(rawBody, contentType) : {};
+        if (wantsAsyncResponse(req, searchParams)) {
+          const job = submitAsyncAnalysisJob(
+            'similarity-multipart',
+            { fields },
+            {
+              timeoutMs: 180000,
+              onComplete: async (payload) => {
+                persistSimilarityRun({ title: fields.title?.value || fields.report?.filename || '업로드 문서', extraction: payload.extraction || null, report: payload });
+              },
+            }
+          );
+          return json(res, 202, buildAsyncAcceptedPayload(job));
+        }
         const payload = await buildSimilarityFromMultipart(fields);
         persistSimilarityRun({ title: fields.title?.value || fields.report?.filename || '업로드 문서', extraction: payload.extraction || null, report: payload });
         return json(res, 200, payload);
       }
 
       if (pathname.startsWith('/api/')) return notFound(res, 'API route not found');
+
+      if (pathname === '/admin.html') {
+        const ctx = getSessionContext(req);
+        if (!ctx || !isAdminEmail(ctx.session.email)) {
+          res.statusCode = 302;
+          res.setHeader('Location', '/index.html');
+          res.end();
+          return;
+        }
+      }
 
       const served = await serveStatic(pathname, res, publicDir);
       if (served) return;

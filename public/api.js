@@ -30,6 +30,8 @@ const EMPTY_SIMILARITY_RESPONSE = {
   semanticDiff: { summary: '', insights: [] },
 };
 
+const PAPER_CACHE_KEY = 'scholaxis-paper-cache-v1';
+
 const REGION_MAP = {
   '국내,해외': 'all',
   '해외,국내': 'all',
@@ -78,6 +80,46 @@ async function requestJson(url, options) {
   return payload;
 }
 
+function canUseSessionStorage() {
+  return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined';
+}
+
+function readPaperCache() {
+  if (!canUseSessionStorage()) return {};
+  try {
+    return JSON.parse(window.sessionStorage.getItem(PAPER_CACHE_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function writePaperCache(cache = {}) {
+  if (!canUseSessionStorage()) return;
+  try {
+    window.sessionStorage.setItem(PAPER_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore storage quota/unavailable issues
+  }
+}
+
+function rememberPaperSnapshot(item = {}) {
+  const id = item.id || item.canonicalId;
+  if (!id) return;
+  const cache = readPaperCache();
+  cache[id] = {
+    ...cache[id],
+    ...item,
+    id,
+    cachedAt: new Date().toISOString(),
+  };
+  writePaperCache(cache);
+}
+
+function getRememberedPaperSnapshot(id = '') {
+  const cache = readPaperCache();
+  return cache[id] || null;
+}
+
 function normalizeSearch(payload) {
   if (Array.isArray(payload)) return { ...EMPTY_SEARCH_RESPONSE, items: payload.map(toUiPaperShape) };
   if (payload?.items) return buildNormalizedSearchPayload(payload, payload.items);
@@ -87,13 +129,20 @@ function normalizeSearch(payload) {
 }
 
 function normalizePaper(payload, id) {
+  let normalized;
   if (payload?.paper || payload?.expansion) {
-    return toUiPaperDetail({ ...(payload.paper || {}), ...(payload.expansion || {}), id: payload.paper?.id || id });
+    normalized = toUiPaperDetail({ ...(payload.paper || {}), ...(payload.expansion || {}), id: payload.paper?.id || id });
+    rememberPaperSnapshot(normalized);
+    return normalized;
   }
   if (payload?.data?.paper || payload?.data?.expansion) {
-    return toUiPaperDetail({ ...(payload.data.paper || {}), ...(payload.data.expansion || {}), id: payload.data.paper?.id || id });
+    normalized = toUiPaperDetail({ ...(payload.data.paper || {}), ...(payload.data.expansion || {}), id: payload.data.paper?.id || id });
+    rememberPaperSnapshot(normalized);
+    return normalized;
   }
-  return toUiPaperDetail({ ...(payload ?? {}), id: payload?.id || id });
+  normalized = toUiPaperDetail({ ...(payload ?? {}), id: payload?.id || id });
+  rememberPaperSnapshot(normalized);
+  return normalized;
 }
 
 function normalizeSimilarity(payload) {
@@ -268,6 +317,7 @@ function toUiPaperDetail(item = {}) {
 
 function buildNormalizedSearchPayload(basePayload, rawItems = []) {
   const items = rawItems.map(toUiPaperShape);
+  items.forEach((item) => rememberPaperSnapshot(item));
   return {
     ...EMPTY_SEARCH_RESPONSE,
     ...basePayload,
@@ -281,8 +331,41 @@ function buildNormalizedSearchPayload(basePayload, rawItems = []) {
 }
 
 export async function fetchPaper(id) {
-  const payload = await requestJson(`/api/papers/${encodeURIComponent(id)}/expand`);
-  return normalizePaper(payload, id);
+  try {
+    const payload = await requestJson(`/api/papers/${encodeURIComponent(id)}/expand`);
+    return normalizePaper(payload, id);
+  } catch (error) {
+    const cached = getRememberedPaperSnapshot(id);
+    if (!cached) throw error;
+    return toUiPaperDetail({
+      ...cached,
+      id,
+      explanation: cached.explanation || {
+        summary: '검색 결과에서 저장한 메타데이터를 기반으로 제한된 상세 보기를 제공합니다.',
+        whyItMatters: ['원문/출처 링크와 핵심 태그는 바로 사용할 수 있습니다.'],
+      },
+      detailHealth: cached.detailHealth || {
+        status: 'degraded',
+        score: 42,
+        summary: '실시간 상세 확장을 불러오지 못해 검색 결과 스냅샷으로 대체했습니다.',
+        warnings: ['검색 결과 스냅샷 기반 제한 상세 보기입니다.'],
+        metadata: [],
+        links: [],
+        linkSummary: cached.originalUrl || cached.sourceUrl ? '검색 결과에서 제공한 링크는 사용할 수 있습니다.' : '링크 정보가 제한적입니다.',
+        sections: [],
+      },
+      graphPaths: cached.graphPaths || [],
+      comparisonMatrix: cached.comparisonMatrix || [],
+      graph: cached.graph || {},
+      related: cached.related || [],
+      citations: cached.citations || [],
+      references: cached.references || [],
+      recommendations: cached.recommendations || [],
+      sourceStatus: cached.sourceStatus || [],
+      alternateSources: cached.alternateSources || [cached.source].filter(Boolean),
+      suggestedQueries: cached.suggestedQueries || [],
+    });
+  }
 }
 
 export async function analyzeSimilarity(formData) {
@@ -291,6 +374,78 @@ export async function analyzeSimilarity(formData) {
     body: formData,
   });
   return normalizeSimilarity(payload);
+}
+
+export async function fetchAnalysisJob(jobId) {
+  return requestJson(`/api/analysis/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export async function cancelAnalysisJob(jobId) {
+  return requestJson(`/api/analysis/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  });
+}
+
+async function waitForAnalysisJob(jobId, options = {}) {
+  const intervalMs = Number(options.intervalMs || 500);
+  const timeoutMs = Number(options.timeoutMs || 180000);
+  const startedAt = Date.now();
+
+  while (true) {
+    if (options.isCancelled?.()) {
+      await cancelAnalysisJob(jobId).catch(() => null);
+      throw new Error(`analysis-job-cancelled:${jobId}`);
+    }
+    const payload = await fetchAnalysisJob(jobId);
+    const job = payload.job || payload;
+    options.onProgress?.(job);
+
+    if (job.status === 'completed') {
+      return options.normalize ? options.normalize(job.result) : job.result;
+    }
+    if (job.status === 'cancelled') {
+      throw new Error(`analysis-job-cancelled:${jobId}`);
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'analysis-job-failed');
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`analysis-job-timeout:${jobId}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+export async function analyzeSimilarityAsync(formData, options = {}) {
+  const file = formData.get('report');
+  const hasFile = file && typeof file === 'object' && typeof file.size === 'number' && file.size > 0;
+  const requestTarget = hasFile ? '/api/similarity/analyze?async=1' : '/api/similarity/report?async=1';
+  const requestOptions = hasFile
+    ? { method: 'POST', body: formData }
+    : {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formData.get('title') || '',
+          text: formData.get('text') || '',
+        }),
+      };
+  const accepted = await requestJson(requestTarget, requestOptions);
+  options.onAccepted?.(accepted.job);
+  return waitForAnalysisJob(accepted.job.id, {
+    ...options,
+    normalize: (result) => normalizeSimilarity(result),
+  });
+}
+
+export async function fetchPaperAsync(id, options = {}) {
+  const accepted = await requestJson(`/api/papers/${encodeURIComponent(id)}/expand?async=1`);
+  options.onAccepted?.(accepted.job);
+  return waitForAnalysisJob(accepted.job.id, {
+    ...options,
+    normalize: (result) => normalizePaper(result, id),
+  });
 }
 
 export async function fetchAdminSummary() {

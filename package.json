@@ -10,10 +10,10 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "test": "NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node --test --test-concurrency=1 tests/api.test.mjs tests/search-quality-browser.test.mjs tests/search-quality-harness.test.mjs",
+    "test": "rm -f /tmp/scholaxis-test.db /tmp/scholaxis-test.db-shm /tmp/scholaxis-test.db-wal && SCHOLAXIS_DB_PATH=/tmp/scholaxis-test.db NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node --test --test-concurrency=1 tests/api.test.mjs tests/search-quality-browser.test.mjs tests/search-quality-harness.test.mjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "node scripts/typecheck.mjs",
-    "smoke": "NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node scripts/smoke-test.mjs",
+    "smoke": "rm -f /tmp/scholaxis-smoke.db /tmp/scholaxis-smoke.db-shm /tmp/scholaxis-smoke.db-wal && SCHOLAXIS_DB_PATH=/tmp/scholaxis-smoke.db NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node scripts/smoke-test.mjs",
     "sync": "node scripts/sync-sources.mjs",
     "scheduler": "node scripts/start-scheduler.mjs",
     "worker": "node scripts/start-worker.mjs",

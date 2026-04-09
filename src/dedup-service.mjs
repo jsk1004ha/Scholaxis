@@ -28,7 +28,10 @@ function jaccardFromTitles(titleA = '', titleB = '') {
 }
 
 function canonicalIdFor(document) {
-  const explicit = document.sourceIds?.doi || document.sourceIds?.semanticScholar || document.sourceIds?.arxiv || document.id;
+  const explicit = document.canonicalId || document.sourceIds?.doi || document.sourceIds?.semanticScholar || document.sourceIds?.arxiv || document.id;
+  if (document.canonicalId && String(document.canonicalId).startsWith(`${document.type}:`)) {
+    return document.canonicalId;
+  }
   return `${document.type}:${normalizeText(explicit).replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '')}`;
 }
 

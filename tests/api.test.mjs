@@ -16,7 +16,7 @@ import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
 import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
 import { searchLiveSources } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
-import { extractKciDocumentsFromHtml, extractRneReportDocumentsFromHtml } from '../src/source-adapters.mjs';
+import { extractKciDocumentsFromHtml, extractNtisDocumentsFromHtml, extractRneReportDocumentsFromHtml, extractScienceGoDocumentsFromHtml } from '../src/source-adapters.mjs';
 import { dedupeDocuments } from '../src/dedup-service.mjs';
 import { extractPdfText } from '../src/pdf-text-extractor.mjs';
 import { extractDocxText } from '../src/docx-text-extractor.mjs';
@@ -560,111 +560,196 @@ test('citations and references endpoints return graph-backed expansions', async 
 });
 
 test('graph and postgres migration endpoints expose expected payload formats', async () => {
+  process.env.SCHOLAXIS_ADMIN_EMAILS = 'admin@example.com';
   const { server, baseUrl } = await startTestServer();
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@example.com', password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
 
-  const graphResponse = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum/graph`);
-  const graphPayload = await graphResponse.json();
-  assert.equal(graphResponse.status, 200);
-  assert.ok(graphPayload.graph);
-  assert.ok(Array.isArray(graphPayload.graph.references));
-  assert.ok(graphPayload.graph.references.length >= 1);
-  assert.equal(graphPayload.graph.references[0].sourceId, 'paper:seed-paper-global-quantum');
+    const graphResponse = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum/graph`);
+    const graphPayload = await graphResponse.json();
+    assert.equal(graphResponse.status, 200);
+    assert.ok(graphPayload.graph);
+    assert.ok(Array.isArray(graphPayload.graph.references));
+    assert.ok(graphPayload.graph.references.length >= 1);
+    assert.equal(graphPayload.graph.references[0].sourceId, 'paper:seed-paper-global-quantum');
 
-  const expansionResponse = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum/expand`);
-  const expansionPayload = await expansionResponse.json();
-  assert.equal(expansionResponse.status, 200);
-  assert.ok(Array.isArray(expansionPayload.expansion.recommendations));
-  assert.ok(expansionPayload.expansion.recommendations.length >= 1);
-  assert.ok(expansionPayload.expansion.graphNarrative);
-  assert.ok(Array.isArray(expansionPayload.expansion.comparisonMatrix));
+    const expansionResponse = await fetch(`${baseUrl}/api/papers/paper:seed-paper-global-quantum/expand`);
+    const expansionPayload = await expansionResponse.json();
+    assert.equal(expansionResponse.status, 200);
+    assert.ok(Array.isArray(expansionPayload.expansion.recommendations));
+    assert.ok(expansionPayload.expansion.recommendations.length >= 1);
+    assert.ok(expansionPayload.expansion.graphNarrative);
+    assert.ok(Array.isArray(expansionPayload.expansion.comparisonMatrix));
 
-  const migrationResponse = await fetch(`${baseUrl}/api/admin/postgres-migration`);
-  const migrationText = await migrationResponse.text();
-  assert.equal(migrationResponse.status, 200);
-  assert.match(migrationResponse.headers.get('content-type') || '', /^text\/plain/);
-  assert.equal(migrationText, buildPostgresMigrationSql());
-
-  await closeServer(server);
+    const migrationResponse = await fetch(`${baseUrl}/api/admin/postgres-migration`, { headers: { cookie } });
+    const migrationText = await migrationResponse.text();
+    assert.equal(migrationResponse.status, 200);
+    assert.match(migrationResponse.headers.get('content-type') || '', /^text\/plain/);
+    assert.equal(migrationText, buildPostgresMigrationSql());
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('admin summary endpoint returns runtime and recent requests', async () => {
+  const adminEmail = `admin-summary-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/admin/summary`);
-  const payload = await response.json();
-  assert.equal(response.status, 200);
-  assert.ok(payload.storage);
-  assert.ok(payload.runtime);
-  assert.ok(Array.isArray(payload.recentRequests));
-  await closeServer(server);
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const response = await fetch(`${baseUrl}/api/admin/summary`, { headers: { cookie } });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.ok(payload.storage);
+    assert.ok(payload.runtime);
+    assert.ok(payload.runtime.analysis);
+    assert.equal(typeof payload.runtime.analysis.poolSize, 'number');
+    assert.ok(Array.isArray(payload.recentRequests));
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('admin ops endpoint returns startup, alerts, and similarity runs', async () => {
+  const adminEmail = `admin-ops-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
   const { server, baseUrl } = await startTestServer();
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
 
-  await fetch(`${baseUrl}/api/similarity/report`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: '운영 대시보드 샘플',
-      text: '운영 대시보드에서 최근 유사도 실행 이력을 확인하기 위한 샘플 문서입니다.',
-    }),
-  });
+    await fetch(`${baseUrl}/api/similarity/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '운영 대시보드 샘플',
+        text: '운영 대시보드에서 최근 유사도 실행 이력을 확인하기 위한 샘플 문서입니다.',
+      }),
+    });
 
-  const response = await fetch(`${baseUrl}/api/admin/ops`);
-  const payload = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(payload.startup.host, process.env.HOST || '127.0.0.1');
-  assert.ok(Array.isArray(payload.alerts));
-  assert.ok(Array.isArray(payload.recentRequests));
-  assert.ok(Array.isArray(payload.recentSimilarityRuns));
-  assert.ok(payload.recentSimilarityRuns.length >= 1);
-  assert.ok(payload.runtime.sourceRuntime);
-  assert.ok(payload.runtime.sourceRuntime.cache);
-  assert.equal(typeof payload.runtime.sourceRuntime.cache.entries, 'number');
-  assert.ok(payload.runtime.postgres);
-  assert.ok(payload.runtime.vectorBackend);
-  assert.ok(payload.runtime.graphBackend);
-  assert.ok(payload.runtime.parserMonitor);
-  assert.ok(payload.runtime.worker);
-  assert.ok(Array.isArray(payload.jobs));
-
-  await closeServer(server);
+    const response = await fetch(`${baseUrl}/api/admin/ops`, { headers: { cookie } });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.startup.host, process.env.HOST || '127.0.0.1');
+    assert.ok(Array.isArray(payload.alerts));
+    assert.ok(Array.isArray(payload.recentRequests));
+    assert.ok(Array.isArray(payload.recentSimilarityRuns));
+    assert.ok(payload.recentSimilarityRuns.length >= 1);
+    assert.ok(payload.runtime.sourceRuntime);
+    assert.ok(payload.runtime.sourceRuntime.cache);
+    assert.equal(typeof payload.runtime.sourceRuntime.cache.entries, 'number');
+    assert.ok(payload.runtime.postgres);
+    assert.ok(payload.runtime.vectorBackend);
+    assert.ok(payload.runtime.graphBackend);
+    assert.ok(payload.runtime.analysis);
+    assert.equal(typeof payload.runtime.analysis.workerCount, 'number');
+    assert.equal(typeof payload.runtime.analysis.asyncJobs.total, 'number');
+    assert.ok(payload.runtime.parserMonitor);
+    assert.ok(payload.runtime.worker);
+    assert.ok(Array.isArray(payload.jobs));
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('admin infra and jobs endpoints expose search infrastructure controls', async () => {
+  const adminEmail = `admin-infra-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
   const { server, baseUrl } = await startTestServer();
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
 
-  const infraResponse = await fetch(`${baseUrl}/api/admin/infra`);
-  const infraPayload = await infraResponse.json();
-  assert.equal(infraResponse.status, 200);
-  assert.equal(infraPayload.storageBackend, process.env.SCHOLAXIS_STORAGE_BACKEND || 'sqlite');
-  assert.ok(infraPayload.vectorBackend);
-  assert.ok(infraPayload.graphBackend);
-  assert.ok(infraPayload.seriousUsePath);
-  assert.equal(infraPayload.seriousUsePath.recommended.storageBackend, 'postgres');
-  assert.equal(infraPayload.seriousUsePath.recommended.vectorBackend, 'pgvector');
-  assert.equal(infraPayload.seriousUsePath.validationCommand, 'npm run validate:postgres');
-  assert.equal(infraPayload.postgres.seriousUsePath.validationCommand, 'npm run validate:postgres');
-  assert.match(infraPayload.postgresMigrationPreview, /CREATE EXTENSION IF NOT EXISTS vector/);
+    const infraResponse = await fetch(`${baseUrl}/api/admin/infra`, { headers: { cookie } });
+    const infraPayload = await infraResponse.json();
+    assert.equal(infraResponse.status, 200);
+    assert.equal(infraPayload.storageBackend, process.env.SCHOLAXIS_STORAGE_BACKEND || 'sqlite');
+    assert.ok(infraPayload.vectorBackend);
+    assert.ok(infraPayload.graphBackend);
+    assert.ok(infraPayload.seriousUsePath);
+    assert.equal(infraPayload.seriousUsePath.recommended.storageBackend, 'postgres');
+    assert.equal(infraPayload.seriousUsePath.recommended.vectorBackend, 'pgvector');
+    assert.equal(infraPayload.seriousUsePath.validationCommand, 'npm run validate:postgres');
+    assert.equal(infraPayload.postgres.seriousUsePath.validationCommand, 'npm run validate:postgres');
+    assert.match(infraPayload.postgresMigrationPreview, /CREATE EXTENSION IF NOT EXISTS vector/);
 
-  const scheduleResponse = await fetch(`${baseUrl}/api/admin/jobs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'schedule-defaults' }),
-  });
-  const schedulePayload = await scheduleResponse.json();
-  assert.equal(scheduleResponse.status, 200);
-  assert.ok(Array.isArray(schedulePayload.jobs));
-  assert.ok(schedulePayload.jobs.length >= 1);
-  assert.ok(schedulePayload.jobs.some((job) => job.jobType === 'source-health-check'));
+    const scheduleResponse = await fetch(`${baseUrl}/api/admin/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ action: 'schedule-defaults' }),
+    });
+    const schedulePayload = await scheduleResponse.json();
+    assert.equal(scheduleResponse.status, 200);
+    assert.ok(Array.isArray(schedulePayload.jobs));
+    assert.ok(schedulePayload.jobs.length >= 1);
+    assert.ok(schedulePayload.jobs.some((job) => job.jobType === 'source-health-check'));
 
-  const jobsResponse = await fetch(`${baseUrl}/api/admin/jobs`);
-  const jobsPayload = await jobsResponse.json();
-  assert.equal(jobsResponse.status, 200);
-  assert.ok(Array.isArray(jobsPayload.jobs));
-  assert.ok(jobsPayload.jobs.length >= 1);
+    const jobsResponse = await fetch(`${baseUrl}/api/admin/jobs`, { headers: { cookie } });
+    const jobsPayload = await jobsResponse.json();
+    assert.equal(jobsResponse.status, 200);
+    assert.ok(Array.isArray(jobsPayload.jobs));
+    assert.ok(jobsPayload.jobs.length >= 1);
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
+});
 
-  await closeServer(server);
+test('admin endpoints reject unauthenticated and non-admin users', async () => {
+  process.env.SCHOLAXIS_ADMIN_EMAILS = 'admin@example.com';
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const anonymousResponse = await fetch(`${baseUrl}/api/admin/summary`);
+    const anonymousPayload = await anonymousResponse.json();
+    assert.equal(anonymousResponse.status, 401);
+    assert.match(anonymousPayload.error, /로그인/);
+
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'user@example.com', password: 'test-password', displayName: 'User' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const userResponse = await fetch(`${baseUrl}/api/admin/summary`, { headers: { cookie } });
+    const userPayload = await userResponse.json();
+    assert.equal(userResponse.status, 403);
+    assert.match(userPayload.error, /관리자/);
+
+    const adminPageResponse = await fetch(`${baseUrl}/admin.html`, { redirect: 'manual' });
+    assert.equal(adminPageResponse.status, 302);
+    assert.equal(adminPageResponse.headers.get('location'), '/index.html');
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('search stream endpoint emits summary, progress, results, and done events', async () => {
@@ -693,29 +778,36 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   await closeServer(server);
 });
 
-test('search endpoint does not dump unrelated seed results for unmatched queries', async () => {
+test('search endpoint returns a relevant science fair result for 자기진자 queries', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/search?q=자기진자&region=all&sourceType=all&sort=relevance&autoLive=0`);
   const payload = await response.json();
   assert.equal(response.status, 200);
-  assert.ok(payload.total >= 0);
-  if (payload.total === 0) {
-    assert.match(payload.summary, /찾지 못했습니다/);
-  } else {
-    assert.equal(payload.fallbackMode, 'exploratory');
-    assert.ok(payload.items.every((item) => item.exploratory === true));
-  }
+  assert.ok(payload.items.some((item) => item.sourceKey === 'science_fair' && /자석진자/.test(item.title)));
   await closeServer(server);
 });
 
-test('search endpoint blocks dense-only collisions for compact Korean queries', async () => {
+test('search endpoint keeps 자석진자 queries on relevant fair-entry results', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/search?q=자석진자&region=all&sourceType=all&sort=relevance&autoLive=0`);
   const payload = await response.json();
   assert.equal(response.status, 200);
-  if (payload.total > 0) {
-    assert.equal(payload.fallbackMode, 'exploratory');
-  }
+  assert.ok(payload.items.some((item) => item.sourceKey === 'science_fair' && /자석진자/.test(item.title)));
+  await closeServer(server);
+});
+
+test('fair-entry search results can open detail expansion successfully', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const searchResponse = await fetch(`${baseUrl}/api/search?q=${encodeURIComponent('자기진자 전람회')}&region=all&sourceType=all&sort=relevance&autoLive=0`);
+  const searchPayload = await searchResponse.json();
+  assert.equal(searchResponse.status, 200);
+  const fairEntry = searchPayload.items.find((item) => item.sourceKey === 'science_fair');
+  assert.ok(fairEntry?.id || fairEntry?.canonicalId);
+
+  const detailResponse = await fetch(`${baseUrl}/api/papers/${encodeURIComponent(fairEntry.id || fairEntry.canonicalId)}/expand`);
+  const detailPayload = await detailResponse.json();
+  assert.equal(detailResponse.status, 200);
+  assert.match(detailPayload.paper?.title || '', /자석진자/);
   await closeServer(server);
 });
 
@@ -930,6 +1022,106 @@ test('search supports Korean to English and English to Korean semantic retrieval
   await closeServer(server);
 });
 
+test('async similarity job API returns accepted job and polling result', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/similarity/report?async=1`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: '비동기 배터리 AI 초안',
+      text: '배터리 열폭주 예측과 센서융합 딥러닝 기반 진단 연구 초안입니다.',
+    }),
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 202);
+  assert.equal(payload.async, true);
+  assert.ok(payload.job?.id);
+
+  let finalJob = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const jobResponse = await fetch(`${baseUrl}${payload.statusUrl}`);
+    const jobPayload = await jobResponse.json();
+    assert.equal(jobResponse.status, 200);
+    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
+      finalJob = jobPayload.job;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  assert.ok(finalJob);
+  assert.equal(finalJob.status, 'completed');
+  assert.ok(finalJob.result?.topMatches?.length > 0);
+  await closeServer(server);
+});
+
+test('async paper expand job API returns accepted job and polling result', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/papers/${encodeURIComponent('paper:seed-paper-global-quantum')}/expand?async=1`);
+  const payload = await response.json();
+  assert.equal(response.status, 202);
+  assert.equal(payload.async, true);
+  assert.ok(payload.job?.id);
+
+  let finalJob = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const jobResponse = await fetch(`${baseUrl}${payload.statusUrl}`);
+    const jobPayload = await jobResponse.json();
+    assert.equal(jobResponse.status, 200);
+    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
+      finalJob = jobPayload.job;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  assert.ok(finalJob);
+  assert.equal(finalJob.status, 'completed');
+  assert.match(finalJob.result?.paper?.title || '', /Quantum Neural Architectures/);
+  await closeServer(server);
+});
+
+test('async analysis job API supports cancellation', async () => {
+  process.env.SCHOLAXIS_TEST_ANALYSIS_DELAY_MS = '1000';
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const response = await fetch(`${baseUrl}/api/similarity/report?async=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '취소 테스트',
+        text: '배터리 열폭주 예측과 센서융합 딥러닝 기반 진단 연구 초안입니다.',
+      }),
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 202);
+    assert.ok(payload.job?.id);
+
+    const cancelResponse = await fetch(`${baseUrl}${payload.statusUrl}`, { method: 'DELETE' });
+    const cancelPayload = await cancelResponse.json();
+    assert.equal(cancelResponse.status, 200);
+    assert.ok(['queued', 'running', 'cancelled'].includes(cancelPayload.job.status));
+
+    let finalJob = null;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const jobResponse = await fetch(`${baseUrl}${payload.statusUrl}`);
+      const jobPayload = await jobResponse.json();
+      assert.equal(jobResponse.status, 200);
+      if (['completed', 'failed', 'cancelled'].includes(jobPayload.job?.status)) {
+        finalJob = jobPayload.job;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    assert.ok(finalJob);
+    assert.equal(finalJob.status, 'cancelled');
+  } finally {
+    delete process.env.SCHOLAXIS_TEST_ANALYSIS_DELAY_MS;
+    await closeServer(server);
+  }
+});
+
 test('generic fair/RNE source queries surface representative seeded category results', () => {
   const results = runIsolatedSearchQueries(['전람회', 'RNE', '발명품']);
   const byQuery = new Map(results.map((item) => [item.query, item]));
@@ -1112,6 +1304,50 @@ test('rne report parser extracts report titles from listing html', () => {
   assert.ok(docs.length >= 1);
   assert.equal(docs[0].source, 'rne_report');
   assert.match(docs[0].links.detail, /rs_report\/2295/);
+});
+
+test('ntis parser ignores no-result guidance text', () => {
+  const html = `
+    <h4><span class="noData">자기진자 전람회</span> 또는 선택한 조건에 대한 검색결과가 없습니다.</h4>
+    <ul>
+      <li>검색어의 철자가 정확한지 확인해 주세요.</li>
+      <li>검색어의 단어 수를 줄이거나, 다른 검색어로 검색해 보세요.</li>
+    </ul>
+  `;
+  const docs = extractNtisDocumentsFromHtml(
+    html,
+    '자기진자 전람회',
+    5,
+    'https://www.ntis.go.kr/ThSearchProjectList.do?searchWord=%EC%9E%90%EA%B8%B0%EC%A7%84%EC%9E%90'
+  );
+  assert.equal(docs.length, 0);
+});
+
+test('science fair parser excludes 지도논문 rows and avoids query leakage in keywords', () => {
+  const html = `
+    <tbody class="singlerow" style="cursor: pointer" onclick="fn_moveBbsNttDetail('23152', '')">
+      <tr><td>1</td><td>2006</td><td>물리</td><td>자석진자를 이용한 카오스 운동에 대한 연구</td><td>특상</td></tr>
+    </tbody>
+    <tbody class="singlerow" style="cursor: pointer" onclick="fn_moveBbsNttDetail('29386', '')">
+      <tr><td>2</td><td>2025</td><td>지구및환경</td><td>(지도논문)비틀림 진자 실험의 정교화와 꼬임에 관한 연구 지도</td><td>지도논문단체상</td></tr>
+    </tbody>
+  `;
+  const docs = extractScienceGoDocumentsFromHtml(
+    'science_fair',
+    html,
+    '자기진자 전람회',
+    10,
+    {
+      baseUrl: 'https://www.science.go.kr/mps/1079/bbs/423/moveBbsNttList.do',
+      page: 4,
+      searchTerm: '진자',
+    }
+  );
+  assert.equal(docs.length, 1);
+  assert.match(docs[0].title, /자석진자/);
+  assert.ok(docs[0].keywords.every((keyword) => !keyword.includes('자기진자')));
+  assert.match(docs[0].links.detail, /nttSn=23152/);
+  assert.match(docs[0].links.detail, /searchKrwd=%EC%A7%84%EC%9E%90/);
 });
 
 

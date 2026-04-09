@@ -3,6 +3,7 @@ import { appConfig } from './config.mjs';
 import { dedupeDocuments } from './dedup-service.mjs';
 import { attachSemanticVectors } from './embedding-service.mjs';
 import { loadDocumentsFromPostgres } from './postgres-store.mjs';
+import { isGuidanceOnlyFairDocument, normalizeKeywordBag } from './source-helpers.mjs';
 import { getStoredDocuments, getStoredDocumentsLite } from './storage.mjs';
 import { buildDenseVector, buildSparseVector, textBundle, normalizeText } from './vector-service.mjs';
 
@@ -61,9 +62,30 @@ function attachFastSemanticVectors(documents = [], dimensions = appConfig.vector
   });
 }
 
+function sanitizeIndexedDocument(document = {}) {
+  if (!document || typeof document !== 'object') return document;
+  if (isGuidanceOnlyFairDocument(document)) return null;
+
+  if (!['science_fair', 'student_invention_fair', 'rne_report'].includes(document.source)) {
+    return document;
+  }
+
+  return {
+    ...document,
+    keywords: normalizeKeywordBag([
+      document.title,
+      document.summary,
+      document.organization,
+      ...(document.highlights || []),
+    ].filter(Boolean).join(' ')).slice(0, 8),
+  };
+}
+
 export async function loadSearchIndexDocuments({ liveDocuments = [], fastEmbeddings = false } = {}) {
   const persistedDocuments = await loadPersistedDocuments({ fastEmbeddings });
-  const merged = dedupeDocuments([...seedCatalog, ...persistedDocuments, ...(liveDocuments || [])]);
+  const merged = dedupeDocuments([...seedCatalog, ...persistedDocuments, ...(liveDocuments || [])])
+    .map((document) => sanitizeIndexedDocument(document))
+    .filter(Boolean);
   const fingerprint = `${buildIndexFingerprint(merged)}::fast=${fastEmbeddings ? 1 : 0}`;
 
   if (fingerprint && fingerprint === indexState.key && indexState.documents.length) {
