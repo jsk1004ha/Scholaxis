@@ -325,6 +325,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 ### 흔한 이슈
 - **포트 충돌**: 서버는 자동으로 다음 포트로 재시도합니다.
 - **라이브 소스 응답 불안정**: 외부 소스는 timeout 후 partial result 로 degrade 됩니다.
+- **ScienceON 글자 깨짐/강조 태그 노출**: 최신 빌드에서는 cp949/euc-kr 우선 디코딩과 HTML entity 정리를 적용했습니다. 여전히 깨지면 `SCIENCEON_SEARCH_URL` 커스텀 여부와 실제 응답 charset 을 확인하세요.
+- **상세/유사도 화면이 로딩 전에 예시 문헌을 보여줌**: 최신 UI는 loading-first placeholder 를 사용합니다. 오래된 정적 파일이 보이면 브라우저 새로고침(강력 새로고침) 후 다시 확인하세요.
 - **OCR 미동작**: `tesseract-ocr`, `tesseract-ocr-kor`, `poppler-utils` 설치 여부를 확인하세요.
 - **번역 백엔드 미동작**: `SCHOLAXIS_TRANSLATION_*` 환경변수와 서비스 URL/포트를 확인하세요.
 - **reranker 미동작**: `SCHOLAXIS_RERANKER_*` 설정과 `npm run reranker-service` 실행 여부를 확인하세요.
@@ -391,6 +393,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - **reranker 서비스 계층** 및 로컬 HTTP reranker 실행 경로 추가
 - 검색 시 **translation + reranker diagnostics** 가 운영 API에 노출되도록 보강
 - 저장 검색, 라이브러리 공유, 추천 피드 등 사용자 상태 기능 확장
+- 상세/유사도/검색 결과 화면을 **loading-first placeholder UI** 로 바꿔, 실제 데이터가 오기 전까지 하드코딩 예시 문헌이 보이지 않도록 개선
+- ScienceON 크롤링에 **cp949/euc-kr 우선 디코딩 + escaped `<em>` 제거** 를 적용해 한글 제목 깨짐과 강조 태그 노출을 완화
 
 ---
 
