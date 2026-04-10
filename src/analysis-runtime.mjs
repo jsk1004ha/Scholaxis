@@ -345,12 +345,16 @@ export function getAnalysisRuntimeDiagnostics() {
   cleanupExpiredAsyncJobs();
   const workerEntries = [...workers.values()];
   const jobs = [...asyncJobs.values()];
+  const busyWorkers = workerEntries.filter((worker) => worker.busy).length;
+  const queueDepth = pendingJobs.length;
   return {
     poolSize: maxWorkers,
     workerCount: workerEntries.length,
     readyWorkers: workerEntries.filter((worker) => worker.ready).length,
-    busyWorkers: workerEntries.filter((worker) => worker.busy).length,
-    queuedTasks: pendingJobs.length,
+    busyWorkers,
+    queuedTasks: queueDepth,
+    queueDepth,
+    overloaded: busyWorkers >= maxWorkers && queueDepth > 0,
     idleShutdownMs,
     asyncJobs: {
       total: jobs.length,

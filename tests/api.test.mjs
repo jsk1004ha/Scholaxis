@@ -637,6 +637,8 @@ test('admin summary endpoint returns runtime and recent requests', async () => {
     assert.ok(payload.runtime);
     assert.ok(payload.runtime.analysis);
     assert.equal(typeof payload.runtime.analysis.poolSize, 'number');
+    assert.equal(typeof payload.runtime.analysis.queueDepth, 'number');
+    assert.equal(typeof payload.runtime.analysis.overloaded, 'boolean');
     assert.ok(Array.isArray(payload.recentRequests));
   } finally {
     delete process.env.SCHOLAXIS_ADMIN_EMAILS;
@@ -682,6 +684,8 @@ test('admin ops endpoint returns startup, alerts, and similarity runs', async ()
     assert.ok(payload.runtime.graphBackend);
     assert.ok(payload.runtime.analysis);
     assert.equal(typeof payload.runtime.analysis.workerCount, 'number');
+    assert.equal(typeof payload.runtime.analysis.queueDepth, 'number');
+    assert.equal(typeof payload.runtime.analysis.overloaded, 'boolean');
     assert.equal(typeof payload.runtime.analysis.asyncJobs.total, 'number');
     assert.ok(payload.runtime.parserMonitor);
     assert.ok(payload.runtime.worker);
@@ -1203,6 +1207,72 @@ test('async analysis job API supports cancellation', async () => {
     assert.ok(finalJob);
     assert.equal(finalJob.status, 'cancelled');
   } finally {
+    delete process.env.SCHOLAXIS_TEST_ANALYSIS_DELAY_MS;
+    await closeServer(server);
+  }
+});
+
+test('admin ops exposes analysis queue depth, busy workers, and overload state while async jobs are queued', async () => {
+  const adminEmail = `admin-analysis-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
+  process.env.SCHOLAXIS_TEST_ANALYSIS_DELAY_MS = '250';
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const jobRequests = Array.from({ length: 6 }, (_, index) =>
+      fetch(`${baseUrl}/api/similarity/report?async=1`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `대기열 진단 ${index + 1}`,
+          text: `요청 기반 프리즈 회귀 테스트 ${index + 1} - 배터리 열폭주 예측과 멀티모달 센서융합.`,
+        }),
+      })
+    );
+    const jobResponses = await Promise.all(jobRequests);
+    const jobs = await Promise.all(jobResponses.map((response) => response.json()));
+    jobResponses.forEach((response) => assert.equal(response.status, 202));
+    jobs.forEach((payload) => assert.ok(payload.job?.id));
+
+    let runtime = null;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/admin/ops`, { headers: { cookie } });
+      const payload = await response.json();
+      assert.equal(response.status, 200);
+      runtime = payload.runtime?.analysis || null;
+      if (runtime?.busyWorkers > 0 && runtime?.queueDepth > 0 && runtime?.overloaded) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    assert.ok(runtime);
+    assert.ok(runtime.busyWorkers > 0);
+    assert.ok(runtime.queueDepth > 0);
+    assert.equal(runtime.queuedTasks, runtime.queueDepth);
+    assert.equal(runtime.overloaded, true);
+
+    await Promise.all(
+      jobs.map(async (payload) => {
+        let status = '';
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          const response = await fetch(`${baseUrl}${payload.statusUrl}`);
+          const jobPayload = await response.json();
+          assert.equal(response.status, 200);
+          status = jobPayload.job?.status || '';
+          if (['completed', 'failed', 'cancelled'].includes(status)) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        assert.fail(`Timed out waiting for async analysis job ${payload.job?.id} to finish; last status=${status}`);
+      })
+    );
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
     delete process.env.SCHOLAXIS_TEST_ANALYSIS_DELAY_MS;
     await closeServer(server);
   }

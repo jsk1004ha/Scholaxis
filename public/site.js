@@ -1542,7 +1542,8 @@ async function initAdminPage() {
       <div class="stat-card"><span>Source Timeout</span><strong>${escapeHtml(startup.sourceTimeoutMs || '-')}ms</strong></div>
       <div class="stat-card"><span>Analysis Pool</span><strong>${escapeHtml(analysisRuntime.poolSize || 0)}</strong></div>
       <div class="stat-card"><span>Busy Workers</span><strong>${escapeHtml(analysisRuntime.busyWorkers || 0)}</strong></div>
-      <div class="stat-card"><span>Queued Analysis</span><strong>${escapeHtml(analysisRuntime.queuedTasks || 0)}</strong></div>
+      <div class="stat-card"><span>Queued Analysis</span><strong>${escapeHtml(analysisRuntime.queueDepth ?? analysisRuntime.queuedTasks ?? 0)}</strong></div>
+      <div class="stat-card"><span>Analysis Overload</span><strong>${analysisRuntime.overloaded ? 'ACTIVE' : 'NORMAL'}</strong></div>
       <div class="stat-card"><span>Async Jobs</span><strong>${escapeHtml(analysisRuntime.asyncJobs?.running || 0)}</strong></div>
     `;
 
