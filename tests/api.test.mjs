@@ -1040,6 +1040,69 @@ test('search supports Korean to English and English to Korean semantic retrieval
   await closeServer(server);
 });
 
+test('search recalls English-only and Korean-only documents through semantic cross-lingual evidence', async () => {
+  await persistDocuments([
+    {
+      canonicalId: 'paper:cross-en-only-graph',
+      id: 'paper:cross-en-only-graph',
+      type: 'paper',
+      source: 'arxiv',
+      sourceLabel: 'arXiv',
+      title: 'Scholarly Graph Retrieval with Quantum Neural Ranking',
+      englishTitle: 'Scholarly Graph Retrieval with Quantum Neural Ranking',
+      authors: ['Dana Smith'],
+      organization: 'Open Retrieval Lab',
+      year: 2026,
+      language: 'en',
+      abstract: 'This paper improves scholarly graph retrieval and citation discovery with quantum neural ranking.',
+      summary: 'English-only abstract and summary for scholarly graph retrieval.',
+      keywords: ['scholarly graph', 'graph retrieval', 'citation discovery', 'quantum neural ranking'],
+      links: {
+        detail: 'https://example.com/cross-en-only-graph',
+        original: 'https://example.com/cross-en-only-graph'
+      }
+    },
+    {
+      canonicalId: 'fair_entry:cross-ko-only-voltage',
+      id: 'fair_entry:cross-ko-only-voltage',
+      type: 'fair_entry',
+      source: 'student_invention_fair',
+      sourceLabel: '학생발명품경진대회',
+      title: '태양광 기반 휴대용 전압 공급장치 설계',
+      englishTitle: '',
+      authors: ['김하늘'],
+      organization: '학생발명품경진대회',
+      year: 2024,
+      language: 'ko',
+      abstract: '태양광 에너지를 활용해 야외 활동용 휴대용 전압 공급장치를 설계한 학생 발명 사례다.',
+      summary: '한국어 전용 설명으로 구성된 휴대용 전압 공급장치 사례.',
+      keywords: ['태양광', '휴대용 전압 공급장치', '학생 발명', '전원 공급'],
+      links: {
+        detail: 'https://example.com/cross-ko-only-voltage',
+        original: 'https://example.com/cross-ko-only-voltage'
+      }
+    }
+  ]);
+
+  const { server, baseUrl } = await startTestServer();
+
+  const koreanToEnglish = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('학술 그래프 검색')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const koreanPayload = await koreanToEnglish.json();
+  assert.equal(koreanToEnglish.status, 200);
+  assert.ok(koreanPayload.items.some((item) => item.canonicalId === 'paper:cross-en-only-graph'));
+
+  const englishToKorean = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('portable voltage supply')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const englishPayload = await englishToKorean.json();
+  assert.equal(englishToKorean.status, 200);
+  assert.ok(englishPayload.items.some((item) => item.canonicalId === 'fair_entry:cross-ko-only-voltage'));
+
+  await closeServer(server);
+});
+
 test('async similarity job API returns accepted job and polling result', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/similarity/report?async=1`, {
@@ -1634,6 +1697,20 @@ test('query expansion stays generic when no translation backend is configured', 
   const context = await buildCrossLingualQueryContext('새로운 주제 검색');
   assert.equal(context.enabled, false);
   assert.equal(context.reason, 'translation-backend-not-configured');
+});
+
+test('query context uses semantic lexicon fallback for cross-lingual retrieval when translation backend is unavailable', async () => {
+  const koContext = await buildCrossLingualQueryContext('학술 그래프 검색');
+  assert.equal(koContext.enabled, true);
+  assert.equal(koContext.backend, 'lexicon');
+  assert.equal(koContext.direction, 'ko-to-en');
+  assert.match(koContext.translatedQuery, /scholarly graph|knowledge graph/i);
+
+  const enContext = await buildCrossLingualQueryContext('portable voltage supply');
+  assert.equal(enContext.enabled, true);
+  assert.equal(enContext.backend, 'lexicon');
+  assert.equal(enContext.direction, 'en-to-ko');
+  assert.match(enContext.translatedQuery, /전압 공급장치/);
 });
 
 test('query profile classifier surfaces source hints without term-translation hacks', () => {

@@ -671,7 +671,9 @@ const getLightweightDocumentsStmt = db.prepare(`
     authors_json AS authorsJson,
     keywords_json AS keywordsJson,
     summary,
-    links_json AS linksJson
+    links_json AS linksJson,
+    raw_json AS rawJson,
+    updated_at AS updatedAt
   FROM documents
   ORDER BY canonical_id ASC
 `);
@@ -872,7 +874,7 @@ export function getStoredDocuments() {
 
 export function getStoredDocumentsLite() {
   if (usePostgresStorage()) return getStoredDocumentsFromPostgresSync();
-  return getLightweightDocumentsStmt.all().map((row) => ({
+  return getLightweightDocumentsStmt.all().map((row) => hydrateStoredDocument({
     canonicalId: row.canonicalId,
     id: row.canonicalId,
     source: row.source,
@@ -884,10 +886,9 @@ export function getStoredDocumentsLite() {
     keywords: JSON.parse(row.keywordsJson || '[]'),
     summary: row.summary || '',
     links: JSON.parse(row.linksJson || '{}'),
-    methods: [],
-    highlights: [],
+    updatedAt: row.updatedAt,
     alternateSources: row.source ? [row.source] : [],
-  }));
+  }, row.rawJson));
 }
 
 export function createUser({ email, displayName, passwordDigest }) {

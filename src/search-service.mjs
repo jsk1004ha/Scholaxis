@@ -103,15 +103,29 @@ function hasQueryEvidence(scoreBundle, queryTokens = [], queryTerms = [], rawQue
   if (normalizedQuery && (normalizedTitle.includes(normalizedQuery) || normalizedEnglishTitle.includes(normalizedQuery))) return true;
   if (compactQuery && normalizedBody.replace(/\s+/g, '').includes(compactQuery)) return true;
   const exactTermMatches = queryTerms.filter((token) => normalizedBody.includes(token));
-  if (queryTerms.length >= 2) {
-    return exactTermMatches.length >= Math.min(2, queryTerms.length);
-  }
+  const semanticTokenMatches = unique(queryTokens.filter((token) => normalizedBody.includes(token)));
+  const strongCrossLingualPhraseMatch = semanticTokenMatches.some((token) => /\s/.test(token) || token.length >= 8);
+  const crossLingualSemanticEnough =
+    semanticTokenMatches.length >= (queryTerms.length >= 2 ? 2 : 1) ||
+    (crossLingualTarget && semanticTokenMatches.length >= 1 && strongCrossLingualPhraseMatch && scoreBundle.lexicalScore >= 18);
+  if (queryTerms.length >= 2 && exactTermMatches.length >= Math.min(2, queryTerms.length)) return true;
   if (queryTerms.length === 1 && exactTermMatches.length >= 1) return true;
+  if (
+    crossLingualTarget &&
+    crossLingualSemanticEnough &&
+    (
+      scoreBundle.lexicalScore >= 6 ||
+      scoreBundle.sparseScore >= 0.08 ||
+      (scoreBundle.rerankScore || 0) >= 0.28
+    )
+  ) {
+    return true;
+  }
   if (hasReliableSemanticEmbedding(document) && scoreBundle.denseScore >= 0.58) return true;
   if (crossLingualTarget && hasReliableSemanticEmbedding(document) && scoreBundle.denseScore >= 0.34) return true;
   if ((scoreBundle.rerankScore || 0) >= 0.62 && scoreBundle.denseScore >= 0.28) return true;
   if (rawQueryTermCount >= 2) return false;
-  if (queryTokens.some((token) => normalizedBody.includes(token))) return true;
+  if (semanticTokenMatches.length) return true;
   return (
     scoreBundle.lexicalScore >= 8 ||
     scoreBundle.sparseScore >= 0.14 ||

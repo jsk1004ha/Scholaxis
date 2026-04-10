@@ -1,4 +1,5 @@
 import { appConfig } from './config.mjs';
+import { expandSemanticLexiconTerms } from './semantic-lexicon.mjs';
 import { normalizeText, tokenize, unique } from './vector-service.mjs';
 
 export function makeAbortSignal(timeoutMs = appConfig.sourceTimeoutMs) {
@@ -264,6 +265,117 @@ function resolveTranslationProvider() {
   return 'generic';
 }
 
+const LEXICON_CROSSLINGUAL_GENERIC_LATIN = new Set([
+  'search',
+  'discovery',
+  'research',
+  'paper',
+  'article',
+  'study',
+  'report',
+  'graph',
+  'network',
+  'ai',
+]);
+
+const LEXICON_CROSSLINGUAL_GENERIC_KOREAN = new Set([
+  '검색',
+  '연구',
+  '논문',
+  '자료',
+  '보고서',
+  '그래프',
+  '네트워크',
+  '인공지능',
+]);
+
+const LEXICON_FALLBACK_SEED_STOPWORDS_LATIN = new Set([
+  'new',
+  'topic',
+  'search',
+  'research',
+  'paper',
+  'article',
+  'study',
+  'report',
+]);
+
+const LEXICON_FALLBACK_SEED_STOPWORDS_KOREAN = new Set([
+  '새로운',
+  '주제',
+  '검색',
+  '연구',
+  '논문',
+  '보고서',
+  '자료',
+]);
+
+function buildQueryWindows(query = '') {
+  const tokens = unique(tokenize(query));
+  const windows = [];
+  if (tokens.length >= 2) {
+    for (let index = 0; index < tokens.length - 1; index += 1) {
+      windows.push(tokens.slice(index, index + 2).join(' '));
+    }
+  }
+  if (tokens.length >= 3) {
+    for (let index = 0; index < tokens.length - 2; index += 1) {
+      windows.push(tokens.slice(index, index + 3).join(' '));
+    }
+  }
+  return windows;
+}
+
+function buildLexiconFallbackTranslation(query = '', language = 'none') {
+  if (!['ko', 'en'].includes(language)) return '';
+
+  const seeds = unique([
+    query,
+    ...buildQueryWindows(query),
+    ...tokenize(query),
+  ])
+    .filter(Boolean)
+    .filter((term) => {
+      const normalized = normalizeText(term);
+      if (!normalized) return false;
+      const tokens = normalized.split(' ').filter(Boolean);
+      const stopwords = language === 'ko'
+        ? LEXICON_FALLBACK_SEED_STOPWORDS_KOREAN
+        : LEXICON_FALLBACK_SEED_STOPWORDS_LATIN;
+      return tokens.some((token) => !stopwords.has(token));
+    });
+
+  const expanded = unique(expandSemanticLexiconTerms(seeds));
+  const candidates = expanded.filter((term) => (
+    language === 'ko' ? /[A-Za-z]/.test(term) : /[가-힣]/.test(term)
+  ));
+
+  const filtered = candidates.filter((term) => {
+    const normalized = normalizeText(term);
+    if (!normalized) return false;
+    if (language === 'ko') return !LEXICON_CROSSLINGUAL_GENERIC_LATIN.has(normalized);
+    return !LEXICON_CROSSLINGUAL_GENERIC_KOREAN.has(normalized);
+  });
+
+  const scored = filtered
+    .map((term) => {
+      const normalized = normalizeText(term);
+      const phrase = /\s/.test(term);
+      const score =
+        (phrase ? 100 : 0) +
+        (/[가-힣]/.test(term) ? term.replace(/\s+/g, '').length : normalized.length);
+      return { term, normalized, score };
+    })
+    .sort((a, b) => b.score - a.score || a.normalized.localeCompare(b.normalized));
+
+  const selected = unique(scored.map((item) => item.term))
+    .filter((term, index) => index < 4);
+
+  const hasStrongPhrase = selected.some((term) => /\s/.test(term) || normalizeText(term).length >= 8);
+  if (!hasStrongPhrase) return '';
+  return selected.join(' ');
+}
+
 async function translateWithBackend(text = '', source = 'auto', target = 'en') {
   if (!appConfig.translationServiceUrl) return '';
   const provider = resolveTranslationProvider();
@@ -318,7 +430,20 @@ export async function buildCrossLingualQueryContext(query = '') {
   const normalized = normalizeText(base);
   const language = detectLanguage(base);
   const variants = expandQueryVariants(base);
+  const lexiconFallback = buildLexiconFallbackTranslation(base, language);
   if (!appConfig.translationServiceUrl) {
+    if (lexiconFallback) {
+      return {
+        enabled: true,
+        originalQuery: base,
+        language,
+        direction: language === 'ko' ? 'ko-to-en' : language === 'en' ? 'en-to-ko' : 'none',
+        translatedQuery: lexiconFallback,
+        variants: unique([...variants, lexiconFallback].filter(Boolean)),
+        backend: 'lexicon',
+        reason: 'lexicon-fallback'
+      };
+    }
     return {
       enabled: false,
       originalQuery: base,
@@ -332,7 +457,7 @@ export async function buildCrossLingualQueryContext(query = '') {
   }
 
   if (language === 'ko') {
-    const translatedQuery = await translateWithBackend(base, 'ko', 'en');
+    const translatedQuery = await translateWithBackend(base, 'ko', 'en') || lexiconFallback;
     return {
       enabled: Boolean(translatedQuery),
       originalQuery: base,
@@ -340,13 +465,13 @@ export async function buildCrossLingualQueryContext(query = '') {
       direction: translatedQuery ? 'ko-to-en' : 'none',
       translatedQuery,
       variants: unique([...variants, translatedQuery].filter(Boolean)),
-      backend: 'http',
-      reason: translatedQuery ? '' : 'translation-empty'
+      backend: translatedQuery && translatedQuery === lexiconFallback ? 'lexicon' : 'http',
+      reason: translatedQuery ? (translatedQuery === lexiconFallback ? 'lexicon-fallback' : '') : 'translation-empty'
     };
   }
 
   if (language === 'en') {
-    const translatedQuery = await translateWithBackend(base, 'en', 'ko');
+    const translatedQuery = await translateWithBackend(base, 'en', 'ko') || lexiconFallback;
     return {
       enabled: Boolean(translatedQuery),
       originalQuery: base,
@@ -354,8 +479,8 @@ export async function buildCrossLingualQueryContext(query = '') {
       direction: translatedQuery ? 'en-to-ko' : 'none',
       translatedQuery,
       variants: unique([...variants, translatedQuery].filter(Boolean)),
-      backend: 'http',
-      reason: translatedQuery ? '' : 'translation-empty'
+      backend: translatedQuery && translatedQuery === lexiconFallback ? 'lexicon' : 'http',
+      reason: translatedQuery ? (translatedQuery === lexiconFallback ? 'lexicon-fallback' : '') : 'translation-empty'
     };
   }
 
