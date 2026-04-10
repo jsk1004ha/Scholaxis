@@ -7,13 +7,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="library">
     <div class="shell">
       <header class="topbar">
         <div class="topbar__inner">
-          <div class="brand">Scholaxis</div>
+          <a class="brand" href="./index.html" aria-label="Scholaxis 홈으로 이동">
+            <span class="brand__mark" aria-hidden="true">
+              <img src="./favicon.svg" alt="" />
+            </span>
+            <span class="brand__copy">
+              <strong>Scholaxis</strong>
+              <small>Research discovery engine</small>
+            </span>
+          </a>
           <nav>
             <a href="./index.html">탐색</a>
             <a href="./results.html">검색 결과</a>
@@ -24,55 +33,126 @@
           </nav>
         </div>
       </header>
-      <main class="page">
+      <main class="page library-shell">
         <article class="result-hero">
-          <span class="section-eyebrow">Personal research space</span>
-          <h1>내 라이브러리와 탐색 선호</h1>
-          <p>저장한 문서와 검색을 다시 열고, 관심사와 선호 소스를 정리해 개인화 탐색 흐름을 관리합니다.</p>
+          <span class="section-eyebrow">Library</span>
+          <h1>내 라이브러리</h1>
+          <p>저장한 문헌, 검색, 추천을 한곳에서 관리하세요.</p>
+          <div class="summary-grid" data-library-stats>
+            <div class="summary-tile">
+              <span>저장 문헌</span>
+              <strong>0건</strong>
+            </div>
+            <div class="summary-tile">
+              <span>저장 검색</span>
+              <strong>0건</strong>
+            </div>
+            <div class="summary-tile">
+              <span>추천 피드</span>
+              <strong>0건</strong>
+            </div>
+          </div>
         </article>
-        <section class="analysis-grid">
+
+        <section class="library-auth-grid">
           <article class="card">
-            <h2>로그인 / 회원가입</h2>
-            <form data-auth-form class="stack">
-              <input class="input" name="email" placeholder="email" />
-              <input class="input" name="password" type="password" placeholder="password" />
-              <input class="input" name="displayName" placeholder="display name (register only)" />
-              <div class="action-row">
-                <button class="button button--primary" data-auth-action="login" type="submit">로그인</button>
-                <button class="button button--ghost" data-auth-action="register" type="submit">회원가입</button>
-                <button class="button button--ghost" data-auth-action="logout" type="button">로그아웃</button>
+            <div class="stack">
+              <span class="section-eyebrow">Account</span>
+              <h2>계정</h2>
+              <p>로그인하면 저장 자료와 추천을 확인할 수 있습니다.</p>
+            </div>
+            <div class="session-card" data-auth-state aria-live="polite"></div>
+            <div class="action-row">
+              <a class="button button--primary" href="./auth.html?redirect=library">로그인</a>
+              <a class="subtle-link" href="./auth.html?redirect=library&mode=register">회원가입</a>
+              <button class="button button--ghost" data-auth-logout type="button" hidden>로그아웃</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <span class="section-eyebrow">Overview</span>
+            <h2>주요 기능</h2>
+            <div class="compact-list">
+              <div class="compact-list__item">
+                <strong>저장 문헌</strong>
+                <p>관심 자료를 다시 열 수 있습니다.</p>
               </div>
-            </form>
-            <pre data-auth-state></pre>
+              <div class="compact-list__item">
+                <strong>저장 검색</strong>
+                <p>자주 쓰는 검색어를 보관합니다.</p>
+              </div>
+              <div class="compact-list__item">
+                <strong>추천</strong>
+                <p>관심사 기반 추천을 확인할 수 있습니다.</p>
+              </div>
+            </div>
           </article>
-          <article class="card">
-            <h2>저장된 논문</h2>
-            <div data-library-items></div>
+        </section>
+
+        <section class="library-grid">
+          <article class="card card--span-2">
+            <div class="section-header">
+              <div>
+                <span class="section-eyebrow">Saved papers</span>
+                <h2>저장한 문헌</h2>
+              </div>
+              <p class="muted-copy">저장한 자료를 다시 확인하세요.</p>
+            </div>
+            <div class="saved-grid" data-library-items></div>
           </article>
+
           <article class="card">
-            <h2>선호도 / 프로필</h2>
-            <form data-profile-form class="stack"></form>
-          </article>
-          <article class="card">
-            <h2>저장된 검색</h2>
+            <div class="section-header">
+              <div>
+                <span class="section-eyebrow">Saved searches</span>
+                <h2>저장 검색</h2>
+              </div>
+              <p class="muted-copy">자주 쓰는 검색어를 저장하세요.</p>
+            </div>
             <form data-save-search-form class="stack">
-              <input class="input" name="label" placeholder="label" />
-              <input class="input" name="queryText" placeholder="query" />
-              <label class="checkbox-row">
-                <input type="checkbox" name="alertEnabled" />
-                저장 검색 알림 활성화
+              <label>
+                <span class="label">이름</span>
+                <input class="input" name="label" placeholder="예: 배터리 AI" />
               </label>
-              <select class="input" name="alertFrequency">
-                <option value="daily">daily</option>
-                <option value="weekly">weekly</option>
-              </select>
+              <label>
+                <span class="label">검색어</span>
+                <input class="input" name="queryText" placeholder="예: 배터리 AI 국내 연구" />
+              </label>
+              <div class="inline-toggle-row">
+                <label class="checkbox-row">
+                  <input type="checkbox" name="alertEnabled" />
+                  저장 검색 알림 켜기
+                </label>
+                <select class="input input--compact" name="alertFrequency">
+                  <option value="daily">매일</option>
+                  <option value="weekly">매주</option>
+                </select>
+              </div>
               <button class="button button--primary" type="submit">검색 저장</button>
             </form>
-            <div data-saved-searches></div>
+            <div class="stack" data-saved-searches></div>
           </article>
+
           <article class="card">
-            <h2>관심사 기반 자동 추천</h2>
-            <div data-recommendation-feed></div>
+            <div class="section-header">
+              <div>
+                <span class="section-eyebrow">Profile</span>
+                <h2>탐색 선호도</h2>
+              </div>
+              <p class="muted-copy">관심 분야와 기본 설정을 관리하세요.</p>
+            </div>
+            <form data-profile-form class="stack"></form>
+          </article>
+
+          <article class="card card--span-2">
+            <div class="section-header">
+              <div>
+                <span class="section-eyebrow">Recommendation feed</span>
+                <h2>관심사 기반 자동 추천</h2>
+              </div>
+              <p class="muted-copy">저장 자료를 바탕으로 추천을 제공합니다.</p>
+            </div>
+            <div class="saved-grid" data-recommendation-feed></div>
           </article>
         </section>
       </main>
@@ -80,15 +160,15 @@
         <div class="footer__inner footer-grid">
           <div>
             <strong>저장 자료</strong>
-            <p>흥미로운 문헌을 다시 열고, 하이라이트와 메모를 기반으로 비교 탐색을 이어갈 수 있습니다.</p>
+            <p>저장한 문헌을 다시 확인할 수 있습니다.</p>
           </div>
           <div>
             <strong>저장 검색</strong>
-            <p>반복적으로 확인하는 주제를 저장해 알림 주기와 함께 관리하세요.</p>
+            <p>자주 쓰는 검색어를 빠르게 다시 실행할 수 있습니다.</p>
           </div>
           <div>
-            <strong>개인화</strong>
-            <p>관심 분야와 선호 소스를 설정하면 추천 피드와 검색 흐름이 더 빨리 정리됩니다.</p>
+            <strong>추천</strong>
+            <p>관심사에 맞는 자료를 추천받을 수 있습니다.</p>
           </div>
         </div>
       </footer>

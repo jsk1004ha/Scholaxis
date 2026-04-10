@@ -37,6 +37,7 @@ import {
   saveSearchInPostgresSync,
   updateUserProfileInPostgresSync
 } from './postgres-store.mjs';
+import { seedCatalog } from './catalog.mjs';
 
 const dataDir = path.resolve('.data');
 mkdirSync(dataDir, { recursive: true });
@@ -442,27 +443,55 @@ const addLibraryItemStmt = db.prepare(`
 `);
 const listLibraryItemsStmt = db.prepare(`
   SELECT
-    canonical_id AS canonicalId,
-    note,
-    highlights_json AS highlightsJson,
-    share_token AS shareToken,
-    created_at AS createdAt,
-    updated_at AS updatedAt
-  FROM library_items
-  WHERE user_id = ?
-  ORDER BY id DESC
+    li.canonical_id AS canonicalId,
+    li.note,
+    li.highlights_json AS highlightsJson,
+    li.share_token AS shareToken,
+    li.created_at AS createdAt,
+    li.updated_at AS updatedAt,
+    d.title,
+    d.source,
+    d.type AS sourceType,
+    d.year,
+    d.organization,
+    d.authors_json AS authorsJson,
+    d.summary,
+    d.links_json AS linksJson
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN instr(li.canonical_id, ':') > 0 THEN substr(li.canonical_id, instr(li.canonical_id, ':') + 1)
+      ELSE li.canonical_id
+    END
+  WHERE li.user_id = ?
+  ORDER BY li.id DESC
 `);
 const getLibraryItemByShareTokenStmt = db.prepare(`
   SELECT
-    user_id AS userId,
-    canonical_id AS canonicalId,
-    note,
-    highlights_json AS highlightsJson,
-    share_token AS shareToken,
-    created_at AS createdAt,
-    updated_at AS updatedAt
-  FROM library_items
-  WHERE share_token = ?
+    li.user_id AS userId,
+    li.canonical_id AS canonicalId,
+    li.note,
+    li.highlights_json AS highlightsJson,
+    li.share_token AS shareToken,
+    li.created_at AS createdAt,
+    li.updated_at AS updatedAt,
+    d.title,
+    d.source,
+    d.type AS sourceType,
+    d.year,
+    d.organization,
+    d.authors_json AS authorsJson,
+    d.summary,
+    d.links_json AS linksJson
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN instr(li.canonical_id, ':') > 0 THEN substr(li.canonical_id, instr(li.canonical_id, ':') + 1)
+      ELSE li.canonical_id
+    END
+  WHERE li.share_token = ?
 `);
 const removeLibraryItemStmt = db.prepare(`
   DELETE FROM library_items WHERE user_id = ? AND canonical_id = ?
@@ -895,13 +924,38 @@ export function deleteSessionByHash(tokenHash) {
 
 function normalizeLibraryItem(row) {
   if (!row) return null;
+  const canonicalId = row.canonicalId || '';
+  const normalizedCanonicalId =
+    typeof canonicalId === 'string' && canonicalId.includes(':')
+      ? canonicalId.split(':').slice(1).join(':')
+      : canonicalId;
+  const seedMatch = seedCatalog.find((item) => item.canonicalId === canonicalId || item.canonicalId === normalizedCanonicalId) || null;
+  const highlights =
+    Array.isArray(row.highlights)
+      ? row.highlights
+      : JSON.parse(row.highlightsJson || '[]');
+  const authors =
+    Array.isArray(row.authors)
+      ? row.authors
+      : JSON.parse(row.authorsJson || '[]');
+  const links = row.linksJson ? JSON.parse(row.linksJson || '{}') : {};
+  const sourceType = row.sourceType || seedMatch?.type || '';
   return {
-    canonicalId: row.canonicalId,
+    canonicalId,
     note: row.note || '',
-    highlights: JSON.parse(row.highlightsJson || '[]'),
+    highlights,
     shareToken: row.shareToken || null,
     createdAt: row.createdAt,
-    updatedAt: row.updatedAt || row.createdAt
+    updatedAt: row.updatedAt || row.createdAt,
+    title: row.title || seedMatch?.title || '',
+    source: row.source || seedMatch?.source || '',
+    sourceType,
+    year: row.year || seedMatch?.year || '',
+    organization: row.organization || seedMatch?.organization || '',
+    authors: authors.length ? authors : (seedMatch?.authors || []),
+    summary: row.summary || seedMatch?.summary || '',
+    detailUrl: row.detailUrl || links.detail || seedMatch?.links?.detail || '',
+    originalUrl: row.originalUrl || links.original || links.detail || seedMatch?.links?.original || seedMatch?.links?.detail || ''
   };
 }
 
@@ -931,12 +985,12 @@ export function addLibraryItem({
 }
 
 export function listLibraryItems(userId) {
-  if (usePostgresStorage()) return listLibraryItemsFromPostgresSync(userId);
+  if (usePostgresStorage()) return listLibraryItemsFromPostgresSync(userId).map(normalizeLibraryItem);
   return listLibraryItemsStmt.all(userId).map(normalizeLibraryItem);
 }
 
 export function findLibraryItemByShareToken(shareToken) {
-  if (usePostgresStorage()) return findLibraryItemByShareTokenInPostgresSync(shareToken);
+  if (usePostgresStorage()) return normalizeLibraryItem(findLibraryItemByShareTokenInPostgresSync(shareToken));
   return normalizeLibraryItem(getLibraryItemByShareTokenStmt.get(shareToken));
 }
 

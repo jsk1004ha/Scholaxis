@@ -337,6 +337,7 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 <summary>펼쳐서 보기</summary>
 
 - `SCHOLAXIS_ENABLE_LIVE_SOURCES`
+- `SCHOLAXIS_EXPERIMENTAL_LIVE_SOURCES` (비워 두면 모든 소스가 기본 자동 검색에 포함되고, 값을 넣으면 해당 소스만 기본 자동 라우팅에서 제외)
 - `SCHOLAXIS_SOURCE_TIMEOUT_MS`
 - `SCHOLAXIS_MAX_LIVE_RESULTS_PER_SOURCE`
 - `SCHOLAXIS_SOURCE_CACHE_TTL_MS`

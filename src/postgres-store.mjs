@@ -1166,15 +1166,30 @@ export function listLibraryItemsFromPostgresSync(userId) {
 SELECT row_to_json(t)
 FROM (
   SELECT
-    canonical_id AS "canonicalId",
-    note,
-    highlights_json AS highlights,
-    share_token AS "shareToken",
-    created_at AS "createdAt",
-    updated_at AS "updatedAt"
-  FROM library_items
-  WHERE user_id = ${Number(userId)}
-  ORDER BY created_at DESC
+    li.canonical_id AS "canonicalId",
+    li.note,
+    li.highlights_json AS highlights,
+    li.share_token AS "shareToken",
+    li.created_at AS "createdAt",
+    li.updated_at AS "updatedAt",
+    d.title,
+    d.source,
+    d.type AS "sourceType",
+    d.year,
+    d.organization,
+    d.authors_json AS authors,
+    d.summary,
+    COALESCE(d.links_json->>'detail', '') AS "detailUrl",
+    COALESCE(d.links_json->>'original', d.links_json->>'detail', '') AS "originalUrl"
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN strpos(li.canonical_id, ':') > 0 THEN split_part(li.canonical_id, ':', 2)
+      ELSE li.canonical_id
+    END
+  WHERE li.user_id = ${Number(userId)}
+  ORDER BY li.created_at DESC
 ) t;`);
 }
 
@@ -1184,14 +1199,29 @@ export function findLibraryItemByShareTokenInPostgresSync(shareToken) {
 SELECT row_to_json(t)
 FROM (
   SELECT
-    canonical_id AS "canonicalId",
-    note,
-    highlights_json AS highlights,
-    share_token AS "shareToken",
-    created_at AS "createdAt",
-    updated_at AS "updatedAt"
-  FROM library_items
-  WHERE share_token = ${sqlString(shareToken)}
+    li.canonical_id AS "canonicalId",
+    li.note,
+    li.highlights_json AS highlights,
+    li.share_token AS "shareToken",
+    li.created_at AS "createdAt",
+    li.updated_at AS "updatedAt",
+    d.title,
+    d.source,
+    d.type AS "sourceType",
+    d.year,
+    d.organization,
+    d.authors_json AS authors,
+    d.summary,
+    COALESCE(d.links_json->>'detail', '') AS "detailUrl",
+    COALESCE(d.links_json->>'original', d.links_json->>'detail', '') AS "originalUrl"
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN strpos(li.canonical_id, ':') > 0 THEN split_part(li.canonical_id, ':', 2)
+      ELSE li.canonical_id
+    END
+  WHERE li.share_token = ${sqlString(shareToken)}
   LIMIT 1
 ) t;`);
 }

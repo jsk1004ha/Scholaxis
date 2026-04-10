@@ -7,13 +7,23 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="detail">
     <div class="shell">
       <header class="topbar">
         <div class="topbar__inner">
-          <div class="brand">Scholaxis</div>
+          <a class="brand" href="./index.html" aria-label="Scholaxis 홈으로 이동">
+            <span class="brand__mark" aria-hidden="true">
+              <img src="./favicon.svg" alt="" />
+            </span>
+            <span class="brand__copy">
+              <strong>Scholaxis</strong>
+              <small>Research discovery engine</small>
+            </span>
+          </a>
           <nav>
             <a href="./index.html">탐색</a>
             <a href="./results.html">검색 결과</a>
@@ -29,16 +39,16 @@
         <article class="detail-hero" data-detail-root>
           <span class="pill" data-detail-badge>Loading</span>
           <p class="lead loading-copy" data-detail-source>문헌 메타데이터를 불러오는 중입니다.</p>
-          <div class="live-status live-status--loading" data-detail-status>상세 분석을 준비하는 중입니다.</div>
+          <div class="live-status live-status--loading" data-detail-status>문헌 정보를 준비하고 있습니다.</div>
           <div class="analysis-progress" aria-label="상세 분석 진행률">
             <div class="analysis-progress__bar analysis-progress__bar--animated" data-detail-progress-bar style="width: 8%"></div>
           </div>
-          <p class="muted-copy" data-detail-progress-label>작업을 준비하는 중입니다.</p>
+          <p class="muted-copy" data-detail-progress-label>작업을 준비하고 있습니다.</p>
           <div class="action-row">
             <button class="button button--ghost" data-detail-cancel type="button" hidden>상세 분석 취소</button>
           </div>
-          <h1 class="loading-copy loading-copy--title" data-detail-title>선택한 문헌의 상세 분석을 준비하는 중입니다.</h1>
-          <p class="loading-copy" data-detail-subtitle>제목, 출처, 추천 흐름, 원문 링크를 순서대로 정리합니다.</p>
+          <h1 class="loading-copy loading-copy--title" data-detail-title>문헌 정보를 불러오고 있습니다.</h1>
+          <p class="loading-copy" data-detail-subtitle>선택한 문헌의 핵심 정보를 준비하고 있습니다.</p>
           <p class="loading-copy" data-detail-authors>저자와 기관 정보를 불러오는 중입니다.</p>
           <div class="metric-grid">
             <div class="metric-card">
@@ -64,13 +74,10 @@
             <a class="button button--ghost" data-source-link href="#" target="_blank" rel="noreferrer noopener">원문/상세 링크</a>
             <button class="button button--ghost" data-save-library type="button">내 라이브러리에 저장</button>
           </div>
-          <div class="flow-hint">
-            이 문서를 기준점으로 추천 문헌, 인용/참고 흐름, 유사도 분석까지 바로 이어서 탐색할 수 있습니다.
-          </div>
           <div class="section-nav">
             <a class="chip" href="#detail-summary">핵심 요약</a>
-            <a class="chip" href="#detail-metadata">출처 메타데이터</a>
-            <a class="chip" href="#detail-network">영향 관계 맵</a>
+            <a class="chip" href="#detail-metadata">출처 정보</a>
+            <a class="chip" href="#detail-network">연결 관계</a>
             <a class="chip" href="#detail-queries">다음 탐색 제안</a>
             <a class="chip" href="#detail-recommendations">추천 비교 문헌</a>
           </div>
@@ -87,7 +94,7 @@
 
             <article class="card" id="detail-metadata">
               <span class="section-eyebrow">Grounded metadata</span>
-              <h2>원문 접근과 출처 메타데이터</h2>
+              <h2>출처 정보</h2>
               <div class="stack">
                 <p class="muted-copy loading-copy" data-detail-novelty>기여 요약과 메타데이터 상태를 계산하는 중입니다.</p>
                 <ul data-detail-metadata>
@@ -140,14 +147,14 @@
 
           <div class="stack">
             <article class="card">
-              <span class="section-eyebrow">Research insight</span>
-              <h3>빠른 인사이트</h3>
-              <p class="loading-copy" data-detail-insight>이 문헌을 왜 먼저 읽어야 하는지 정리하는 중입니다.</p>
+              <span class="section-eyebrow">Insight</span>
+              <h3>핵심 인사이트</h3>
+              <p class="loading-copy" data-detail-insight>핵심 인사이트를 정리하는 중입니다.</p>
             </article>
 
             <article class="card" id="detail-health">
-              <span class="section-eyebrow">Reliability & degraded state</span>
-              <h3>상세 페이지 상태</h3>
+              <span class="section-eyebrow">Reliability</span>
+              <h3>신뢰도와 제한 사항</h3>
               <p class="muted-copy" data-detail-health-summary>상세 상태를 계산 중입니다.</p>
               <ul data-detail-health-warnings>
                 <li>제한 구간을 계산 중입니다.</li>
@@ -157,7 +164,7 @@
 
             <article class="card">
               <span class="section-eyebrow">Graph narrative</span>
-              <h3>읽어야 하는 이유와 비교 포인트</h3>
+              <h3>해석 포인트</h3>
               <p class="loading-copy" data-detail-explanation-summary>그래프 기반 설명과 비교 포인트를 정리하는 중입니다.</p>
               <ul data-detail-explanation-points>
                 <li>관련 그래프 설명을 계산 중입니다.</li>
@@ -189,16 +196,6 @@
               </ul>
             </article>
 
-            <article class="card">
-              <span class="section-eyebrow">Why it matters</span>
-              <h3>이 논문을 먼저 읽어야 하는 이유</h3>
-              <ul>
-                <li>국내·해외·특허 데이터를 동시에 연결해 후속 탐색의 허브 역할을 합니다.</li>
-                <li>인용/참고문헌/영향도 지표를 한 화면에서 비교할 수 있습니다.</li>
-                <li>유사도 분석 화면으로 즉시 이어져 차별점 검토까지 가능합니다.</li>
-              </ul>
-            </article>
-
             <article class="card" id="detail-recommendations">
               <span class="section-eyebrow">Next reading set</span>
               <h3>추천 비교 문헌</h3>
@@ -220,15 +217,15 @@
         <div class="footer__inner footer-grid">
           <div>
             <strong>문서 정체성</strong>
-            <p>제목, 출처, 링크, 주요 메타데이터를 먼저 파악한 뒤 네트워크와 추천 흐름으로 확장하세요.</p>
+            <p>제목, 출처, 링크, 주요 메타데이터를 먼저 확인하세요.</p>
           </div>
           <div>
-            <strong>근거 기반 확장</strong>
-            <p>추천·인용·참고문헌·그래프 설명은 원문 탐색을 돕기 위한 보조 정보로 제공됩니다.</p>
+            <strong>연결 자료</strong>
+            <p>추천·인용·참고문헌을 함께 확인할 수 있습니다.</p>
           </div>
           <div>
-            <strong>연속 탐색</strong>
-            <p>관심 문서는 라이브러리에 저장하고, 유사도 분석으로 차별점 검토까지 이어갈 수 있습니다.</p>
+            <strong>다음 단계</strong>
+            <p>라이브러리 저장과 유사도 분석으로 이어갈 수 있습니다.</p>
           </div>
         </div>
       </footer>

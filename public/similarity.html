@@ -3,22 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Scholaxis · 유사도 분석 리포트</title>
+    <title>Scholaxis · 유사도 분석</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="similarity">
     <div class="shell">
       <header class="topbar">
         <div class="topbar__inner">
-          <div class="brand">Scholaxis</div>
+          <a class="brand" href="./index.html" aria-label="Scholaxis 홈으로 이동">
+            <span class="brand__mark" aria-hidden="true">
+              <img src="./favicon.svg" alt="" />
+            </span>
+            <span class="brand__copy">
+              <strong>Scholaxis</strong>
+              <small>Research discovery engine</small>
+            </span>
+          </a>
           <nav>
             <a href="./index.html">탐색</a>
             <a href="./results.html">검색 결과</a>
             <a href="./detail.html">상세 분석</a>
-            <a class="is-active" href="./similarity.html">유사도 리포트</a>
+            <a class="is-active" href="./similarity.html">유사도 분석</a>
             <a href="./library.html">내 라이브러리</a>
             <a href="./admin.html">관리</a>
           </nav>
@@ -27,48 +37,28 @@
 
       <main class="page analysis-shell">
         <article class="result-hero">
-          <span class="section-eyebrow">Similarity workflow</span>
-          <div class="live-status live-status--loading" data-similarity-status>비교 워크플로우를 준비하는 중입니다.</div>
+          <span class="section-eyebrow">Similarity</span>
+          <div class="live-status live-status--loading" data-similarity-status>분석을 준비하고 있습니다.</div>
           <div class="analysis-progress" aria-label="유사도 분석 진행률">
             <div class="analysis-progress__bar analysis-progress__bar--animated" data-similarity-progress-bar style="width: 8%"></div>
           </div>
-          <p class="muted-copy" data-similarity-progress-label>작업을 준비하는 중입니다.</p>
+          <p class="muted-copy" data-similarity-progress-label>작업을 준비하고 있습니다.</p>
           <div class="action-row">
             <button class="button button--ghost" type="button" data-similarity-cancel hidden>분석 취소</button>
           </div>
-          <h1>유사 자료 분석 리포트</h1>
-          <p class="loading-copy">보고서·논문 초안을 업로드하면 공통점, 차별점, 주의 지점을 근거 중심으로 읽을 수 있습니다.</p>
-          <div class="flow-hint" data-similarity-flow-hint>
-            업로드 → 텍스트 추출 → 섹션 대응 → 차이/주의점 요약 순서로 진행됩니다.
-          </div>
+          <h1>유사도 분석</h1>
+          <p class="loading-copy">초안이나 문서를 업로드해 유사 자료와 차이점을 확인하세요.</p>
+          <div class="flow-hint" data-similarity-flow-hint>분석 결과는 아래 카드에 순서대로 표시됩니다.</div>
         </article>
-
-        <section class="step-grid">
-          <article class="step-card">
-            <span class="section-eyebrow">Step 1</span>
-            <h3>문서 입력</h3>
-            <p>파일 업로드 또는 텍스트 직접 입력으로 비교를 시작합니다.</p>
-          </article>
-          <article class="step-card">
-            <span class="section-eyebrow">Step 2</span>
-            <h3>추출과 대응</h3>
-            <p>텍스트 추출 상태와 섹션 대응 정도를 함께 확인합니다.</p>
-          </article>
-          <article class="step-card">
-            <span class="section-eyebrow">Step 3</span>
-            <h3>차이와 주의점</h3>
-            <p>공통점, 차별점, confidence, top matches를 한 흐름으로 읽습니다.</p>
-          </article>
-        </section>
 
         <section class="analysis-grid">
           <form class="upload-card" data-upload-form>
-            <span class="section-eyebrow">Upload manuscript</span>
-            <h3>보고서 / 논문 초안 업로드</h3>
-            <p>동일 오리진의 <code>/api/similarity/analyze</code> 엔드포인트에 업로드하고, 실패 시 데모 결과를 표시합니다.</p>
+            <span class="section-eyebrow">입력</span>
+            <h3>문서 업로드</h3>
+            <p>파일 또는 텍스트를 입력해 분석을 시작하세요.</p>
             <div class="stack" style="margin-top: 1rem">
-              <input class="input" type="text" name="title" placeholder="문서 제목 또는 초안 이름" />
-              <textarea class="input" name="text" rows="6" placeholder="파일 없이도 초록/본문을 직접 붙여 넣어 분석할 수 있습니다."></textarea>
+              <input class="input" type="text" name="title" placeholder="문서 제목" />
+              <textarea class="input" name="text" rows="6" placeholder="초록 또는 본문 입력"></textarea>
               <input class="input" type="file" name="report" accept=".pdf,.doc,.docx,.hwp,.hwpx" />
               <div class="card">
                 <strong class="label">현재 파일</strong>
@@ -91,18 +81,18 @@
           <article class="analysis-card">
             <span class="section-eyebrow">Shared context</span>
             <h3>공통점</h3>
-            <p class="loading-copy" data-shared-context>분석을 시작하면 공통점이 여기에 표시됩니다.</p>
+            <p class="loading-copy" data-shared-context>분석 결과가 여기에 표시됩니다.</p>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Novelty</span>
             <h3>차별점</h3>
-            <p class="loading-copy" data-novelty>분석을 시작하면 차별점이 여기에 표시됩니다.</p>
+            <p class="loading-copy" data-novelty>분석 결과가 여기에 표시됩니다.</p>
             <div class="keyword-row" data-differentiators></div>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Structure</span>
             <h3>섹션 구조 비교</h3>
-            <p class="loading-copy" data-structure>서론/방법/결과 흐름의 유사점과 차이점을 비교하는 중입니다.</p>
+            <p class="loading-copy" data-structure>섹션 비교 결과가 여기에 표시됩니다.</p>
             <ul data-section-comparisons>
               <li>섹션 비교 결과가 여기에 표시됩니다.</li>
             </ul>
@@ -110,7 +100,7 @@
           <article class="analysis-card">
             <span class="section-eyebrow">Differentiation</span>
             <h3>차별성 분석 요약</h3>
-            <p class="loading-copy" data-differentiation>분석을 시작하면 차별성 요약이 여기에 표시됩니다.</p>
+            <p class="loading-copy" data-differentiation>분석 결과가 여기에 표시됩니다.</p>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Semantic diff</span>
@@ -122,46 +112,44 @@
           <article class="analysis-card">
             <span class="section-eyebrow">Risk</span>
             <h3>주의 포인트</h3>
-            <p class="loading-copy" data-risk>분석을 시작하면 주의 포인트가 여기에 표시됩니다.</p>
+            <p class="loading-copy" data-risk>분석 결과가 여기에 표시됩니다.</p>
           </article>
           <article class="analysis-card">
-            <span class="section-eyebrow">Confidence & degraded state</span>
-            <h3>판단 신뢰도 / 제한 구간</h3>
-            <p data-confidence-summary>추출 방식, 섹션 대응, 비교 근거를 바탕으로 confidence를 설명합니다.</p>
+            <span class="section-eyebrow">신뢰도</span>
+            <h3>판단 신뢰도</h3>
+            <p data-confidence-summary>분석 후 신뢰도와 제한 사항이 표시됩니다.</p>
             <ul data-confidence-reasons>
-              <li>confidence 근거가 여기에 표시됩니다.</li>
+              <li>신뢰도 근거가 여기에 표시됩니다.</li>
             </ul>
             <ul data-confidence-warnings>
-              <li>degraded 구간 또는 주의 메시지가 여기에 표시됩니다.</li>
+              <li>제한 사항이 여기에 표시됩니다.</li>
             </ul>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Recommendations</span>
             <h3>보완 권장 사항</h3>
             <ul data-recommendations>
-              <li>국내 과제·특허와의 차별 기여를 서론/기여점 섹션에 명시하세요.</li>
-              <li>실험 파트에서 기존 벡터 유사도 기준과의 비교표를 추가하세요.</li>
-              <li>KCI/SCI-E 기준 문헌을 분리 인용해 한국형 응용 맥락을 강화하세요.</li>
+              <li>분석 후 보완 제안이 표시됩니다.</li>
             </ul>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Prior studies</span>
             <h3>선행연구 후보</h3>
-            <p class="loading-copy" data-prior-studies-summary>PDF 참고문헌과 발견 문헌을 함께 정리합니다.</p>
+            <p class="loading-copy" data-prior-studies-summary>분석 후 선행연구 후보가 표시됩니다.</p>
             <ul data-prior-studies>
               <li>분석 후 참고문헌 기반 선행연구 후보가 여기에 표시됩니다.</li>
             </ul>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Extraction</span>
-            <h3>추출/입력 진단</h3>
-            <p data-extraction-summary>업로드 또는 직접 입력한 텍스트의 추출 상태가 여기에 표시됩니다.</p>
+            <h3>추출 상태</h3>
+            <p data-extraction-summary>분석 후 추출 상태가 표시됩니다.</p>
           </article>
           <article class="analysis-card">
             <span class="section-eyebrow">Top matches</span>
-            <h3>가장 가까운 비교 문헌</h3>
+            <h3>유사 문헌</h3>
             <ul data-top-matches>
-              <li>유사도 분석 후 상위 문헌이 여기에 표시됩니다.</li>
+              <li>분석 후 유사 문헌이 여기에 표시됩니다.</li>
             </ul>
           </article>
         </section>
@@ -170,16 +158,16 @@
       <footer class="footer">
         <div class="footer__inner footer-grid">
           <div>
-            <strong>분석 원칙</strong>
-            <p>유사도는 화려한 AI 요약보다 추출 상태, 비교 근거, 차별 포인트를 분명하게 보여 주는 데 집중합니다.</p>
+            <strong>공통점</strong>
+            <p>주제와 표현이 겹치는 지점을 확인합니다.</p>
           </div>
           <div>
-            <strong>주의 구간</strong>
-            <p>confidence, degraded 상태, 추출 실패 가능성을 숨기지 않고 바로 드러냅니다.</p>
+            <strong>차별점</strong>
+            <p>겹치지 않는 기여와 보완 포인트를 확인합니다.</p>
           </div>
           <div>
-            <strong>후속 탐색</strong>
-            <p>가장 가까운 비교 문헌과 상세 분석 화면으로 이어져 탐색을 계속할 수 있습니다.</p>
+            <strong>비교 문헌</strong>
+            <p>가장 가까운 문헌을 함께 검토할 수 있습니다.</p>
           </div>
         </div>
       </footer>

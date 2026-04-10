@@ -320,6 +320,7 @@ Stored entities include:
 <summary>Expand</summary>
 
 - `SCHOLAXIS_ENABLE_LIVE_SOURCES`
+- `SCHOLAXIS_EXPERIMENTAL_LIVE_SOURCES` (leave empty to include all sources in default auto search; set values to keep only those sources out of default auto-routing)
 - `SCHOLAXIS_SOURCE_TIMEOUT_MS`
 - `SCHOLAXIS_MAX_LIVE_RESULTS_PER_SOURCE`
 - `SCHOLAXIS_SOURCE_CACHE_TTL_MS`

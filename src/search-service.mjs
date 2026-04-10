@@ -33,8 +33,8 @@ const SEARCH_STOPWORDS = new Set([
   '연구','분석','시스템','모델','기반','설계','예측','요약','문서','검색','자료','평가','결과',
   'analysis','research','system','model','based','design','prediction','summary','document','search','data','evaluation','results'
 ]);
-const GLOBAL_SOURCES = new Set(['semantic_scholar', 'arxiv']);
-const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'ntis', 'kipris', 'science_fair', 'student_invention_fair']);
+const GLOBAL_SOURCES = new Set(['semantic_scholar', 'arxiv', 'biorxiv', 'medrxiv', 'pubmed', 'cve', 'blackhat', 'defcon']);
+const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'science_fair', 'student_invention_fair']);
 const HEURISTIC_EMBEDDING_PROVIDERS = new Set(['hash-projection', 'heuristic-hash', 'local-hash-projection', 'local-semantic-projection']);
 let lastSynchronizedIndexKey = '';
 
@@ -374,10 +374,12 @@ function rankSourcesByProfile(preferredSources = [], profile = null, direction =
     if (profile?.requestedTypes?.includes('fair_entry') && ['science_fair', 'student_invention_fair', 'rne_report'].includes(source)) score += 6;
     if (direction === 'ko-to-en' && GLOBAL_SOURCES.has(source)) score += 4;
     if (direction === 'en-to-ko' && DOMESTIC_SOURCES.has(source)) score += 4;
-    if (profile?.domains?.includes('humanities') && ['riss', 'kci', 'dbpia'].includes(source)) score += 5;
-    if (profile?.domains?.includes('education') && ['riss', 'kci', 'dbpia'].includes(source)) score += 5;
+    if (profile?.domains?.includes('humanities') && ['riss', 'kci', 'dbpia', 'kiss', 'nanet'].includes(source)) score += 5;
+    if (profile?.domains?.includes('education') && ['riss', 'kci', 'dbpia', 'kiss', 'nanet'].includes(source)) score += 5;
+    if (profile?.domains?.includes('biomedical') && ['pubmed', 'biorxiv', 'medrxiv', 'scienceon', 'semantic_scholar', 'riss'].includes(source)) score += 5;
     if (profile?.domains?.includes('earth_space') && ['semantic_scholar', 'arxiv', 'scienceon', 'ntis'].includes(source)) score += 4;
     if (profile?.domains?.includes('engineering') && ['arxiv', 'semantic_scholar', 'kci', 'dbpia', 'kipris'].includes(source)) score += 4;
+    if (profile?.domains?.includes('security') && ['cve', 'blackhat', 'defcon'].includes(source)) score += 6;
     return { source, score };
   });
   return scored.sort((a, b) => b.score - a.score).map((item) => item.source);

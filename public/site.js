@@ -81,6 +81,170 @@ function formatAuthors(authors = []) {
   return authors.join(' · ');
 }
 
+function formatDateLabel(value = '') {
+  if (!value) return '최근 업데이트 없음';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(date);
+}
+
+function formatConfidenceLabel(value = '') {
+  const label = String(value || '').trim().toLowerCase();
+  if (!label || label === 'unknown') return '확인 중';
+  if (label === 'high') return '높음';
+  if (label === 'medium') return '보통';
+  if (label === 'low') return '낮음';
+  return value;
+}
+
+function getInitials(value = '') {
+  const parts = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return 'S';
+  return parts
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+}
+
+function createEmptyPanel({ title, description, actionHref = '', actionLabel = '' } = {}) {
+  return `
+    <div class="empty-panel">
+      ${title ? `<strong>${escapeHtml(title)}</strong>` : ''}
+      ${description ? `<p class="muted-copy">${escapeHtml(description)}</p>` : ''}
+      ${actionHref && actionLabel ? `<a class="button button--ghost" href="${actionHref}">${escapeHtml(actionLabel)}</a>` : ''}
+    </div>
+  `;
+}
+
+function createAccountCard(user, options = {}) {
+  if (!user) {
+    return createEmptyPanel({
+      title: options.title || '로그인이 필요합니다.',
+      description:
+        options.description ||
+        '로그인 후 저장한 문헌과 추천 자료를 확인할 수 있습니다.',
+      actionHref: options.actionHref || './auth.html',
+      actionLabel: options.actionLabel || '로그인',
+    });
+  }
+
+  const pills = [
+    user.email,
+    options.isAdmin ? '관리자 접근 가능' : '일반 사용자',
+    options.extraPill || '',
+  ].filter(Boolean);
+
+  return `
+    <div class="account-summary account-card">
+      <div class="account-identity">
+        <div class="account-avatar">${escapeHtml(getInitials(user.displayName || user.email || 'S'))}</div>
+        <div class="account-title">
+          <strong>${escapeHtml(user.displayName || user.email || '사용자')}</strong>
+          <span>${escapeHtml(user.email || '이메일 정보 없음')}</span>
+        </div>
+      </div>
+      <div class="account-pill-row">
+        ${pills.map((pill) => `<span class="account-pill${pill.includes('관리자') ? ' account-pill--accent' : ''}">${escapeHtml(pill)}</span>`).join('')}
+      </div>
+      ${options.description ? `<p class="muted-copy">${escapeHtml(options.description)}</p>` : ''}
+    </div>
+  `;
+}
+
+function createLibraryItemCard(item = {}) {
+  const title = item.note || item.canonicalId || '저장된 문헌';
+  const tags = (item.highlights || []).filter(Boolean);
+  const shareLabel = item.shareToken ? `공유 토큰 · ${item.shareToken}` : '공유 비활성';
+  return `
+    <article class="panel-surface saved-item">
+      <div>
+        <strong class="saved-item__title">${escapeHtml(title)}</strong>
+        <span class="saved-item__meta">${escapeHtml(item.canonicalId || '문헌 ID 없음')} · ${escapeHtml(formatDateLabel(item.updatedAt || item.createdAt))}</span>
+      </div>
+      <p class="saved-item__desc">${escapeHtml(item.note || '저장된 문헌 메모가 아직 없습니다.')}</p>
+      ${
+        tags.length
+          ? `<div class="saved-item__tags">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`
+          : ''
+      }
+      <div class="saved-item__footer">
+        <span class="account-pill">${escapeHtml(shareLabel)}</span>
+        <div class="action-row">
+          <a class="button button--ghost" href="./detail.html?id=${encodeURIComponent(item.canonicalId || '')}">상세 열기</a>
+          <button class="button button--ghost" data-remove-library="${escapeHtml(item.canonicalId || '')}">삭제</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function createSavedSearchCard(item = {}) {
+  const alerts = item.alertEnabled ? `알림 · ${item.alertFrequency}` : '알림 꺼짐';
+  return `
+    <article class="panel-surface saved-item">
+      <div>
+        <strong class="saved-item__title">${escapeHtml(item.label || item.queryText || '저장된 검색')}</strong>
+        <span class="saved-item__meta">${escapeHtml(formatDateLabel(item.createdAt))}</span>
+      </div>
+      <p class="saved-item__desc">${escapeHtml(item.queryText || '검색어 없음')}</p>
+      <div class="saved-item__footer">
+        <span class="account-pill">${escapeHtml(alerts)}</span>
+        <div class="action-row">
+          <a class="button button--ghost" href="./results.html?q=${encodeURIComponent(item.queryText || '')}">다시 검색</a>
+          <button class="button button--ghost" data-remove-search="${escapeHtml(item.id || '')}">삭제</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function createRecommendationCard(item = {}) {
+  const targetId = item.id || item.canonicalId || '';
+  return `
+    <article class="panel-surface saved-item">
+      <div>
+        <strong class="saved-item__title">${escapeHtml(item.title || '추천 문헌')}</strong>
+        <span class="saved-item__meta">${escapeHtml(item.source || 'Scholaxis')} · 추천 점수 ${escapeHtml(item.recommendationScore ?? '-')}</span>
+      </div>
+      <p class="saved-item__desc">${escapeHtml((item.explanation || []).join(' · ') || item.summary || '추천 근거를 정리하는 중입니다.')}</p>
+      <div class="saved-item__footer">
+        <div class="saved-item__tags">
+          ${(item.tags || item.keywords || []).slice(0, 4).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
+        </div>
+        ${targetId ? `<a class="button button--ghost" href="./detail.html?id=${encodeURIComponent(targetId)}">상세 보기</a>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+function setCountLabel(selector, count, suffix = '건') {
+  const node = qs(selector);
+  if (node) node.textContent = `${count}${suffix}`;
+}
+
+function setHidden(node, hidden) {
+  if (!node) return;
+  node.hidden = hidden;
+}
+
+function setAuthPageMode(form, mode) {
+  if (!form) return;
+  const modeInput = qs('input[name="mode"]', form);
+  const displayNameField = qs('[data-auth-display-name]', form);
+  const submitButton = qs('[data-auth-submit]', form);
+  if (modeInput) modeInput.value = mode;
+  if (displayNameField) displayNameField.hidden = mode !== 'register';
+  if (submitButton) submitButton.textContent = mode === 'register' ? '회원가입' : '로그인';
+  qsa('[data-auth-tab]').forEach((button) => {
+    const active = button.dataset.authTab === mode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
 function buildSearchParams(form) {
   const data = new FormData(form);
   const params = new URLSearchParams();
@@ -88,6 +252,105 @@ function buildSearchParams(form) {
     if (typeof value === 'string' && value.trim()) params.append(key, value.trim());
   }
   return params;
+}
+
+function initChoiceGroups(scope = document) {
+  qsa('[data-choice-group]', scope).forEach((group) => {
+    const hidden = qs('input[type="hidden"]', group);
+    const buttons = qsa('[data-choice-value]', group);
+    if (!hidden || !buttons.length) return;
+
+    const sync = (value) => {
+      hidden.value = value;
+      buttons.forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.choiceValue === value);
+      });
+    };
+
+    sync(hidden.value || buttons[0]?.dataset.choiceValue || '');
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        sync(button.dataset.choiceValue || '');
+      });
+    });
+  });
+}
+
+function initSegmentedControls(form) {
+  qsa('[data-segmented-control]', form).forEach((group) => {
+    const field = group.dataset.segmentedControl;
+    const hidden = qs(`input[name="${field}"]`, form);
+    if (!hidden) return;
+    qsa('.segment-chip', group).forEach((button) => {
+      button.addEventListener('click', () => {
+        hidden.value = button.dataset.value || '';
+        qsa('.segment-chip', group).forEach((candidate) => {
+          candidate.classList.toggle('is-active', candidate === button);
+        });
+      });
+    });
+  });
+}
+
+function formatCount(value = 0) {
+  return new Intl.NumberFormat('ko-KR').format(Number(value || 0));
+}
+
+function initialsFromName(name = '') {
+  const source = String(name || '').trim();
+  if (!source) return 'SC';
+  return Array.from(source).slice(0, 2).join('').toUpperCase();
+}
+
+function sanitizeRedirectTarget(value = '') {
+  const page = String(value || '').trim().replace(/[^a-z]/gi, '').toLowerCase();
+  if (page === 'admin') return './admin.html';
+  if (page === 'results') return './results.html';
+  if (page === 'similarity') return './similarity.html';
+  return './library.html';
+}
+
+function setLibraryMetrics({ libraryCount = 0, searchCount = 0, feedCount = 0, sessionLabel = '비로그인' } = {}) {
+  setText('[data-library-count]', formatCount(libraryCount));
+  setText('[data-library-search-count]', formatCount(searchCount));
+  setText('[data-saved-search-count]', `${formatCount(searchCount)}건`);
+  setText('[data-library-feed-count]', formatCount(feedCount));
+  setText('[data-recommendation-count]', `${formatCount(feedCount)}건`);
+  setText('[data-library-session-badge]', sessionLabel);
+  setText('[data-library-auth-pill]', sessionLabel);
+}
+
+function renderAccountSummary(user = null) {
+  if (!user) {
+    return `
+      <div class="empty-panel">
+        <strong>로그인이 필요합니다.</strong>
+        <p>로그인 후 저장 문헌과 추천을 확인할 수 있습니다.</p>
+      </div>
+    `;
+  }
+  return `
+    <div class="account-identity">
+      <div class="account-avatar">${escapeHtml(initialsFromName(user.displayName || user.email || 'SC'))}</div>
+      <div class="account-title">
+        <strong>${escapeHtml(user.displayName || '이름 없음')}</strong>
+        <span>${escapeHtml(user.email || '')}</span>
+      </div>
+    </div>
+    <div class="account-pill-row">
+      <span class="account-pill account-pill--accent">${user.isAdmin ? '관리자 계정' : '일반 계정'}</span>
+      <span class="account-pill">세션 활성</span>
+      <span class="account-pill">${user.email?.includes('@') ? '이메일 인증형 로그인' : '로컬 계정'}</span>
+    </div>
+  `;
+}
+
+function setFormDisabled(form, disabled) {
+  if (!form) return;
+  qsa('input, select, textarea, button', form).forEach((field) => {
+    field.disabled = disabled;
+  });
 }
 
 function createSkeletonLines(count, variant = 'medium') {
@@ -130,6 +393,19 @@ function createResultSkeletonCard() {
 
 function createSectionSkeleton(count = 3) {
   return Array.from({ length: count }, () => `<div class="panel-surface skeleton-stack">${createSkeletonLines(3)}</div>`).join('');
+}
+
+function createConstellationLoaderPanel(label = '불러오는 중입니다.') {
+  return `
+    <div class="loader-panel">
+      <div class="constellation-loader" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <p class="muted-copy">${escapeHtml(label)}</p>
+    </div>
+  `;
 }
 
 function setLiveStatus(node, message, tone = 'loading') {
@@ -202,8 +478,8 @@ function renderEmptyState(resultsRoot, queryText = '') {
     <article class="card empty-state">
       <div>
         <span class="section-eyebrow">No results yet</span>
-        <h3>검색 결과가 충분하지 않습니다</h3>
-        <p>질의를 조금 더 넓히거나 국내/해외 범위를 바꾸면 더 많은 source-grounded 후보를 볼 수 있습니다.</p>
+        <h3>검색 결과가 없습니다</h3>
+        <p>검색어를 바꾸거나 범위를 넓혀 다시 시도해 보세요.</p>
       </div>
       <div class="empty-state__suggestions">
         ${suggestions.map((query) => `<a class="chip" href="./results.html?q=${encodeURIComponent(query)}">${escapeHtml(query)}</a>`).join('')}
@@ -299,6 +575,7 @@ function renderSearchPayload(searchPayload, resultsRoot) {
 function initHomePage() {
   const form = qs('[data-search-form]');
   if (!form) return;
+  initChoiceGroups(form);
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -307,7 +584,7 @@ function initHomePage() {
 
   qsa('[data-suggestion]').forEach((button) => {
     button.addEventListener('click', () => {
-      const input = qs('textarea[name="q"]', form);
+      const input = qs('textarea[name="q"], input[name="q"]', form);
       if (!input) return;
       input.value = button.dataset.suggestion || '';
       navigateToResults(form);
@@ -332,7 +609,7 @@ async function initResultsPage() {
   };
   renderResultsLoadingState(resultsRoot);
   renderSourceListLoading(sourceRoot);
-  setLiveStatus(progressRoot, '검색 스트리밍 연결 중…', 'loading');
+  setLiveStatus(progressRoot, '검색을 불러오는 중입니다.', 'loading');
 
   const searchPayload = await fetchSearchStream(query, {
     onSummary(payload) {
@@ -345,11 +622,11 @@ async function initResultsPage() {
     },
     onResults(payload) {
       renderSearchPayload(payload, resultsRoot);
-      setLiveStatus(progressRoot, '결과 초안을 렌더링했습니다.', 'success');
+      setLiveStatus(progressRoot, '검색 결과를 불러왔습니다.', 'success');
     },
     onDone(payload) {
       renderSearchPayload(payload, resultsRoot);
-      setLiveStatus(progressRoot, `스트리밍 완료 · ${payload.total}개 결과`, 'success');
+      setLiveStatus(progressRoot, `${payload.total}개 결과를 찾았습니다.`, 'success');
     },
   });
   renderSearchPayload(searchPayload, resultsRoot);
@@ -424,15 +701,15 @@ async function initDetailPage() {
 
   const id = new URLSearchParams(window.location.search).get('id');
   if (!id) {
-    setLiveStatus(detailStatus, '문서 ID가 없어 상세 분석을 시작할 수 없습니다.', 'critical');
-    setText('[data-detail-title]', '상세 문서가 선택되지 않았습니다.');
+    setLiveStatus(detailStatus, '문서를 찾을 수 없습니다.', 'critical');
+    setText('[data-detail-title]', '문서가 선택되지 않았습니다.');
     setText('[data-detail-subtitle]', '검색 결과에서 문서를 선택한 뒤 다시 열어 주세요.');
     setText('[data-detail-authors]', 'detail-id-missing');
-    setText('[data-detail-abstract]', 'source-grounded 상세 정보를 보려면 결과 목록에서 문서를 선택해야 합니다.');
-    setText('[data-detail-insight]', '선택된 문서 ID가 없습니다.');
+    setText('[data-detail-abstract]', '상세 정보를 보려면 검색 결과에서 문서를 선택해 주세요.');
+    setText('[data-detail-insight]', '선택된 문서가 없습니다.');
     setText('[data-detail-source]', '문서 선택 필요');
     setText('[data-detail-badge]', 'No document');
-    setText('[data-detail-health-summary]', '문서 ID가 없어 상세 상태를 계산할 수 없습니다.');
+    setText('[data-detail-health-summary]', '문서 정보가 없어 상태를 표시할 수 없습니다.');
     return;
   }
   let paper;
@@ -446,7 +723,7 @@ async function initDetailPage() {
   });
   const stopDetailStatusCycle = cycleStatusMessages(
     detailStatus,
-    ['상세 분석 작업을 큐에 등록하는 중입니다.', '상세 메타데이터와 추천 흐름을 계산하고 있습니다.', '그래프/비교 정보를 정리하고 있습니다.'],
+    ['상세 분석을 준비하고 있습니다.', '문서 정보와 추천 자료를 불러오고 있습니다.', '연결 정보를 정리하고 있습니다.'],
     1400,
     'loading',
   );
@@ -470,22 +747,22 @@ async function initDetailPage() {
     if (String(error?.message || '').startsWith('analysis-job-cancelled:')) {
       setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job: { status: 'cancelled', progress: 100 } });
       setText('[data-detail-title]', '상세 분석이 취소되었습니다.');
-      setText('[data-detail-subtitle]', '다시 열면 상세 분석을 새로 시작할 수 있습니다.');
+      setText('[data-detail-subtitle]', '다시 열면 분석을 다시 시작합니다.');
       setText('[data-detail-authors]', currentDetailJobId || 'detail-analysis-cancelled');
       return;
     }
     setAnalysisProgress({ bar: detailProgressBar, labelNode: detailProgressLabel, statusNode: detailStatus, cancelButton: detailCancelButton, job: { status: 'failed', progress: 100 } });
     setLiveStatus(detailStatus, '상세 데이터를 불러오지 못했습니다.', 'critical');
     setText('[data-detail-title]', '상세 문서를 불러오지 못했습니다.');
-    setText('[data-detail-subtitle]', '문서 ID 또는 서버 상태를 확인해 주세요.');
-    setText('[data-detail-authors]', String(error?.message || 'detail-load-failed'));
-    setText('[data-detail-abstract]', '상세 데이터를 가져오는 동안 오류가 발생했습니다. 검색 결과에서 다시 진입하거나 서버 로그를 확인해 주세요.');
-    setText('[data-detail-insight]', '원인: API 응답 실패');
+    setText('[data-detail-subtitle]', '잠시 후 다시 시도해 주세요.');
+    setText('[data-detail-authors]', '일시적인 오류');
+    setText('[data-detail-abstract]', '상세 정보를 불러오는 동안 오류가 발생했습니다.');
+    setText('[data-detail-insight]', '다시 시도해 주세요.');
     setText('[data-detail-source]', `문서 ID · ${id}`);
-    setText('[data-detail-badge]', 'Load failed');
-    setText('[data-detail-novelty]', '소스 기반 상세 데이터가 없어 원문 링크와 그래프를 표시하지 못했습니다.');
-    setText('[data-detail-source-links]', String(error?.message || 'detail-load-failed'));
-    setText('[data-detail-health-summary]', '상세 응답을 불러오지 못해 전체 화면이 degraded 상태입니다.');
+    setText('[data-detail-badge]', '오류');
+    setText('[data-detail-novelty]', '일부 정보를 불러오지 못했습니다.');
+    setText('[data-detail-source-links]', '잠시 후 다시 시도해 주세요.');
+    setText('[data-detail-health-summary]', '일부 정보를 불러오지 못했습니다.');
     return;
   }
 
@@ -673,7 +950,7 @@ async function initDetailPage() {
   if (healthWarningsRoot) {
     healthWarningsRoot.innerHTML = (paper.detailHealth?.warnings || []).length
       ? paper.detailHealth.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')
-      : '<li>현재 확인된 degraded 구간이 없습니다.</li>';
+      : '<li>현재 확인된 제한 구간이 없습니다.</li>';
   }
 
   const healthSectionsRoot = qs('[data-detail-health-sections]');
@@ -755,7 +1032,7 @@ async function initSimilarityPage() {
   let currentSimilarityJobId = '';
   let similarityCancelled = false;
 
-  const primeSimilarityLoadingState = (message = '비교 문헌과 섹션 대응을 계산하고 있습니다.') => {
+  const primeSimilarityLoadingState = (message = '비교 문헌을 찾고 있습니다.') => {
     if (score) score.textContent = '분석 중';
     scoreRing?.classList.add('is-loading');
     setLiveStatus(similarityStatus, message, 'loading');
@@ -768,15 +1045,15 @@ async function initSimilarityPage() {
     if (semanticDiff) semanticDiff.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
     if (recommendations) recommendations.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
     if (priorStudies) priorStudies.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
-    if (priorStudiesSummary) priorStudiesSummary.textContent = 'PDF 참고문헌과 발견 문헌을 함께 정리하고 있습니다.';
+    if (priorStudiesSummary) priorStudiesSummary.textContent = '참고문헌과 관련 문헌을 정리하고 있습니다.';
     if (topMatches) topMatches.innerHTML = '<li><span class="skeleton-line skeleton-line--medium"></span></li><li><span class="skeleton-line skeleton-line--short"></span></li>';
     if (extractionSummary) extractionSummary.textContent = message;
     if (flowHint) {
-      flowHint.textContent = '업로드 → 텍스트 추출 → 섹션 대응 → 차이/주의점 요약 순서로 진행됩니다.';
+      flowHint.textContent = '문서를 올리면 순서대로 분석합니다.';
     }
   };
 
-  primeSimilarityLoadingState('업로드 전에도 연결 문헌과 비교 흐름을 준비할 수 있습니다.');
+  primeSimilarityLoadingState('문서를 올리면 분석을 시작합니다.');
   setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job: null });
 
   similarityCancelButton?.addEventListener('click', async () => {
@@ -793,10 +1070,10 @@ async function initSimilarityPage() {
     currentSimilarityJobId = '';
     similarityCancelled = false;
     setButtonBusy(submitButton, true, '유사도 분석 중...');
-    primeSimilarityLoadingState('문서 추출과 섹션 비교를 수행하는 중입니다.');
+    primeSimilarityLoadingState('문서를 분석하고 있습니다.');
     const stopStatusCycle = cycleStatusMessages(
       similarityStatus,
-      ['문서를 업로드하고 있습니다.', '텍스트를 추출하고 있습니다.', '섹션 대응을 계산하고 있습니다.', '차이와 주의점을 정리하고 있습니다.'],
+      ['문서를 업로드하고 있습니다.', '텍스트를 정리하고 있습니다.', '비교 문헌을 찾고 있습니다.', '결과를 정리하고 있습니다.'],
       1300,
       'loading',
     );
@@ -819,7 +1096,7 @@ async function initSimilarityPage() {
       if (String(error?.message || '').startsWith('analysis-job-cancelled:')) {
         setAnalysisProgress({ bar: similarityProgressBar, labelNode: similarityProgressLabel, statusNode: similarityStatus, cancelButton: similarityCancelButton, job: { status: 'cancelled', progress: 100 } });
         if (extractionSummary) extractionSummary.textContent = '유사도 분석 작업이 취소되었습니다.';
-        if (flowHint) flowHint.textContent = '취소 후 다시 실행하면 새 분석 작업이 시작됩니다.';
+        if (flowHint) flowHint.textContent = '다시 실행하면 새 분석이 시작됩니다.';
         scoreRing?.classList.remove('is-loading');
         setButtonBusy(submitButton, false);
         return;
@@ -828,7 +1105,7 @@ async function initSimilarityPage() {
         extractionSummary.textContent = `유사도 분석 요청이 실패했습니다: ${error.message || 'similarity-request-failed'}`;
       }
       if (flowHint) {
-        flowHint.textContent = '요청 실패로 분석을 완료하지 못했습니다. 파일 형식이나 서버 상태를 확인해 주세요.';
+        flowHint.textContent = '분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.';
       }
       setLiveStatus(similarityStatus, '유사도 분석 요청이 실패했습니다.', 'critical');
       scoreRing?.classList.remove('is-loading');
@@ -877,7 +1154,7 @@ async function initSimilarityPage() {
       risk.textContent = [
         result.risk,
         result.topicVerdict,
-        result.confidence ? `confidence ${result.confidence.label || 'unknown'} ${result.confidence.score || 0}%` : '',
+        result.confidence ? `신뢰도 ${formatConfidenceLabel(result.confidence.label)} ${result.confidence.score || 0}%` : '',
         result.relationship ? `관계: ${result.relationship}` : ''
       ].filter(Boolean).join(' · ');
     }
@@ -885,25 +1162,25 @@ async function initSimilarityPage() {
       const coverage = result.confidence?.structureCoverage;
       confidenceSummary.textContent = result.confidence
         ? [
-            `결론 confidence ${result.confidence.label || 'unknown'} ${result.confidence.score || 0}%`,
+            `분석 신뢰도 ${formatConfidenceLabel(result.confidence.label)} ${result.confidence.score || 0}%`,
             coverage ? `입력 섹션 ${coverage.inputSections || 0}개 / 직접 대응 ${coverage.matchedSections || 0}개` : '',
-            result.extraction?.degraded ? '추출 degraded 상태가 반영되었습니다.' : '',
+            result.extraction?.degraded ? '일부 텍스트는 정확도가 낮을 수 있습니다.' : '',
           ].filter(Boolean).join(' · ')
-        : 'confidence 정보를 아직 계산하지 못했습니다.';
+        : '신뢰도를 아직 계산하지 못했습니다.';
     }
     if (confidenceReasons) {
       confidenceReasons.innerHTML = (result.confidence?.reasons ?? []).length
         ? result.confidence.reasons.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
-        : '<li>confidence 근거 정보가 없습니다.</li>';
+        : '<li>신뢰도 근거가 없습니다.</li>';
     }
     if (confidenceWarnings) {
       const warnings = [
         ...(result.confidence?.warnings ?? []),
-        ...(result.extraction?.degraded ? ['파일 추출이 degraded 상태여서 결론을 보수적으로 해석해야 합니다.'] : []),
+        ...(result.extraction?.degraded ? ['텍스트 추출 품질이 낮아 결과를 함께 확인해 주세요.'] : []),
       ];
       confidenceWarnings.innerHTML = warnings.length
         ? warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
-        : '<li>현재 확인된 degraded 구간이 없습니다.</li>';
+        : '<li>현재 확인된 제한 사항이 없습니다.</li>';
     }
     if (context && result.sameTopicStatement) {
       context.textContent = `${result.sameTopicStatement} ${result.sharedContext || ''}`.trim();
@@ -950,7 +1227,7 @@ async function initSimilarityPage() {
     }
     if (extractionSummary) {
       extractionSummary.textContent = result.extraction
-        ? `${result.extraction.method || 'text'} · ${result.extraction.extractedCharacters || 0}자 추출 · 추출 confidence ${result.extraction.confidenceLabel || 'unknown'} ${result.extraction.confidence || 0}%${result.extraction.structured ? ' · 구조 보존' : ''}${result.extraction.degraded ? ' · degraded' : ''}${result.extraction.warnings?.length ? ` · 경고: ${result.extraction.warnings.join(', ')}` : ''}${result.confidence ? ` · 결론 confidence ${result.confidence.label || 'unknown'} ${result.confidence.score || 0}%` : ''}`
+        ? `${result.extraction.method || 'text'} · ${result.extraction.extractedCharacters || 0}자 추출 · 추출 신뢰도 ${formatConfidenceLabel(result.extraction.confidenceLabel)} ${result.extraction.confidence || 0}%${result.extraction.structured ? ' · 구조 유지' : ''}${result.extraction.degraded ? ' · 일부 제한' : ''}${result.extraction.warnings?.length ? ` · 경고: ${result.extraction.warnings.join(', ')}` : ''}${result.confidence ? ` · 분석 신뢰도 ${formatConfidenceLabel(result.confidence.label)} ${result.confidence.score || 0}%` : ''}`
         : '직접 입력 텍스트 또는 업로드 문서를 기준으로 분석했습니다.';
     }
     if (topMatches) {
@@ -963,7 +1240,7 @@ async function initSimilarityPage() {
                 <li>
                   <strong>${escapeHtml(item.title)}</strong>
                   <div>${escapeHtml(item.source || '')} · ${escapeHtml(item.relationship || '')} · ${escapeHtml(item.score)}%</div>
-                  <div class="muted-copy">dense ${escapeHtml(item.denseScore)} · sparse ${escapeHtml(item.sparseScore)}</div>
+                  <div class="muted-copy">의미 ${escapeHtml(item.denseScore)} · 키워드 ${escapeHtml(item.sparseScore)}</div>
                   <div class="action-row">
                     ${detailHref ? `<a class="button button--ghost" href="${detailHref}">상세 보기</a>` : ''}
                     ${externalHref ? `<a class="button button--ghost" href="${externalHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
@@ -977,13 +1254,13 @@ async function initSimilarityPage() {
     if (fileName) fileName.textContent = result.reportName || result.title || '업로드된 파일 없음';
     setLiveStatus(
       similarityStatus,
-      result.extraction?.degraded ? '분석은 완료됐지만 추출 품질에 제한이 있습니다.' : '유사도 분석이 완료되었습니다.',
+      result.extraction?.degraded ? '분석이 끝났지만 일부 내용은 정확도가 낮을 수 있습니다.' : '유사도 분석이 완료되었습니다.',
       result.extraction?.degraded ? 'warning' : 'success',
     );
     if (flowHint) {
       flowHint.textContent = result.extraction?.degraded
-        ? '추출 degraded 상태를 반영해 결과를 보수적으로 해석하세요.'
-        : '핵심 공통점과 차별점, 상위 비교 문헌까지 한 흐름으로 검토할 수 있습니다.';
+        ? '추출 품질이 낮아 결과를 함께 확인해 주세요.'
+        : '핵심 공통점과 차별점을 바로 확인할 수 있습니다.';
     }
     setButtonBusy(submitButton, false);
   });
@@ -1035,11 +1312,190 @@ async function initSimilarityPage() {
   }
 }
 
-const page = document.body.dataset.page;
-if (page === 'home') initHomePage();
-if (page === 'results') initResultsPage();
-if (page === 'detail') initDetailPage();
-if (page === 'similarity') initSimilarityPage();
+function guessPaperType(canonicalId = '') {
+  const value = String(canonicalId || '').toLowerCase();
+  if (value.includes('patent')) return '특허';
+  if (value.includes('report') || value.includes('ntis') || value.includes('rne')) return '보고서';
+  return '논문';
+}
+
+function renderEmptyPanel(title, description, actionLabel = '', actionHref = '') {
+  return `
+    <div class="empty-card">
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(description)}</p>
+      ${actionLabel && actionHref ? `<div class="action-row"><a class="button button--ghost" href="${actionHref}">${escapeHtml(actionLabel)}</a></div>` : ''}
+    </div>
+  `;
+}
+
+function renderLibraryItemCard(item = {}) {
+  const detailHref = item.canonicalId ? `./detail.html?id=${encodeURIComponent(item.canonicalId)}` : '';
+  const shareHref = item.shareToken ? `./api/library/shared/${encodeURIComponent(item.shareToken)}` : '';
+  const originalHref = item.originalUrl || item.detailUrl || '';
+  const sourceType = item.sourceType || guessPaperType(item.canonicalId);
+  return `
+    <article class="saved-card">
+      <div class="saved-card__header">
+        <div>
+          <div class="saved-card__meta">
+            <span class="pill pill--muted">${escapeHtml(sourceType)}</span>
+            ${item.source ? `<span class="pill pill--muted">${escapeHtml(item.source)}</span>` : ''}
+            ${item.year ? `<span class="pill pill--muted">${escapeHtml(item.year)}</span>` : ''}
+          </div>
+          <strong>${escapeHtml(item.title || item.note || item.canonicalId || '저장 문헌')}</strong>
+        </div>
+        ${item.shareToken ? `<span class="token-pill">${escapeHtml(item.shareToken)}</span>` : ''}
+      </div>
+      <div class="saved-card__body">
+        <p class="muted-copy">${escapeHtml(item.summary || item.note || '저장한 문헌 요약이 아직 없습니다.')}</p>
+        <div class="saved-card__meta">
+          <span class="pill pill--muted">${escapeHtml(item.canonicalId || '식별자 없음')}</span>
+          ${item.organization ? `<span class="pill pill--muted">${escapeHtml(item.organization)}</span>` : ''}
+        </div>
+        <div class="tag-row">${(item.highlights || []).slice(0, 6).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('') || '<span class="tag">하이라이트 없음</span>'}</div>
+      </div>
+      <div class="saved-card__actions">
+        <div class="action-row">
+          ${detailHref ? `<a class="button button--ghost" href="${detailHref}">상세 보기</a>` : ''}
+          ${originalHref ? `<a class="button button--ghost" href="${originalHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
+          ${shareHref ? `<a class="button button--ghost" href="${shareHref}" target="_blank" rel="noreferrer noopener">공유 보기</a>` : ''}
+        </div>
+        <button class="button button--ghost" data-remove-library="${escapeHtml(item.canonicalId || '')}">삭제</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderSavedSearchCard(item = {}) {
+  const href = `./results.html?q=${encodeURIComponent(item.queryText || '')}`;
+  return `
+    <article class="search-card">
+      <strong>${escapeHtml(item.label || '저장된 검색')}</strong>
+      <p class="muted-copy">${escapeHtml(item.queryText || '질의 없음')}</p>
+      <div class="saved-card__meta">
+        <span class="pill pill--muted">${item.alertEnabled ? `알림 ${escapeHtml(item.alertFrequency || 'daily')}` : '알림 꺼짐'}</span>
+        ${item.lastResultCount ? `<span class="pill pill--muted">최근 ${escapeHtml(item.lastResultCount)}건</span>` : ''}
+      </div>
+      <div class="saved-card__actions">
+        <a class="button button--ghost" href="${href}">검색 다시 열기</a>
+        <button class="button button--ghost" data-remove-search="${escapeHtml(item.id || '')}">삭제</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderRecommendationCard(item = {}) {
+  const detailHref = item.id ? `./detail.html?id=${encodeURIComponent(item.id)}` : '';
+  const originalHref = item.originalUrl || item.detailUrl || '';
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  return `
+    <article class="recommendation-card">
+      <div class="saved-card__header">
+        <div class="saved-card__meta">
+          <span class="pill pill--muted">추천 점수 ${escapeHtml(item.recommendationScore ?? '-')}</span>
+          ${item.source ? `<span class="pill pill--muted">${escapeHtml(item.source)}</span>` : ''}
+        </div>
+      </div>
+      <strong>${escapeHtml(item.title || '추천 문헌')}</strong>
+      <p class="muted-copy">${escapeHtml((item.explanation || []).join(' · ') || item.summary || '개인화 추천 근거를 준비 중입니다.')}</p>
+      <div class="tag-row">${tags.slice(0, 4).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>
+      <div class="saved-card__actions">
+        <div class="action-row">
+          ${detailHref ? `<a class="button button--ghost" href="${detailHref}">상세 보기</a>` : ''}
+          ${originalHref ? `<a class="button button--ghost" href="${originalHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderGuestAccountPanel() {
+  return `
+    <div class="account-card panel-surface account-summary">
+      ${renderAccountSummary(null)}
+      <div class="action-row">
+        <a class="button button--primary" href="./auth.html?redirect=library">로그인</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderSignedInAccountPanel(user = null) {
+  return `
+    <div class="account-card panel-surface account-summary">
+      ${renderAccountSummary(user)}
+      <p class="muted-copy">저장 자료와 추천을 관리할 수 있습니다.</p>
+    </div>
+  `;
+}
+
+function renderProfileForm(profile = {}) {
+  return `
+    <label>
+      <span class="label">표시 이름</span>
+        <input class="input" name="displayName" value="${escapeHtml(profile.displayName || '')}" placeholder="연구자 이름" />
+    </label>
+    <label>
+      <span class="label">기본 지역</span>
+        <select class="input" name="defaultRegion">
+          <option value="all" ${profile.defaultRegion === 'all' ? 'selected' : ''}>전체</option>
+          <option value="domestic" ${profile.defaultRegion === 'domestic' ? 'selected' : ''}>국내</option>
+          <option value="global" ${profile.defaultRegion === 'global' ? 'selected' : ''}>해외</option>
+        </select>
+    </label>
+    <label>
+      <span class="label">관심 분야</span>
+        <input class="input" name="researchInterests" value="${escapeHtml((profile.researchInterests || []).join(', '))}" placeholder="예: 배터리 AI, 추천 시스템, OCR" />
+    </label>
+    <label>
+      <span class="label">선호 소스</span>
+        <input class="input" name="preferredSources" value="${escapeHtml((profile.preferredSources || []).join(', '))}" placeholder="예: kci, dbpia, semantic_scholar" />
+    </label>
+    <label class="checkbox-row">
+      <input type="checkbox" name="alertOptIn" ${profile.alertOptIn ? 'checked' : ''} />
+      운영 알림 수신
+    </label>
+    <label class="checkbox-row">
+      <input type="checkbox" name="crossLanguageOptIn" ${profile.crossLanguageOptIn ? 'checked' : ''} />
+      다국어 교차 검색 기반 추천 허용
+    </label>
+    <div class="action-row">
+      <button class="button button--primary" type="submit">프로필 저장</button>
+    </div>
+  `;
+}
+
+function renderSessionSummary(user = null) {
+  if (!user) {
+    return `
+      <div class="session-card__user">
+        <div class="session-card__identity">
+          <strong>로그인이 필요합니다</strong>
+          <span>저장 문헌, 저장 검색, 추천 피드를 보려면 계정이 필요합니다.</span>
+        </div>
+      </div>
+      <div class="badge-row">
+        <span class="pill pill--muted">guest</span>
+        <span class="pill pill--muted">세션 없음</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="session-card__user">
+      <div class="session-card__identity">
+        <strong>${escapeHtml(user.displayName || '사용자')}</strong>
+        <span>${escapeHtml(user.email || '')}</span>
+      </div>
+      <div class="badge-row">
+        <span class="pill pill--muted">${user.isAdmin ? 'admin' : 'member'}</span>
+        <span class="pill pill--muted">세션 활성</span>
+      </div>
+    </div>
+    <p class="muted-copy">저장 자료와 추천을 확인할 수 있습니다.</p>
+  `;
+}
 
 async function initAdminPage() {
   const summary = qs('[data-admin-summary]');
@@ -1054,62 +1510,66 @@ async function initAdminPage() {
   if (!me.user?.isAdmin) {
     summary.textContent = '관리자 계정만 운영 대시보드를 볼 수 있습니다.';
     alertsRoot.innerHTML = '<article class="alert-card alert-card--critical"><strong>접근 제한</strong><p>관리자 권한이 필요합니다.</p></article>';
-    metricsRoot.innerHTML = '<p class="muted-copy">관리자 전용 화면입니다.</p>';
-    startupRoot.innerHTML = '<p class="muted-copy">로그인한 관리자만 런타임 정보를 볼 수 있습니다.</p>';
-    similarityRoot.innerHTML = '<p class="muted-copy">관리자 권한이 필요합니다.</p>';
+    metricsRoot.innerHTML = renderEmptyPanel('관리자 전용 화면입니다.', '권한이 있는 계정으로 로그인한 뒤 다시 열어 주세요.');
+    startupRoot.innerHTML = renderEmptyPanel('런타임 정보를 볼 수 없습니다.', '관리자 세션이 확인되면 런타임 상태를 표시합니다.');
+    similarityRoot.innerHTML = renderEmptyPanel('유사도 실행 기록을 볼 수 없습니다.', '관리자 권한이 필요합니다.');
     requestsRoot.innerHTML = '<tr><td colspan="5">관리자 권한이 필요합니다.</td></tr>';
     return;
   }
 
   summary.textContent = '운영 요약을 불러오는 중입니다…';
-  alertsRoot.innerHTML = createSectionSkeleton(2);
-  metricsRoot.innerHTML = createSectionSkeleton(2);
-  startupRoot.innerHTML = createSectionSkeleton(2);
-  similarityRoot.innerHTML = createSectionSkeleton(2);
+  alertsRoot.innerHTML = createConstellationLoaderPanel('운영 경보를 정리하는 중입니다.');
+  metricsRoot.innerHTML = createConstellationLoaderPanel('스토리지/활동 메트릭을 불러오는 중입니다.');
+  startupRoot.innerHTML = createConstellationLoaderPanel('부팅/런타임 상태를 정리하는 중입니다.');
+  similarityRoot.innerHTML = createConstellationLoaderPanel('최근 유사도 실행 기록을 정리하는 중입니다.');
   requestsRoot.innerHTML = '<tr><td colspan="5"><span class="skeleton-line skeleton-line--medium"></span></td></tr>';
 
   const renderSummary = async () => {
     const [summaryPayload, opsPayload] = await Promise.all([fetchAdminSummary(), fetchAdminOps()]);
+    const alerts = Array.isArray(opsPayload.alerts) ? opsPayload.alerts : [];
+    const recentRequests = Array.isArray(opsPayload.recentRequests) ? opsPayload.recentRequests : [];
+    const similarityRuns = Array.isArray(opsPayload.recentSimilarityRuns) ? opsPayload.recentSimilarityRuns : [];
+    const analysisRuntime = opsPayload.runtime?.analysis || {};
+    const storage = opsPayload.storage || {};
+    const startup = opsPayload.startup || {};
+
     summary.textContent = JSON.stringify(summaryPayload, null, 2);
 
     startupRoot.innerHTML = `
-      <div class="stat-card"><span>Host</span><strong>${escapeHtml(opsPayload.startup.host)}</strong></div>
-      <div class="stat-card"><span>Port</span><strong>${escapeHtml(opsPayload.startup.port)}</strong></div>
-      <div class="stat-card"><span>Live Sources</span><strong>${opsPayload.startup.liveSourcesEnabled ? 'ON' : 'OFF'}</strong></div>
-      <div class="stat-card"><span>Source Timeout</span><strong>${escapeHtml(opsPayload.startup.sourceTimeoutMs)}ms</strong></div>
-      <div class="stat-card"><span>Analysis Pool</span><strong>${escapeHtml(opsPayload.runtime.analysis.poolSize)}</strong></div>
-      <div class="stat-card"><span>Busy Workers</span><strong>${escapeHtml(opsPayload.runtime.analysis.busyWorkers)}</strong></div>
-      <div class="stat-card"><span>Queued Analysis</span><strong>${escapeHtml(opsPayload.runtime.analysis.queuedTasks)}</strong></div>
-      <div class="stat-card"><span>Async Jobs</span><strong>${escapeHtml(opsPayload.runtime.analysis.asyncJobs.running)}</strong></div>
+      <div class="stat-card"><span>Host</span><strong>${escapeHtml(startup.host || '-')}</strong></div>
+      <div class="stat-card"><span>Port</span><strong>${escapeHtml(startup.port || '-')}</strong></div>
+      <div class="stat-card"><span>Live Sources</span><strong>${startup.liveSourcesEnabled ? 'ON' : 'OFF'}</strong></div>
+      <div class="stat-card"><span>Source Timeout</span><strong>${escapeHtml(startup.sourceTimeoutMs || '-')}ms</strong></div>
+      <div class="stat-card"><span>Analysis Pool</span><strong>${escapeHtml(analysisRuntime.poolSize || 0)}</strong></div>
+      <div class="stat-card"><span>Busy Workers</span><strong>${escapeHtml(analysisRuntime.busyWorkers || 0)}</strong></div>
+      <div class="stat-card"><span>Queued Analysis</span><strong>${escapeHtml(analysisRuntime.queuedTasks || 0)}</strong></div>
+      <div class="stat-card"><span>Async Jobs</span><strong>${escapeHtml(analysisRuntime.asyncJobs?.running || 0)}</strong></div>
     `;
 
-    metricsRoot.innerHTML = Object.entries(opsPayload.storage)
+    metricsRoot.innerHTML = Object.entries(storage)
       .filter(([key]) => key !== 'ready' && key !== 'dbPath')
-      .map(
-        ([key, value]) => `
-          <div class="stat-card">
-            <span>${escapeHtml(key)}</span>
-            <strong>${escapeHtml(value)}</strong>
-          </div>
-        `,
-      )
-      .join('');
+      .map(([key, value]) => `
+        <div class="stat-card">
+          <span>${escapeHtml(key)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+      `)
+      .join('') || renderEmptyPanel('스토리지 메트릭이 없습니다.', '아직 수집된 메트릭이 없습니다.');
 
-    alertsRoot.innerHTML = opsPayload.alerts
-      .map(
-        (alert) => `
-          <article class="alert-card alert-card--${escapeHtml(alert.level)}">
-            <strong>${escapeHtml(alert.title)}</strong>
-            <p>${escapeHtml(alert.detail)}</p>
-          </article>
-        `,
-      )
-      .join('');
+    alertsRoot.innerHTML = alerts.length
+      ? alerts
+          .map((alert) => `
+            <article class="alert-card alert-card--${escapeHtml(alert.level)}">
+              <strong>${escapeHtml(alert.title)}</strong>
+              <p>${escapeHtml(alert.detail)}</p>
+            </article>
+          `)
+          .join('')
+      : renderEmptyPanel('현재 활성 경보가 없습니다.', '현재 진단 기준으로 즉시 대응이 필요한 운영 경보는 없습니다.');
 
-    requestsRoot.innerHTML =
-      opsPayload.recentRequests
-        .map(
-          (entry) => `
+    requestsRoot.innerHTML = recentRequests.length
+      ? recentRequests
+          .map((entry) => `
             <tr>
               <td>${escapeHtml(entry.method)}</td>
               <td>${escapeHtml(entry.path)}</td>
@@ -1117,22 +1577,21 @@ async function initAdminPage() {
               <td>${Math.round(Number(entry.durationMs || 0))}ms</td>
               <td>${escapeHtml(entry.createdAt)}</td>
             </tr>
-          `,
-        )
-        .join('') || '<tr><td colspan="5">최근 요청 없음</td></tr>';
+          `)
+      .join('')
+      : '<tr><td colspan="5">최근 요청 없음</td></tr>';
 
-    similarityRoot.innerHTML =
-      opsPayload.recentSimilarityRuns
-        .map(
-          (entry) => `
+    similarityRoot.innerHTML = similarityRuns.length
+      ? similarityRuns
+          .map((entry) => `
             <div class="timeline-item">
-              <strong>${escapeHtml(entry.title)}</strong>
-              <p>${escapeHtml(entry.riskLevel || 'unknown')} · score ${escapeHtml(entry.score)} · ${escapeHtml(entry.extractionMethod || 'n/a')}</p>
-              <span>${escapeHtml(entry.createdAt)}</span>
+              <strong>${escapeHtml(entry.title || '유사도 실행')}</strong>
+              <p>${escapeHtml(entry.riskLevel || 'unknown')} · score ${escapeHtml(entry.score ?? '-')} · ${escapeHtml(entry.extractionMethod || 'n/a')}</p>
+              <span>${escapeHtml(entry.createdAt || '')}</span>
             </div>
-          `,
-        )
-        .join('') || '<p class="muted-copy">유사도 실행 이력이 없습니다.</p>';
+          `)
+          .join('')
+      : renderEmptyPanel('유사도 실행 이력이 없습니다.', '최근 실행된 비교 작업이 없으면 여기에 빈 상태로 표시됩니다.');
   };
 
   await renderSummary();
@@ -1140,40 +1599,66 @@ async function initAdminPage() {
   qs('[data-refresh-cache]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     setButtonBusy(button, true, '캐시를 비우는 중...');
-    await clearCache({});
+    await clearCache({}).catch(() => null);
     await renderSummary();
     setButtonBusy(button, false);
   });
 }
 
 async function initLibraryPage() {
-  const authForm = qs('[data-auth-form]');
-  if (!authForm) return;
-
   const authState = qs('[data-auth-state]');
+  const logoutButton = qs('[data-auth-logout]');
+  const statsRoot = qs('[data-library-stats]');
   const libraryRoot = qs('[data-library-items]');
   const searchesRoot = qs('[data-saved-searches]');
   const recommendationRoot = qs('[data-recommendation-feed]');
   const saveSearchForm = qs('[data-save-search-form]');
   const profileForm = qs('[data-profile-form]');
-  if (libraryRoot) libraryRoot.innerHTML = createSectionSkeleton(2);
-  if (searchesRoot) searchesRoot.innerHTML = createSectionSkeleton(2);
-  if (recommendationRoot) recommendationRoot.innerHTML = createSectionSkeleton(2);
-  if (authState) authState.textContent = '세션 상태를 확인하는 중입니다…';
+  if (!authState || !logoutButton || !statsRoot || !libraryRoot || !searchesRoot || !recommendationRoot || !saveSearchForm || !profileForm) return;
+
+  const setLoadingState = () => {
+    authState.innerHTML = createConstellationLoaderPanel('세션 상태를 확인하는 중입니다.');
+    libraryRoot.innerHTML = createConstellationLoaderPanel('저장한 문헌을 정리하는 중입니다.');
+    searchesRoot.innerHTML = createConstellationLoaderPanel('저장 검색을 불러오는 중입니다.');
+    recommendationRoot.innerHTML = createConstellationLoaderPanel('개인화 추천을 정리하는 중입니다.');
+    statsRoot.innerHTML = `
+      <div class="summary-tile"><span>저장 문헌</span><strong>--</strong></div>
+      <div class="summary-tile"><span>저장 검색</span><strong>--</strong></div>
+      <div class="summary-tile"><span>추천 피드</span><strong>--</strong></div>
+    `;
+  };
 
   const refresh = async () => {
+    setLoadingState();
     const me = await fetchMe().catch(() => ({ user: null }));
-    if (authState) authState.textContent = JSON.stringify(me, null, 2);
 
     if (!me.user) {
-      if (libraryRoot) libraryRoot.innerHTML = '<p>로그인 후 확인 가능</p>';
-      if (searchesRoot) searchesRoot.innerHTML = '<p>로그인 후 확인 가능</p>';
-      if (recommendationRoot) recommendationRoot.innerHTML = '<p>로그인 후 개인화 추천 확인 가능</p>';
-      if (profileForm) profileForm.innerHTML = '<p class="muted-copy">로그인 후 선호도/프로필을 편집할 수 있습니다.</p>';
+      logoutButton.hidden = true;
+      saveSearchForm.hidden = true;
+      authState.innerHTML = renderSessionSummary(null);
+      profileForm.innerHTML = renderEmptyPanel('프로필 편집이 잠겨 있습니다.', '로그인 후 선호도/프로필을 편집할 수 있습니다.');
+      libraryRoot.innerHTML = renderEmptyPanel('아직 저장한 문헌이 없습니다.', '로그인 후 저장한 문헌을 다시 열 수 있습니다.');
+      searchesRoot.innerHTML = renderEmptyPanel('저장 검색이 없습니다.', '로그인 후 반복 검색을 저장하고 다시 열 수 있습니다.');
+      recommendationRoot.innerHTML = renderEmptyPanel('개인화 추천이 없습니다.', '로그인 후 관심사와 저장 문헌을 바탕으로 추천 피드를 구성합니다.');
+      statsRoot.innerHTML = `
+        <div class="summary-tile"><span>저장 문헌</span><strong>0건</strong></div>
+        <div class="summary-tile"><span>저장 검색</span><strong>0건</strong></div>
+        <div class="summary-tile"><span>추천 피드</span><strong>0건</strong></div>
+      `;
       return;
     }
 
-    const profilePayload = await fetchProfile().catch(() => ({ profile: null }));
+    logoutButton.hidden = false;
+    saveSearchForm.hidden = false;
+    authState.innerHTML = renderSessionSummary(me.user);
+
+    const [profilePayload, libraryPayload, searchesPayload, feedPayload] = await Promise.all([
+      fetchProfile().catch(() => ({ profile: null })),
+      fetchLibrary().catch(() => ({ items: [] })),
+      fetchSavedSearches().catch(() => ({ searches: [] })),
+      fetchRecommendationFeed(6).catch(() => ({ items: [] })),
+    ]);
+
     const profile = profilePayload.profile || {
       displayName: me.user.displayName || '',
       researchInterests: [],
@@ -1182,115 +1667,34 @@ async function initLibraryPage() {
       alertOptIn: false,
       crossLanguageOptIn: false,
     };
+    profileForm.innerHTML = renderProfileForm(profile);
 
-    if (profileForm) {
-      profileForm.innerHTML = `
-        <label>
-          표시 이름
-          <input class="input" name="displayName" value="${escapeHtml(profile.displayName || '')}" placeholder="연구자 이름" />
-        </label>
-        <label>
-          관심 분야
-          <input class="input" name="researchInterests" value="${escapeHtml((profile.researchInterests || []).join(', '))}" placeholder="예: 배터리 AI, 추천 시스템, OCR" />
-        </label>
-        <label>
-          선호 소스
-          <input class="input" name="preferredSources" value="${escapeHtml((profile.preferredSources || []).join(', '))}" placeholder="예: kci, dbpia, semantic_scholar" />
-        </label>
-        <label>
-          기본 지역
-          <select class="input" name="defaultRegion">
-            <option value="all" ${profile.defaultRegion === 'all' ? 'selected' : ''}>전체</option>
-            <option value="domestic" ${profile.defaultRegion === 'domestic' ? 'selected' : ''}>국내</option>
-            <option value="global" ${profile.defaultRegion === 'global' ? 'selected' : ''}>해외</option>
-          </select>
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" name="alertOptIn" ${profile.alertOptIn ? 'checked' : ''} />
-          운영 알림 수신
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" name="crossLanguageOptIn" ${profile.crossLanguageOptIn ? 'checked' : ''} />
-          다국어 교차 검색 기반 추천 허용
-        </label>
-        <div class="action-row">
-          <button class="button button--primary" type="submit">프로필 저장</button>
-        </div>
-      `;
-    }
+    const libraryItems = Array.isArray(libraryPayload.items) ? libraryPayload.items : [];
+    const savedSearches = Array.isArray(searchesPayload.searches) ? searchesPayload.searches : [];
+    const recommendations = Array.isArray(feedPayload.items) ? feedPayload.items : [];
 
-    const library = await fetchLibrary().catch(() => ({ items: [] }));
-    if (libraryRoot) {
-      libraryRoot.innerHTML =
-        (library.items || [])
-          .map(
-            (item) => `
-              <div class="card">
-                <strong>${item.canonicalId}</strong>
-                <p>${item.note || ''}</p>
-                <p class="muted-copy">${(item.highlights || []).length ? `하이라이트: ${item.highlights.join(', ')}` : '하이라이트 없음'}</p>
-                <p class="muted-copy">${item.shareToken ? `공유 토큰: ${item.shareToken}` : '공유 비활성'}</p>
-                <button class="button button--ghost" data-remove-library="${item.canonicalId}">삭제</button>
-              </div>
-            `,
-          )
-          .join('') || '<p>저장 항목 없음</p>';
-    }
-
-    const searches = await fetchSavedSearches().catch(() => ({ searches: [] }));
-    if (searchesRoot) {
-      searchesRoot.innerHTML =
-        (searches.searches || [])
-          .map(
-            (item) => `
-              <div class="card">
-                <strong>${item.label}</strong>
-                <p>${item.queryText}</p>
-                <p class="muted-copy">${item.alertEnabled ? `알림 주기: ${item.alertFrequency}` : '알림 꺼짐'}</p>
-                <button class="button button--ghost" data-remove-search="${item.id}">삭제</button>
-              </div>
-            `,
-          )
-          .join('') || '<p>저장 검색 없음</p>';
-    }
-
-    const feed = await fetchRecommendationFeed(6).catch(() => ({ items: [] }));
-    if (recommendationRoot) {
-      recommendationRoot.innerHTML =
-        (feed.items || [])
-          .map(
-            (item) => `
-              <div class="card">
-                <strong>${escapeHtml(item.title)}</strong>
-                <p>${escapeHtml((item.explanation || []).join(' · ') || item.summary || '')}</p>
-                <span class="muted-copy">추천 점수 ${escapeHtml(item.recommendationScore)}</span>
-              </div>
-            `,
-          )
-          .join('') || '<p>개인화 추천이 아직 없습니다.</p>';
-    }
+    libraryRoot.innerHTML = libraryItems.length
+      ? libraryItems.map(renderLibraryItemCard).join('')
+      : renderEmptyPanel('아직 저장한 문헌이 없습니다.', '검색 결과나 상세 분석에서 문헌을 저장하면 여기에 모입니다.', '탐색 시작', './results.html');
+    searchesRoot.innerHTML = savedSearches.length
+      ? savedSearches.map(renderSavedSearchCard).join('')
+      : renderEmptyPanel('저장된 검색이 없습니다.', '반복적으로 확인하는 질의를 저장해 두면 빠르게 다시 열 수 있습니다.');
+    recommendationRoot.innerHTML = recommendations.length
+      ? recommendations.map(renderRecommendationCard).join('')
+      : renderEmptyPanel('개인화 추천이 아직 없습니다.', '프로필과 저장 문헌이 쌓이면 추천 피드가 더 풍부해집니다.');
+    statsRoot.innerHTML = `
+      <div class="summary-tile"><span>저장 문헌</span><strong>${formatCount(libraryItems.length)}건</strong></div>
+      <div class="summary-tile"><span>저장 검색</span><strong>${formatCount(savedSearches.length)}건</strong></div>
+      <div class="summary-tile"><span>추천 피드</span><strong>${formatCount(recommendations.length)}건</strong></div>
+    `;
   };
 
-  authForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const formData = new FormData(authForm);
-    const payload = {
-      email: formData.get('email'),
-      password: formData.get('password'),
-      displayName: formData.get('displayName'),
-    };
-    const action = event.submitter?.dataset.authAction || 'login';
-    if (action === 'register') await register(payload);
-    else await login(payload);
+  logoutButton.addEventListener('click', async () => {
+    await logout().catch(() => null);
     await refresh();
   });
 
-  qs('[data-auth-action="logout"]', authForm)?.addEventListener('click', async () => {
-    await logout();
-    await refresh();
-  });
-
-  saveSearchForm?.addEventListener('submit', async (event) => {
+  saveSearchForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(saveSearchForm);
     await saveSearchRequest({
@@ -1299,11 +1703,12 @@ async function initLibraryPage() {
       alertEnabled: formData.get('alertEnabled') === 'on',
       alertFrequency: formData.get('alertFrequency') || 'daily',
       filters: {},
-    });
+    }).catch(() => null);
+    saveSearchForm.reset();
     await refresh();
   });
 
-  profileForm?.addEventListener('submit', async (event) => {
+  profileForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(profileForm);
     await saveProfile({
@@ -1313,20 +1718,21 @@ async function initLibraryPage() {
       defaultRegion: formData.get('defaultRegion'),
       alertOptIn: formData.get('alertOptIn') === 'on',
       crossLanguageOptIn: formData.get('crossLanguageOptIn') === 'on',
-    });
+    }).catch(() => null);
     await refresh();
   });
 
   document.addEventListener('click', async (event) => {
     const libraryButton = event.target.closest('[data-remove-library]');
-    if (libraryButton) {
-      await removeLibraryItem(libraryButton.dataset.removeLibrary);
+    if (libraryButton?.dataset.removeLibrary) {
+      await removeLibraryItem(libraryButton.dataset.removeLibrary).catch(() => null);
       await refresh();
+      return;
     }
 
     const searchButton = event.target.closest('[data-remove-search]');
-    if (searchButton) {
-      await removeSavedSearch(searchButton.dataset.removeSearch);
+    if (searchButton?.dataset.removeSearch) {
+      await removeSavedSearch(searchButton.dataset.removeSearch).catch(() => null);
       await refresh();
     }
   });
@@ -1334,5 +1740,97 @@ async function initLibraryPage() {
   await refresh();
 }
 
+async function initAuthPage() {
+  const form = qs('[data-auth-page-form]');
+  const sessionSummaryRoot = qs('[data-auth-session-summary]');
+  const sessionCardRoot = qs('[data-auth-session-card]');
+  const displayNameRow = qs('[data-auth-display-name]');
+  const feedbackRoot = qs('[data-auth-feedback]');
+  const submitButton = qs('[data-auth-submit]');
+  const logoutButton = qs('[data-auth-page-logout]');
+  if (!form || !sessionSummaryRoot || !sessionCardRoot || !displayNameRow || !feedbackRoot || !submitButton || !logoutButton) return;
+
+  const modeInput = qs('input[name="mode"]', form);
+  const redirectTarget = sanitizeRedirectTarget(new URLSearchParams(window.location.search).get('redirect'));
+
+  function applyAuthMode(mode = 'login') {
+    if (modeInput) modeInput.value = mode;
+    displayNameRow.hidden = mode !== 'register';
+    submitButton.textContent = mode === 'register' ? '회원가입' : '로그인';
+    qsa('[data-auth-tab]').forEach((button) => {
+      const active = button.dataset.authTab === mode;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  }
+
+  async function refreshSession() {
+    const me = await fetchMe().catch(() => ({ user: null }));
+    if (!me.user) {
+      sessionSummaryRoot.textContent = '로그인 후 라이브러리를 이용할 수 있습니다.';
+      sessionCardRoot.innerHTML = renderEmptyPanel('로그인이 필요합니다.', '로그인 또는 회원가입 후 계속하세요.');
+      logoutButton.hidden = true;
+      feedbackRoot.textContent = '로그인 후 라이브러리와 추천을 이용할 수 있습니다.';
+      return;
+    }
+
+    sessionSummaryRoot.textContent = `${me.user.displayName || me.user.email}님으로 로그인되어 있습니다.`;
+    sessionCardRoot.innerHTML = `
+      <div class="account-card panel-surface account-summary">
+        ${renderAccountSummary(me.user)}
+        <div class="action-row">
+          <a class="button button--primary" href="${me.user.isAdmin ? './admin.html' : './library.html'}">${me.user.isAdmin ? '관리 화면 열기' : '라이브러리 열기'}</a>
+          <a class="button button--ghost" href="./results.html">탐색 이어가기</a>
+        </div>
+      </div>
+    `;
+    logoutButton.hidden = false;
+    feedbackRoot.textContent = '이미 로그인되어 있습니다.';
+  }
+
+  qsa('[data-auth-tab]').forEach((button) => {
+    button.addEventListener('click', () => applyAuthMode(button.dataset.authTab || 'login'));
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const payload = {
+      email: formData.get('email'),
+      password: formData.get('password'),
+      displayName: formData.get('displayName'),
+    };
+    const mode = formData.get('mode') === 'register' ? 'register' : 'login';
+    setButtonBusy(submitButton, true, mode === 'register' ? '회원가입 중...' : '로그인 중...');
+    try {
+      if (mode === 'register') await register(payload);
+      else await login(payload);
+      feedbackRoot.textContent = mode === 'register' ? '회원가입이 완료되었습니다. 라이브러리로 이동합니다…' : '로그인되었습니다. 라이브러리로 이동합니다…';
+      await refreshSession();
+      window.setTimeout(() => {
+        window.location.href = redirectTarget;
+      }, 450);
+    } catch (error) {
+      feedbackRoot.textContent = error?.message || '인증 중 오류가 발생했습니다.';
+    } finally {
+      setButtonBusy(submitButton, false);
+    }
+  });
+
+  logoutButton.addEventListener('click', async () => {
+    await logout().catch(() => null);
+    await refreshSession();
+  });
+
+  applyAuthMode(new URLSearchParams(window.location.search).get('mode') === 'register' ? 'register' : 'login');
+  await refreshSession();
+}
+
+const page = document.body.dataset.page;
+if (page === 'home') initHomePage();
+if (page === 'results') initResultsPage();
+if (page === 'detail') initDetailPage();
+if (page === 'similarity') initSimilarityPage();
 if (page === 'admin') initAdminPage();
 if (page === 'library') initLibraryPage();
+if (page === 'auth') initAuthPage();

@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, startServer } from '../src/server.mjs';
+import { appConfig } from '../src/config.mjs';
 import { createGraphBackendServer } from '../src/graph-backend-server.mjs';
 import { buildPostgresMigrationSql } from '../src/postgres-migration.mjs';
 import { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics } from '../src/postgres-store.mjs';
@@ -14,9 +15,21 @@ import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
 import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
 import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
-import { searchLiveSources } from '../src/source-adapters.mjs';
+import { getSourceRuntimeDiagnostics, searchLiveSources, sourceRegistrySummary } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
-import { extractKciDocumentsFromHtml, extractNtisDocumentsFromHtml, extractRneReportDocumentsFromHtml, extractScienceGoDocumentsFromHtml } from '../src/source-adapters.mjs';
+import {
+  extractBlackHatDocumentsFromHtml,
+  extractCveDocumentsFromPayload,
+  extractDefconDocumentsFromHtml,
+  extractKciDocumentsFromHtml,
+  extractKissDocumentsFromHtml,
+  extractNanetDocumentsFromHtml,
+  extractNtisDocumentsFromHtml,
+  extractPreprintDocumentsFromHtml,
+  extractPubMedDocumentsFromXml,
+  extractRneReportDocumentsFromHtml,
+  extractScienceGoDocumentsFromHtml
+} from '../src/source-adapters.mjs';
 import { dedupeDocuments } from '../src/dedup-service.mjs';
 import { extractPdfText } from '../src/pdf-text-extractor.mjs';
 import { extractDocxText } from '../src/docx-text-extractor.mjs';
@@ -336,11 +349,16 @@ test('auth and library flow works end-to-end', async () => {
   assert.deepEqual(libraryPayload.items[0].highlights, ['핵심 주장', '실험 포인트']);
   assert.ok(libraryPayload.items[0].shareToken);
   assert.ok(libraryPayload.items[0].createdAt);
+  assert.equal(libraryPayload.items[0].title, 'Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval');
+  assert.equal(libraryPayload.items[0].source, 'arxiv');
+  assert.equal(libraryPayload.items[0].sourceType, 'paper');
+  assert.ok(libraryPayload.items[0].originalUrl);
 
   const sharedLibraryResponse = await fetch(`${baseUrl}/api/library/shared/${libraryPayload.items[0].shareToken}`);
   const sharedLibraryPayload = await sharedLibraryResponse.json();
   assert.equal(sharedLibraryResponse.status, 200);
   assert.equal(sharedLibraryPayload.item.canonicalId, 'paper:seed-paper-global-quantum');
+  assert.equal(sharedLibraryPayload.item.title, 'Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval');
 
   const savedSearchListResponse = await fetch(`${baseUrl}/api/saved-searches`, {
     headers: { cookie },
@@ -1306,6 +1324,129 @@ test('rne report parser extracts report titles from listing html', () => {
   assert.match(docs[0].links.detail, /rs_report\/2295/);
 });
 
+test('preprint parser extracts bioRxiv search results', () => {
+  const html = `
+    <div class="highwire-cite">
+      <span class="highwire-cite-title">Single-cell atlas of liver regeneration</span>
+      <span class="highwire-cite-authors">Jane Doe, John Roe</span>
+      <a href="/content/10.1101/2026.01.02.123456v1">view</a>
+      <div class="highwire-cite-snippet">We profile regenerative liver tissue with single-cell RNA sequencing.</div>
+      <div class="highwire-cite-metadata">Posted January 03, 2026.</div>
+    </div>
+  `;
+  const docs = extractPreprintDocumentsFromHtml('biorxiv', html, 'liver regeneration', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'biorxiv');
+  assert.equal(docs[0].sourceIds.doi, '10.1101/2026.01.02.123456v1');
+  assert.match(docs[0].links.detail, /biorxiv\.org\/content\/10\.1101/);
+});
+
+test('pubmed parser extracts metadata from efetch xml', () => {
+  const xml = `
+    <PubmedArticleSet>
+      <PubmedArticle>
+        <MedlineCitation>
+          <PMID>41763198</PMID>
+          <Article>
+            <Journal><Title>Nature Medicine</Title></Journal>
+            <ArticleTitle>Pyruvate suppresses interferon signaling</ArticleTitle>
+            <Abstract>
+              <AbstractText>Pyruvate induces STAT1 pyruvylation and modulates immune signaling.</AbstractText>
+            </Abstract>
+            <AuthorList>
+              <Author><ForeName>Alice</ForeName><LastName>Kim</LastName></Author>
+              <Author><ForeName>Brian</ForeName><LastName>Park</LastName></Author>
+            </AuthorList>
+          </Article>
+          <DateCompleted><Year>2026</Year></DateCompleted>
+        </MedlineCitation>
+        <PubmedData>
+          <ArticleIdList>
+            <ArticleId IdType="doi">10.1038/test-doi</ArticleId>
+          </ArticleIdList>
+        </PubmedData>
+      </PubmedArticle>
+    </PubmedArticleSet>
+  `;
+  const docs = extractPubMedDocumentsFromXml(xml, 'pyruvate', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'pubmed');
+  assert.equal(docs[0].authors[0], 'Alice Kim');
+  assert.equal(docs[0].sourceIds.doi, '10.1038/test-doi');
+});
+
+test('cve payload parser extracts severity and detail link', () => {
+  const payload = {
+    vulnerabilities: [
+      {
+        cve: {
+          id: 'CVE-2026-12345',
+          published: '2026-03-01T12:00:00.000',
+          descriptions: [{ lang: 'en', value: 'Buffer overflow in parser component.' }],
+          metrics: {
+            cvssMetricV31: [{ cvssData: { baseSeverity: 'HIGH' } }]
+          },
+          references: [{ url: 'https://example.com/advisory' }],
+          weaknesses: [{ description: [{ lang: 'en', value: 'CWE-120' }] }]
+        }
+      }
+    ]
+  };
+  const docs = extractCveDocumentsFromPayload(payload, 'parser overflow', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'cve');
+  assert.equal(docs[0].highlights[0], 'HIGH');
+  assert.match(docs[0].links.detail, /CVE-2026-12345/);
+});
+
+test('kiss parser extracts article detail links', () => {
+  const html = `
+    <section class="result">
+      <a href="/Detail/Ar?key=54577874">검색어 특성과 소비자의 의사결정 여정이 구매 전환에 미치는 효과</a>
+      <div>안정태, 조단비, 강윤희 / 한국심리학회지: 소비자·광고 / 2024.08 / DOI 10.21074/kjlcap.2024.25.3.285</div>
+    </section>
+  `;
+  const docs = extractKissDocumentsFromHtml(html, '의사결정', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'kiss');
+  assert.match(docs[0].links.detail, /Detail\/Ar\?key=54577874/);
+});
+
+test('nanet parser extracts catalog detail links', () => {
+  const html = `
+    <div class="result">
+      <a href="/detail/MONO12025000067308">배터리 워 = Battery war : 누가 배터리 전쟁의 최후 승자가 될 것인가</a>
+      <div>강희종 지음 / 서울 : 부키, 2025 / 일반도서</div>
+    </div>
+  `;
+  const docs = extractNanetDocumentsFromHtml(html, '배터리 전쟁', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'nanet');
+  assert.match(docs[0].links.detail, /detail\/MONO12025000067308/);
+});
+
+test('blackhat and defcon parsers extract archive sessions', () => {
+  const blackhatHtml = `
+    <div class="session">
+      <a href="/us-25/briefings/schedule/#breaking-kernel">Breaking the Kernel Barrier</a>
+      <div>Speaker One, Speaker Two</div>
+      <p>Advanced exploitation research on kernel attack surfaces in 2025.</p>
+    </div>
+  `;
+  const defconHtml = `
+    <div class="thread">
+      <a href="/node/228049">Testing Photo Albums</a>
+      <div>May 13, 2019, archive thread with village media workflow details.</div>
+    </div>
+  `;
+  const blackhatDocs = extractBlackHatDocumentsFromHtml(blackhatHtml, 'kernel attack', 5, 'https://www.blackhat.com/us-25/briefings/schedule/index.html');
+  const defconDocs = extractDefconDocumentsFromHtml(defconHtml, 'photo albums', 5, 'https://forum.defcon.org/search?query=photo');
+  assert.equal(blackhatDocs.length, 1);
+  assert.equal(blackhatDocs[0].source, 'blackhat');
+  assert.equal(defconDocs.length, 1);
+  assert.equal(defconDocs[0].source, 'defcon');
+});
+
 test('ntis parser ignores no-result guidance text', () => {
   const html = `
     <h4><span class="noData">자기진자 전람회</span> 또는 선택한 조건에 대한 검색결과가 없습니다.</h4>
@@ -1503,6 +1644,38 @@ test('query profile classifier surfaces source hints without term-translation ha
   const humanities = classifyQueryProfile('한국사 교육 자료 비교');
   assert.ok(humanities.domains.includes('education'));
   assert.ok(humanities.sourceHints.includes('riss'));
+
+  const biomedical = classifyQueryProfile('PubMed 기반 면역 유전자 치료 조사');
+  assert.ok(biomedical.domains.includes('biomedical'));
+  assert.ok(biomedical.sourceHints.includes('pubmed'));
+
+  const security = classifyQueryProfile('CVE 취약점과 Black Hat exploit 사례 조사');
+  assert.ok(security.domains.includes('security'));
+  assert.ok(security.sourceHints.includes('cve'));
+  assert.ok(security.sourceHints.includes('blackhat'));
+});
+
+test('source registry summary includes newly added databases', () => {
+  const summary = sourceRegistrySummary('배터리');
+  const sources = new Set(summary.map((item) => item.source));
+  for (const source of ['biorxiv', 'medrxiv', 'pubmed', 'kiss', 'nanet', 'cve', 'blackhat', 'defcon']) {
+    assert.ok(sources.has(source));
+  }
+  assert.equal(summary.find((item) => item.source === 'pubmed')?.experimental, false);
+  assert.equal(summary.find((item) => item.source === 'pubmed')?.autoRoutedByDefault, true);
+});
+
+test('config includes new sources in default preferred source routing', () => {
+  for (const source of ['biorxiv', 'medrxiv', 'pubmed', 'kiss', 'nanet', 'cve', 'blackhat', 'defcon']) {
+    assert.equal(appConfig.preferredSources.includes(source), true);
+  }
+  assert.equal(appConfig.experimentalLiveSources.length, 0);
+});
+
+test('source runtime diagnostics expose experimental source policy configuration', () => {
+  const diagnostics = getSourceRuntimeDiagnostics();
+  assert.ok(Array.isArray(diagnostics.experimentalSources));
+  assert.equal(diagnostics.experimentalSources.length, 0);
 });
 
 test('vector backend server supports upsert and search', async () => {

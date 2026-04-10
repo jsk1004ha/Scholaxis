@@ -24,6 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { clearSourceCache, getCachedSourceResult, getSourceCacheDiagnostics, setCachedSourceResult } from './source-cache.mjs';
 
 const BROWSERISH_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
+const experimentalLiveSourceSet = new Set((appConfig.experimentalLiveSources || []).map((item) => String(item || '').trim()).filter(Boolean));
 
 
 function fetchTextWithPythonDecoding(url, { timeoutMs = 12000, userAgent = BROWSERISH_USER_AGENT } = {}) {
@@ -60,6 +61,12 @@ function sourceDetailUrl(source, query = '') {
       return `https://api.semanticscholar.org/graph/v1/paper/search/bulk?query=${encoded}`;
     case 'arxiv':
       return `https://export.arxiv.org/api/query?search_query=all:${encoded}`;
+    case 'biorxiv':
+      return buildPreprintSearchUrl('biorxiv', query, 10);
+    case 'medrxiv':
+      return buildPreprintSearchUrl('medrxiv', query, 10);
+    case 'pubmed':
+      return `${appConfig.pubmedSearchUrl}?term=${encoded}`;
     case 'riss':
       return `${appConfig.rissSearchUrl}?query=${encoded}`;
     case 'scienceon':
@@ -78,11 +85,61 @@ function sourceDetailUrl(source, query = '') {
       return appConfig.kiprisPlusSearchUrl || appConfig.kiprisPublicSearchUrl;
     case 'kci':
       return appConfig.kciSearchUrl || 'https://www.kci.go.kr/kciportal/mobile/po/search/poTotalSearList.kci';
+    case 'kiss':
+      return `${appConfig.kissSearchUrl}?field=0&isDetail=N&query=${encoded}`;
+    case 'nanet':
+      return `${appConfig.nanetSearchUrl}?query=${encoded}`;
+    case 'cve':
+      return `https://nvd.nist.gov/vuln/search/results?query=${encoded}&search_type=all`;
+    case 'blackhat':
+      return `${appConfig.blackHatSearchUrl}?q=${encoded}`;
+    case 'defcon':
+      return `${appConfig.defconSearchUrl}?query=${encoded}`;
     case 'rne_report':
       return appConfig.rneReportUrl;
     default:
       return '';
   }
+}
+
+function absoluteUrl(baseUrl = '', href = '') {
+  if (!href) return '';
+  try {
+    return new URL(href, baseUrl).toString();
+  } catch {
+    return href;
+  }
+}
+
+function truncateText(value = '', maxLength = 320) {
+  const text = stripTags(value).replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
+function parseAuthorText(text = '') {
+  return normalizeAuthors(
+    stripTags(text)
+      .replace(/\bet al\.?/gi, '')
+      .replace(/\s{2,}/g, ', ')
+      .replace(/\s+\|\s+/g, ', ')
+  );
+}
+
+function buildPreprintSearchUrl(source, query = '', limit = 10) {
+  const base = source === 'medrxiv' ? appConfig.medrxivSearchUrl : appConfig.biorxivSearchUrl;
+  const trimmedBase = String(base || '').replace(/\/+$/, '');
+  const suffix = encodeURIComponent(` numresults:${Math.max(limit, 10)} sort:relevance-rank`);
+  return `${trimmedBase}/${encodeURIComponent(query)}${suffix}`;
+}
+
+function isExperimentalLiveSource(source = '') {
+  return experimentalLiveSourceSet.has(String(source || '').trim());
+}
+
+function withExperimentalNote(source, note = '') {
+  if (!isExperimentalLiveSource(source)) return note;
+  return `${note}; experimental opt-in only (remove from SCHOLAXIS_EXPERIMENTAL_LIVE_SOURCES for default routing, or request the source explicitly)`;
 }
 
 function withQuery(url, param, query) {
@@ -260,6 +317,403 @@ async function enrichScienceGoDocument(document = {}) {
   } catch {
     return document;
   }
+}
+
+export function extractPreprintDocumentsFromHtml(source, html = '', query = '', limit = 10, searchUrl = '') {
+  const baseUrl =
+    source === 'medrxiv'
+      ? 'https://www.medrxiv.org'
+      : 'https://www.biorxiv.org';
+  const blocks = html
+    .split(/<div[^>]+class="[^"]*highwire-cite[^"]*"[^>]*>/i)
+    .slice(1)
+    .map((block) => block.split(/<div[^>]+class="[^"]*highwire-cite-extras[^"]*"[^>]*>/i)[0]);
+  const sourceLabel = source === 'medrxiv' ? 'medRxiv' : 'bioRxiv';
+  const documents = [];
+
+  for (const block of blocks) {
+    const href = absoluteUrl(baseUrl, block.match(/<a[^>]+href="([^"]*\/content\/[^"]+)"[^>]*>/i)?.[1] || '');
+    const title =
+      stripTags(block.match(/<span[^>]+class="[^"]*highwire-cite-title[^"]*"[^>]*>([\s\S]*?)<\/span>/i)?.[1]) ||
+      stripTags(block.match(/<a[^>]+href="[^"]*\/content\/[^"]+"[^>]*>([\s\S]*?)<\/a>/i)?.[1]);
+    if (!href || !title) continue;
+    const authors = parseAuthorText(block.match(/<span[^>]+class="[^"]*highwire-cite-authors[^"]*"[^>]*>([\s\S]*?)<\/span>/i)?.[1] || '');
+    const abstract =
+      stripTags(block.match(/<div[^>]+class="[^"]*(?:highwire-cite-snippet|highwire-cite-abstract)[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1] || '');
+    const doi = block.match(/\b10\.1101\/[0-9A-Za-z./-]+/i)?.[0] || '';
+    const metaText = stripTags(block);
+    const searchableText = [title, abstract, authors.join(' '), metaText].filter(Boolean).join(' ');
+    if (query && !matchesQueryText(searchableText, query)) continue;
+
+    documents.push(
+      buildDocument({
+        id: `${source}:${doi || href}`,
+        source,
+        sourceLabel,
+        type: 'paper',
+        title,
+        englishTitle: title,
+        authors,
+        organization: sourceLabel,
+        year: safeYear(metaText),
+        citations: 0,
+        openAccess: true,
+        language: 'en',
+        abstract,
+        summary: summarizeDocument({ abstract }),
+        keywords: normalizeKeywordBag(`${query} ${title} ${abstract}`).slice(0, 8),
+        sourceIds: { doi: doi || null },
+        links: {
+          detail: href,
+          original: href || searchUrl,
+          pdf: href ? `${href}.full.pdf` : null
+        },
+        rawRecord: {
+          doi,
+          href,
+          metaText,
+        }
+      })
+    );
+
+    if (documents.length >= limit) break;
+  }
+
+  return documents;
+}
+
+export function extractPubMedDocumentsFromXml(xml = '', query = '', limit = 10) {
+  const articles = parseXmlItems(xml, 'PubmedArticle');
+  return articles
+    .map((item) => {
+      const pmid = xmlValue(item, 'PMID');
+      const title = stripTags(textBetween(item, '<ArticleTitle>', '</ArticleTitle>'));
+      if (!pmid || !title) return null;
+      const abstractParts = [...item.matchAll(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g)].map((match) => stripTags(match[1])).filter(Boolean);
+      const abstract = abstractParts.join(' ');
+      const authors = [
+        ...item.matchAll(/<Author>([\s\S]*?)<\/Author>/g)
+      ].map((match) => {
+        const block = match[1];
+        const collective = xmlValue(block, 'CollectiveName');
+        if (collective) return collective;
+        const foreName = xmlValue(block, 'ForeName');
+        const lastName = xmlValue(block, 'LastName');
+        return [foreName, lastName].filter(Boolean).join(' ').trim();
+      }).filter(Boolean);
+      const journal = xmlValue(item, 'Title') || xmlValue(item, 'ISOAbbreviation') || 'PubMed';
+      const doi = [...item.matchAll(/<ArticleId[^>]*IdType="doi"[^>]*>([\s\S]*?)<\/ArticleId>/g)].map((match) => stripTags(match[1])).find(Boolean) || '';
+      return buildDocument({
+        id: `pubmed:${pmid}`,
+        source: 'pubmed',
+        sourceLabel: 'PubMed',
+        type: 'paper',
+        title,
+        englishTitle: title,
+        authors,
+        organization: journal,
+        year: safeYear(item),
+        citations: 0,
+        openAccess: false,
+        language: 'en',
+        abstract,
+        summary: summarizeDocument({ abstract }),
+        keywords: normalizeKeywordBag(`${query} ${title} ${abstract}`).slice(0, 8),
+        sourceIds: {
+          pubmed: pmid,
+          doi: doi || null
+        },
+        links: {
+          detail: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+          original: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`
+        },
+        rawRecord: { pmid, doi }
+      });
+    })
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+export function extractCveDocumentsFromPayload(payload = {}, query = '', limit = 10) {
+  return (payload.vulnerabilities || [])
+    .map((entry) => entry.cve || null)
+    .filter(Boolean)
+    .map((cve) => {
+      const description =
+        (cve.descriptions || []).find((item) => item.lang === 'en')?.value ||
+        (cve.descriptions || [])[0]?.value ||
+        '';
+      const severity =
+        cve.metrics?.cvssMetricV31?.[0]?.cvssData?.baseSeverity ||
+        cve.metrics?.cvssMetricV30?.[0]?.cvssData?.baseSeverity ||
+        cve.metrics?.cvssMetricV2?.[0]?.baseSeverity ||
+        '';
+      const references = (cve.references || []).map((item) => item.url).filter(Boolean);
+      const highlights = [severity, ...(cve.weaknesses || []).flatMap((item) => (item.description || []).map((desc) => desc.value).filter(Boolean))].filter(Boolean);
+      return buildDocument({
+        id: `cve:${cve.id}`,
+        source: 'cve',
+        sourceLabel: 'CVE / NVD',
+        type: 'report',
+        title: cve.id,
+        englishTitle: cve.id,
+        authors: [],
+        organization: 'NVD',
+        year: safeYear(cve.published),
+        citations: 0,
+        openAccess: true,
+        language: 'en',
+        abstract: description,
+        summary: summarizeDocument({ abstract: description }),
+        keywords: normalizeKeywordBag(`${query} ${cve.id} ${description}`).slice(0, 8),
+        highlights: highlights.slice(0, 4),
+        sourceIds: { cve: cve.id },
+        links: {
+          detail: `https://nvd.nist.gov/vuln/detail/${cve.id}`,
+          original: `https://nvd.nist.gov/vuln/detail/${cve.id}`,
+          references: references[0] || null
+        },
+        rawRecord: {
+          severity,
+          published: cve.published,
+          references,
+        }
+      });
+    })
+    .slice(0, limit);
+}
+
+export function extractKissDocumentsFromHtml(html = '', query = '', limit = 10, sourceUrl = appConfig.kissSearchUrl) {
+  const documents = [];
+  const seen = new Set();
+  const matches = [...html.matchAll(/<a[^>]+href="([^"]*\/Detail(?:Oa)?\/Ar\?key=[^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]{0,1200}?)(?=<a[^>]+href="[^"]*\/Detail(?:Oa)?\/Ar\?key=|$)/g)];
+
+  for (const match of matches) {
+    const detail = absoluteUrl('https://kiss.kstudy.com', match[1]);
+    const key = detail.match(/key=([^&]+)/)?.[1] || detail;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const title = stripTags(match[2]);
+    const meta = stripTags(match[3]);
+    if (!title || (query && !matchesQueryText(`${title} ${meta}`, query))) continue;
+
+    documents.push(
+      buildDocument({
+        id: `kiss:${key}`,
+        source: 'kiss',
+        sourceLabel: 'KISS',
+        type: /학위논문/.test(meta) ? 'thesis' : 'paper',
+        title,
+        englishTitle: title,
+        authors: parseAuthorText(meta),
+        organization: 'KISS',
+        year: safeYear(meta),
+        abstract: '',
+        summary: `KISS 검색 결과에서 수집한 항목입니다.`,
+        keywords: normalizeKeywordBag(`${query} ${title}`).slice(0, 8),
+        links: {
+          detail,
+          original: detail,
+          sourceApiUrl: sourceUrl
+        },
+        rawRecord: { meta }
+      })
+    );
+
+    if (documents.length >= limit) break;
+  }
+
+  return documents;
+}
+
+export function extractNanetDocumentsFromHtml(html = '', query = '', limit = 10, sourceUrl = appConfig.nanetSearchUrl) {
+  const documents = [];
+  const seen = new Set();
+  const matches = [
+    ...html.matchAll(/<a[^>]+href="([^"]*(?:SearchDetailView\.do\?cn=[^"]+|\/detail\/[A-Z0-9]+)[^"]*)"[^>]*>([\s\S]*?)<\/a>([\s\S]{0,1200}?)(?=<a[^>]+href="[^"]*(?:SearchDetailView\.do\?cn=|\/detail\/[A-Z0-9]+)|$)/g),
+    ...html.matchAll(/<a[^>]+href="([^"]*\/detail\/[A-Z0-9]+[^"]*)"[^>]*>([\s\S]*?)<\/a>([\s\S]{0,1200}?)(?=<a[^>]+href="[^"]*\/detail\/[A-Z0-9]+|$)/g)
+  ];
+
+  for (const match of matches) {
+    const detail = absoluteUrl('https://dl.nanet.go.kr', match[1]);
+    const cn = detail.match(/cn=([^&]+)/)?.[1] || detail.match(/\/detail\/([^/?#]+)/)?.[1] || detail;
+    if (seen.has(cn)) continue;
+    seen.add(cn);
+
+    const title = stripTags(match[2]);
+    const meta = stripTags(match[3]);
+    if (!title || (query && !matchesQueryText(`${title} ${meta}`, query))) continue;
+
+    documents.push(
+      buildDocument({
+        id: `nanet:${cn}`,
+        source: 'nanet',
+        sourceLabel: '국회도서관',
+        type: /학위논문|박사|석사/.test(meta) ? 'thesis' : 'report',
+        title,
+        englishTitle: title,
+        authors: parseAuthorText(meta),
+        organization: '국회도서관',
+        year: safeYear(meta),
+        abstract: '',
+        summary: `국회도서관 검색 결과에서 수집한 항목입니다.`,
+        keywords: normalizeKeywordBag(`${query} ${title}`).slice(0, 8),
+        links: {
+          detail,
+          original: detail,
+          sourceApiUrl: sourceUrl
+        },
+        rawRecord: { meta }
+      })
+    );
+
+    if (documents.length >= limit) break;
+  }
+
+  return documents;
+}
+
+export function extractBlackHatDocumentsFromHtml(html = '', query = '', limit = 10, sourceUrl = '') {
+  const documents = [];
+  const seen = new Set();
+  const matches = [...html.matchAll(/<a[^>]+href="([^"]*\/briefings\/[^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]{0,2000}?)(?=<a[^>]+href="[^"]*\/briefings\/|$)/g)];
+
+  for (const match of matches) {
+    const detail = absoluteUrl(sourceUrl || 'https://www.blackhat.com', match[1]);
+    const title = stripTags(match[2]);
+    const meta = stripTags(match[3]);
+    if (!title || seen.has(detail)) continue;
+    if (query && !matchesQueryText(`${title} ${meta}`, query)) continue;
+    seen.add(detail);
+
+    documents.push(
+      buildDocument({
+        id: `blackhat:${detail}`,
+        source: 'blackhat',
+        sourceLabel: 'Black Hat Archive',
+        type: 'report',
+        title,
+        englishTitle: title,
+        authors: parseAuthorText(meta),
+        organization: 'Black Hat',
+        year: safeYear(meta) || safeYear(detail),
+        abstract: truncateText(meta, 420),
+        summary: summarizeDocument({ abstract: truncateText(meta, 420) }),
+        keywords: normalizeKeywordBag(`${query} ${title} ${meta}`).slice(0, 8),
+        openAccess: true,
+        language: 'en',
+        links: {
+          detail,
+          original: detail
+        },
+        rawRecord: { meta }
+      })
+    );
+
+    if (documents.length >= limit) break;
+  }
+
+  return documents;
+}
+
+export function extractDefconDocumentsFromHtml(html = '', query = '', limit = 10, sourceUrl = '') {
+  const documents = [];
+  const seen = new Set();
+  const matches = [...html.matchAll(/<a[^>]+href="([^"]*(?:\/node\/\d+|\/thread\/[^"]+))"[^>]*>([\s\S]*?)<\/a>([\s\S]{0,1500}?)(?=<a[^>]+href="[^"]*(?:\/node\/\d+|\/thread\/)|$)/g)];
+
+  for (const match of matches) {
+    const detail = absoluteUrl(sourceUrl || 'https://forum.defcon.org', match[1]);
+    const title = stripTags(match[2]);
+    const meta = stripTags(match[3]);
+    if (!title || seen.has(detail)) continue;
+    if (query && !matchesQueryText(`${title} ${meta}`, query)) continue;
+    seen.add(detail);
+
+    documents.push(
+      buildDocument({
+        id: `defcon:${detail}`,
+        source: 'defcon',
+        sourceLabel: 'DEF CON Archive',
+        type: 'report',
+        title,
+        englishTitle: title,
+        authors: parseAuthorText(meta),
+        organization: 'DEF CON',
+        year: safeYear(meta) || safeYear(detail),
+        abstract: truncateText(meta, 420),
+        summary: summarizeDocument({ abstract: truncateText(meta, 420) }),
+        keywords: normalizeKeywordBag(`${query} ${title} ${meta}`).slice(0, 8),
+        openAccess: true,
+        language: 'en',
+        links: {
+          detail,
+          original: detail
+        },
+        rawRecord: { meta }
+      })
+    );
+
+    if (documents.length >= limit) break;
+  }
+
+  return documents;
+}
+
+async function searchPreprintServer(source, query, limit) {
+  const url = buildPreprintSearchUrl(source, query, limit);
+  const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+  return extractPreprintDocumentsFromHtml(source, html, query, limit, url);
+}
+
+async function searchPubMed(query, limit) {
+  const esearchUrl = `${appConfig.pubmedEutilsUrl}/esearch.fcgi?db=pubmed&retmode=json&sort=relevance&retmax=${limit}&term=${encodeURIComponent(query)}`;
+  const payload = await fetchJson(esearchUrl, { timeoutMs: 9000 });
+  const ids = payload?.esearchresult?.idlist || [];
+  if (!ids.length) return [];
+  const efetchUrl = `${appConfig.pubmedEutilsUrl}/efetch.fcgi?db=pubmed&retmode=xml&rettype=abstract&id=${ids.join(',')}`;
+  const xml = await fetchText(efetchUrl, { accept: 'application/xml', timeoutMs: 9000 });
+  return extractPubMedDocumentsFromXml(xml, query, limit);
+}
+
+async function searchCve(query, limit) {
+  const url = `${appConfig.nvdCveApiUrl}?keywordSearch=${encodeURIComponent(query)}&resultsPerPage=${limit}`;
+  const payload = await fetchJson(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+  return extractCveDocumentsFromPayload(payload, query, limit);
+}
+
+async function searchKiss(query, limit) {
+  const url = `${appConfig.kissSearchUrl}?field=0&isDetail=N&query=${encodeURIComponent(query)}`;
+  const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+  return extractKissDocumentsFromHtml(html, query, limit, url);
+}
+
+async function searchNanet(query, limit) {
+  const url = `${appConfig.nanetSearchUrl}?query=${encodeURIComponent(query)}`;
+  const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+  return extractNanetDocumentsFromHtml(html, query, limit, url);
+}
+
+async function searchBlackHat(query, limit) {
+  const matched = [];
+  const seen = new Set();
+  for (const url of appConfig.blackHatArchiveUrls || []) {
+    const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+    const docs = extractBlackHatDocumentsFromHtml(html, query, limit, url);
+    for (const document of docs) {
+      if (seen.has(document.id)) continue;
+      seen.add(document.id);
+      matched.push(document);
+      if (matched.length >= limit) return matched;
+    }
+  }
+  return matched;
+}
+
+async function searchDefcon(query, limit) {
+  const url = `${appConfig.defconSearchUrl}?query=${encodeURIComponent(query)}`;
+  const html = await fetchText(url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+  return extractDefconDocumentsFromHtml(html, query, limit, url);
 }
 
 async function searchSemanticScholar(query, limit) {
@@ -990,6 +1444,24 @@ const liveSourceRegistry = {
     note: '공식 Atom API / OAI-PMH 가능',
     search: searchArxiv
   },
+  biorxiv: {
+    type: 'crawl',
+    coverage: '생명과학 프리프린트',
+    note: '공개 검색 결과 페이지 파싱',
+    search: (query, limit) => searchPreprintServer('biorxiv', query, limit)
+  },
+  medrxiv: {
+    type: 'crawl',
+    coverage: '의학 프리프린트',
+    note: '공개 검색 결과 페이지 파싱',
+    search: (query, limit) => searchPreprintServer('medrxiv', query, limit)
+  },
+  pubmed: {
+    type: 'api',
+    coverage: '생명과학/의학 논문',
+    note: 'NCBI E-utilities 검색 + 초록 조회',
+    search: searchPubMed
+  },
   riss: {
     type: 'crawl',
     coverage: '국내 논문/학위논문/보고서',
@@ -1014,6 +1486,18 @@ const liveSourceRegistry = {
     note: 'OpenAPI key preferred; public search fallback available',
     search: searchDbpia
   },
+  kiss: {
+    type: 'crawl',
+    coverage: '국내 학술논문',
+    note: '공개 검색 결과 페이지 파싱',
+    search: searchKiss
+  },
+  nanet: {
+    type: 'crawl',
+    coverage: '국회도서관 소장자료/정책자료',
+    note: '국회도서관 검색 결과 페이지 파싱',
+    search: searchNanet
+  },
   ntis: {
     type: 'crawl',
     coverage: '국가 R&D 과제/성과',
@@ -1025,6 +1509,24 @@ const liveSourceRegistry = {
     coverage: '특허/실용신안',
     note: 'OpenAPI preferred; when unavailable or rate-limited, direct site-search fallback is used',
     search: searchKipris
+  },
+  cve: {
+    type: 'api',
+    coverage: '보안 취약점',
+    note: 'NVD CVE 2.0 API',
+    search: searchCve
+  },
+  blackhat: {
+    type: 'crawl',
+    coverage: '보안 컨퍼런스 발표 자료',
+    note: 'Black Hat 브리핑 일정/아카이브 페이지 파싱',
+    search: searchBlackHat
+  },
+  defcon: {
+    type: 'crawl',
+    coverage: '보안 컨퍼런스/아카이브',
+    note: 'DEF CON 포럼 검색 결과 파싱',
+    search: searchDefcon
   },
   science_fair: {
     type: 'crawl',
@@ -1048,6 +1550,7 @@ const liveSourceRegistry = {
 
 export async function searchLiveSources(query, requestedSources = [], limitPerSource = appConfig.maxLiveResultsPerSource, options = {}) {
   const { forceRefresh = false, overrideEnable = false } = options;
+  const explicitSourceRequest = requestedSources.length > 0;
 
   if (!appConfig.enableLiveSources && !overrideEnable) {
     return {
@@ -1057,7 +1560,7 @@ export async function searchLiveSources(query, requestedSources = [], limitPerSo
           status: 'disabled',
           latency: 'n/a',
           coverage: meta.coverage,
-          note: `${meta.note}; SCHOLAXIS_ENABLE_LIVE_SOURCES=false`,
+          note: withExperimentalNote(source, `${meta.note}; SCHOLAXIS_ENABLE_LIVE_SOURCES=false`),
           detailUrl: sourceDetailUrl(source, query)
         })
       )
@@ -1067,9 +1570,11 @@ export async function searchLiveSources(query, requestedSources = [], limitPerSo
   const selected = (requestedSources.length ? requestedSources : Object.keys(liveSourceRegistry)).filter(
     (source) => liveSourceRegistry[source]
   );
+  const runnable = selected.filter((source) => explicitSourceRequest || !isExperimentalLiveSource(source));
+  const gated = selected.filter((source) => !runnable.includes(source));
 
   const settled = await Promise.all(
-    selected.map(async (source) => {
+    runnable.map(async (source) => {
       const meta = liveSourceRegistry[source];
       try {
         const cached = forceRefresh ? null : getCachedSourceResult(source, query, limitPerSource);
@@ -1088,7 +1593,7 @@ export async function searchLiveSources(query, requestedSources = [], limitPerSo
             status: documents.length ? 'online' : 'limited',
             latency: meta.type === 'api' ? 'fast' : 'moderate',
             coverage: meta.coverage,
-            note: meta.note,
+            note: withExperimentalNote(source, meta.note),
             detailUrl: sourceDetailUrl(source, query)
           })
         };
@@ -1102,7 +1607,7 @@ export async function searchLiveSources(query, requestedSources = [], limitPerSo
             status: 'error',
             latency: 'unknown',
             coverage: meta.coverage,
-            note: `${meta.note}; ${error.message}`,
+            note: withExperimentalNote(source, `${meta.note}; ${error.message}`),
             detailUrl: sourceDetailUrl(source, query)
           })
         };
@@ -1112,7 +1617,18 @@ export async function searchLiveSources(query, requestedSources = [], limitPerSo
 
   return {
     documents: settled.flatMap((item) => item.documents),
-    statuses: settled.map((item) => item.status)
+    statuses: [
+      ...settled.map((item) => item.status),
+      ...gated.map((source) =>
+        buildSourceStatus(source, {
+          status: 'disabled',
+          latency: 'n/a',
+          coverage: liveSourceRegistry[source]?.coverage || '',
+          note: withExperimentalNote(source, liveSourceRegistry[source]?.note || 'experimental source'),
+          detailUrl: sourceDetailUrl(source, query)
+        })
+      )
+    ]
   };
 }
 
@@ -1122,14 +1638,17 @@ export function sourceRegistrySummary(query = '') {
     detailUrl: sourceDetailUrl(source, query),
     type: meta.type,
     coverage: meta.coverage,
-    note: meta.note,
-    liveEnabled: appConfig.enableLiveSources
+    note: withExperimentalNote(source, meta.note),
+    liveEnabled: appConfig.enableLiveSources,
+    experimental: isExperimentalLiveSource(source),
+    autoRoutedByDefault: !isExperimentalLiveSource(source)
   }));
 }
 
 export function getSourceRuntimeDiagnostics() {
   return {
     cache: getSourceCacheDiagnostics(),
+    experimentalSources: [...experimentalLiveSourceSet],
     quota: {
       kiprisPolicy: 'Use KIPRIS Plus API when configured; fall back to direct site-search when API is unavailable or rate-limited.',
       dbpiaPolicy: 'Use DBpia OpenAPI when configured; otherwise use public search fallback.'

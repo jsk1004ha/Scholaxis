@@ -12,6 +12,15 @@ function readInt(name, defaultValue) {
   return Number.isFinite(value) ? value : defaultValue;
 }
 
+function readCsv(name, defaultValue = []) {
+  const value = process.env[name];
+  if (value == null || value === '') return [...defaultValue];
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 const translationProvider = process.env.SCHOLAXIS_TRANSLATION_PROVIDER || 'generic';
 const translationHost = process.env.SCHOLAXIS_TRANSLATION_HOST || '127.0.0.1';
 const translationPort = readInt('SCHOLAXIS_TRANSLATION_PORT', 5001);
@@ -82,8 +91,22 @@ export const appConfig = {
   dbPath: process.env.SCHOLAXIS_DB_PATH || '.data/scholaxis.db',
   vectorDimensions: readInt('SCHOLAXIS_VECTOR_DIMS', 1024),
   maxLiveResultsPerSource: readInt('SCHOLAXIS_MAX_LIVE_RESULTS_PER_SOURCE', 8),
+  experimentalLiveSources: readCsv('SCHOLAXIS_EXPERIMENTAL_LIVE_SOURCES', []),
   semanticScholarApiKey: process.env.SEMANTIC_SCHOLAR_API_KEY || '',
   dbpiaApiKey: process.env.DBPIA_API_KEY || '',
+  biorxivSearchUrl: process.env.BIORXIV_SEARCH_URL || 'https://www.biorxiv.org/search/',
+  medrxivSearchUrl: process.env.MEDRXIV_SEARCH_URL || 'https://www.medrxiv.org/search/',
+  pubmedSearchUrl: process.env.PUBMED_SEARCH_URL || 'https://pubmed.ncbi.nlm.nih.gov/',
+  pubmedEutilsUrl: process.env.PUBMED_EUTILS_URL || 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils',
+  nvdCveApiUrl: process.env.NVD_CVE_API_URL || 'https://services.nvd.nist.gov/rest/json/cves/2.0',
+  blackHatSearchUrl: process.env.BLACK_HAT_SEARCH_URL || 'https://www.blackhat.com/search-results.html',
+  blackHatArchiveUrls: (process.env.BLACK_HAT_ARCHIVE_URLS || 'https://www.blackhat.com/us-25/briefings/schedule/index.html,https://www.blackhat.com/us-24/briefings/schedule/index.html,https://www.blackhat.com/us-23/briefings/schedule/index.html')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean),
+  defconSearchUrl: process.env.DEFCON_SEARCH_URL || 'https://forum.defcon.org/search',
+  kissSearchUrl: process.env.KISS_SEARCH_URL || 'https://kiss.kstudy.com/Search/Result',
+  nanetSearchUrl: process.env.NANET_SEARCH_URL || 'https://dl.nanet.go.kr/search/searchInnerResultList.do',
   rissSearchUrl: process.env.RISS_SEARCH_URL || 'https://www.riss.kr/search/Search.do',
   kiprisPlusApiKey: process.env.KIPRIS_PLUS_API_KEY || '',
   kiprisPlusSearchUrl: process.env.KIPRIS_PLUS_SEARCH_URL || '',
@@ -116,12 +139,20 @@ export const appConfig = {
   preferredSources: [
     'semantic_scholar',
     'arxiv',
+    'biorxiv',
+    'medrxiv',
+    'pubmed',
     'riss',
     'kci',
     'scienceon',
     'dbpia',
+    'kiss',
+    'nanet',
     'ntis',
     'kipris',
+    'cve',
+    'blackhat',
+    'defcon',
     'science_fair',
     'student_invention_fair',
     'rne_report'

@@ -92,7 +92,7 @@ export function normalizeAuthors(input) {
 }
 
 export function estimateRegion(source) {
-  return ['kci', 'riss', 'scienceon', 'dbpia', 'ntis', 'kipris', 'science_fair', 'student_invention_fair'].includes(source)
+  return ['kci', 'riss', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'science_fair', 'student_invention_fair'].includes(source)
     ? 'domestic'
     : 'global';
 }
@@ -190,9 +190,10 @@ const QUERY_PROFILE_HINTS = {
   fair: ['science fair', 'student invention', '발명', '전람회', 'rne', 'r&e', '알앤이', '과학전람회', '발명품경진대회'],
   humanities: ['문학', '역사', '철학', '예술', '미술', '연극', 'humanities', 'archaeology'],
   education: ['교육', '학습', '수학 불안', '국어 교육', 'pedagogy', 'education'],
-  biomedical: ['bio', '의료', '유전자', '면역', '임플란트', 'medical', 'genetic', 'immun', 'clinical'],
+  biomedical: ['bio', 'biorxiv', 'medrxiv', 'pubmed', '의료', '의학', '생명과학', '유전자', '면역', '임플란트', 'medical', 'genetic', 'immun', 'clinical'],
   engineering: ['반도체', '배터리', '드론', '센서', '로봇', 'semiconductor', 'battery', 'drone', 'robot', 'sensor'],
   earth_space: ['기후', '산불', '우주', '위성', '홍수', '지진', 'climate', 'wildfire', 'space', 'satellite', 'flood', 'earthquake'],
+  security: ['security', 'cyber', 'cve', '취약점', '보안', '해킹', '익스플로잇', 'exploit', 'malware', '랜섬웨어', 'def con', 'black hat', 'reverse engineering'],
 };
 
 function isRneLikeQuery(raw = '', normalized = '') {
@@ -220,7 +221,7 @@ export function classifyQueryProfile(query = '') {
   if (!types.length) types.push('paper');
 
   const domains = [];
-  for (const domain of ['humanities', 'education', 'biomedical', 'engineering', 'earth_space']) {
+  for (const domain of ['humanities', 'education', 'biomedical', 'engineering', 'earth_space', 'security']) {
     if (has(domain)) domains.push(domain);
   }
 
@@ -228,10 +229,11 @@ export function classifyQueryProfile(query = '') {
   if (types.includes('patent')) sourceHints.push('kipris');
   if (types.includes('report')) sourceHints.push('ntis', 'rne_report');
   if (types.includes('fair_entry')) sourceHints.push('science_fair', 'student_invention_fair', 'rne_report');
-  if (domains.includes('humanities') || domains.includes('education')) sourceHints.push('riss', 'kci', 'dbpia');
-  if (domains.includes('biomedical')) sourceHints.push('scienceon', 'semantic_scholar', 'riss');
+  if (domains.includes('humanities') || domains.includes('education')) sourceHints.push('riss', 'kci', 'dbpia', 'kiss', 'nanet');
+  if (domains.includes('biomedical')) sourceHints.push('pubmed', 'biorxiv', 'medrxiv', 'scienceon', 'semantic_scholar', 'riss');
   if (domains.includes('engineering')) sourceHints.push('arxiv', 'semantic_scholar', 'kci', 'dbpia', 'kipris');
   if (domains.includes('earth_space')) sourceHints.push('semantic_scholar', 'arxiv', 'scienceon', 'ntis');
+  if (domains.includes('security')) sourceHints.push('cve', 'blackhat', 'defcon');
 
   const language = detectLanguage(raw);
   return {

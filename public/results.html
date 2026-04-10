@@ -7,13 +7,23 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="results">
     <div class="shell">
       <header class="topbar">
         <div class="topbar__inner">
-          <div class="brand">Scholaxis</div>
+          <a class="brand" href="./index.html" aria-label="Scholaxis 홈으로 이동">
+            <span class="brand__mark" aria-hidden="true">
+              <img src="./favicon.svg" alt="" />
+            </span>
+            <span class="brand__copy">
+              <strong>Scholaxis</strong>
+              <small>Research discovery engine</small>
+            </span>
+          </a>
           <nav>
             <a href="./index.html">탐색</a>
             <a class="is-active" href="./results.html">검색 결과</a>
@@ -28,8 +38,7 @@
       <main class="page layout">
         <aside class="sidebar">
           <span class="section-eyebrow">Search controls</span>
-          <h2>탐색 범위를 명확하게 좁히기</h2>
-          <p>국내 우선 여부, 자료 유형, 현재 질의를 함께 조정해 지금 보고 싶은 결과군을 빠르게 정리합니다.</p>
+          <h2>검색 조건</h2>
           <form class="stack inline-search" data-inline-search>
             <div>
               <label class="label" for="search-inline">검색어</label>
@@ -63,16 +72,14 @@
 
         <section>
           <article class="result-hero">
-            <span class="section-eyebrow">Integrated search</span>
-            <h1 class="loading-copy loading-copy--title" data-query-label>검색 결과를 준비하는 중입니다.</h1>
-            <p class="loading-copy" data-results-summary>
-              질의와 가장 가까운 문헌, 출처, 다음 탐색 흐름을 정리하고 있습니다.
-            </p>
-            <p class="live-status live-status--loading" data-search-progress aria-live="polite">검색 스트리밍을 준비하고 있습니다.</p>
+            <span class="section-eyebrow">Search</span>
+            <h1 class="loading-copy loading-copy--title" data-query-label>검색 결과</h1>
+            <p class="loading-copy" data-results-summary>관련 문헌을 찾고 있습니다.</p>
+            <p class="live-status live-status--loading" data-search-progress aria-live="polite">검색을 준비하고 있습니다.</p>
             <div class="chip-row" style="margin-top: 1rem" data-related-queries></div>
             <div class="action-row" style="margin-top: 1rem">
               <span class="pill" data-results-count>0개 결과</span>
-              <a class="pill pill--muted" href="./similarity.html">리포트 유사도 분석으로 이동</a>
+              <a class="pill pill--muted" href="./similarity.html">유사도 분석</a>
             </div>
           </article>
 
@@ -84,15 +91,15 @@
         <div class="footer__inner footer-grid">
           <div>
             <strong>검색 기준</strong>
-            <p>질의 해석 · 활성 소스 · 결과 요약 · 다음 탐색 제안을 한 화면에서 연결합니다.</p>
+            <p>질의와 필터를 기준으로 결과를 정렬합니다.</p>
           </div>
           <div>
-            <strong>근거 중심 탐색</strong>
-            <p>문서 유형·출처·원문 링크를 분명하게 보여 주고, 상세 분석으로 자연스럽게 이어집니다.</p>
+            <strong>상세 보기</strong>
+            <p>원문 링크와 상세 분석으로 바로 이동할 수 있습니다.</p>
           </div>
           <div>
             <strong>다음 단계</strong>
-            <p>상세 분석, 유사도 비교, 저장 라이브러리로 이어지는 흐름을 유지합니다.</p>
+            <p>유사도 분석이나 라이브러리 저장으로 이어갈 수 있습니다.</p>
           </div>
         </div>
       </footer>

@@ -21,6 +21,9 @@ DATABASE_URL=postgres://scholaxis:password@127.0.0.1:5432/scholaxis
 SCHOLAXIS_VECTOR_SERVICE_URL=http://127.0.0.1:8100
 SCHOLAXIS_GRAPH_SERVICE_URL=http://127.0.0.1:8200
 SCHOLAXIS_ENABLE_LIVE_SOURCES=true
+# Optional: leave this empty to include all live sources in default auto routing
+# Set only the sources you want to keep out of default auto routing
+# SCHOLAXIS_EXPERIMENTAL_LIVE_SOURCES=pubmed,biorxiv,medrxiv,kiss,nanet,cve,blackhat,defcon
 SCHOLAXIS_SCHEDULER_INTERVAL_MS=60000
 SCHOLAXIS_WORKER_POLL_MS=1500
 SCHOLAXIS_WORKER_LEASE_MS=15000

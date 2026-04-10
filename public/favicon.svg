@@ -1,0 +1,33 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="glyph" x1="58" y1="30" x2="201" y2="228" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F8F8"/>
+      <stop offset="0.56" stop-color="#8F95FF"/>
+      <stop offset="1" stop-color="#5EEAD4"/>
+    </linearGradient>
+    <linearGradient id="orbitA" x1="46" y1="63" x2="95" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5EEAD4"/>
+      <stop offset="1" stop-color="#7170FF"/>
+    </linearGradient>
+    <linearGradient id="orbitB" x1="210" y1="198" x2="159" y2="163" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7170FF"/>
+      <stop offset="1" stop-color="#F7F8F8"/>
+    </linearGradient>
+    <filter id="softGlow" x="18" y="16" width="220" height="224" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="4" result="effect1_foregroundBlur"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softGlow)" opacity="0.3">
+    <path d="M58 60L95 78" stroke="url(#orbitA)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M210 198L159 163" stroke="url(#orbitB)" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  <path d="M72 76C72 53.9086 89.9086 36 112 36H164C180.569 36 194 49.4315 194 66C194 82.5685 180.569 96 164 96H124C115.163 96 108 103.163 108 112C108 120.837 115.163 128 124 128H150C178.719 128 202 151.281 202 180C202 208.719 178.719 232 150 232H92C75.4315 232 62 218.569 62 202C62 185.431 75.4315 172 92 172H140C148.837 172 156 164.837 156 156C156 147.163 148.837 140 140 140H112C89.9086 140 72 122.091 72 100V76Z" fill="url(#glyph)"/>
+
+  <circle cx="49" cy="59" r="10" fill="#5EEAD4"/>
+  <circle cx="208" cy="101" r="7" fill="#F7F8F8" fill-opacity="0.96"/>
+  <circle cx="212" cy="202" r="12" fill="#7170FF"/>
+</svg>
