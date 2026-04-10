@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
@@ -42,16 +41,44 @@ import { seedCatalog } from './catalog.mjs';
 const dataDir = path.resolve('.data');
 mkdirSync(dataDir, { recursive: true });
 
+function makeRecoveryPath(prefix = 'scholaxis-recovery') {
+  return path.join(dataDir, `${prefix}-${Date.now()}.db`);
+}
+
 let dbPath = path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 'scholaxis.db'));
 const opened = openDatabase(dbPath);
 dbPath = opened.path;
 let db = opened.database;
+let dbRecoveryReason = opened.recoveryReason || '';
+if (dbRecoveryReason) {
+  console.warn(`[storage] using recovery database at ${dbPath} (${dbRecoveryReason})`);
+}
 
 function usePostgresStorage() {
   return postgresRuntimeReady();
 }
 
 function openDatabase(targetPath) {
+  const explicitDbPath = Boolean(process.env.SCHOLAXIS_DB_PATH);
+  const walPath = `${targetPath}-wal`;
+  const maxDbBytesBeforeRecovery = Number(process.env.SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY || 1024 * 1024 * 1024);
+  const maxWalBytesBeforeRecovery = Number(process.env.SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY || 256 * 1024 * 1024);
+
+  if (!explicitDbPath) {
+    const dbSize = existsSync(targetPath) ? statSync(targetPath).size : 0;
+    const walSize = existsSync(walPath) ? statSync(walPath).size : 0;
+    if (dbSize > maxDbBytesBeforeRecovery || walSize > maxWalBytesBeforeRecovery) {
+      const recoveryPath = makeRecoveryPath('scholaxis-startup-recovery');
+      const database = new DatabaseSync(recoveryPath);
+      database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+      return {
+        database,
+        path: recoveryPath,
+        recoveryReason: `oversized-default-db:${dbSize}:${walSize}`,
+      };
+    }
+  }
+
   try {
     const database = new DatabaseSync(targetPath);
     database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
@@ -73,10 +100,10 @@ function openDatabase(targetPath) {
         }
       }
 
-      const recoveryPath = path.join(tmpdir(), `scholaxis-recovery-${Date.now()}.db`);
+      const recoveryPath = makeRecoveryPath('scholaxis-recovery');
       const database = new DatabaseSync(recoveryPath);
       database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
-      return { database, path: recoveryPath };
+      return { database, path: recoveryPath, recoveryReason: `sqlite-open-recovery:${error.message}` };
     }
     throw error;
   }
@@ -386,6 +413,7 @@ export function getStorageDiagnostics() {
   return {
     ready: true,
     dbPath,
+    recoveryReason: dbRecoveryReason,
     documents: documentsCount?.count || 0,
     searchRuns: searchRunsCount?.count || 0,
     similarityRuns: similarityRunsCount?.count || 0,

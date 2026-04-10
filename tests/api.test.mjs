@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { Blob } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, startServer } from '../src/server.mjs';
@@ -1785,6 +1786,38 @@ test('postgres serious-use diagnostics recommend postgres + pgvector when fallba
   assert.ok(diagnostics.missing.includes('storage-backend'));
   assert.ok(diagnostics.missing.includes('vector-backend'));
   assert.equal(diagnostics.validationCommand, 'npm run validate:postgres');
+});
+
+test('storage falls back to a recovery database when the default sqlite db or wal is oversized', () => {
+  const fixtureDir = path.join(tmpdir(), `scholaxis-oversized-db-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(fixtureDir, { recursive: true });
+  const dataFixtureDir = path.join(fixtureDir, '.data');
+  mkdirSync(dataFixtureDir, { recursive: true });
+  const dbPath = path.join(dataFixtureDir, 'scholaxis.db');
+  writeFileSync(dbPath, Buffer.alloc(4, 1));
+  writeFileSync(`${dbPath}-wal`, Buffer.alloc(4, 2));
+
+  const storageModulePath = JSON.stringify(path.resolve(process.cwd(), 'src/storage.mjs'));
+  const script = [
+    "process.chdir(process.argv[1]);",
+    "process.env.NODE_ENV = 'test';",
+    "process.env.SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY = '1';",
+    "process.env.SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY = '1';",
+    `const mod = await import(${storageModulePath});`,
+    "process.stdout.write(JSON.stringify(mod.getStorageDiagnostics()));",
+  ].join('\n');
+
+  const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script, fixtureDir], {
+    cwd: path.resolve(process.cwd()),
+    env: {
+      ...process.env,
+    },
+    encoding: 'utf8',
+  });
+
+  const diagnostics = JSON.parse(stdout.trim().split('\n').at(-1) || '{}');
+  assert.notEqual(path.resolve(diagnostics.dbPath), path.resolve(dbPath));
+  assert.match(String(diagnostics.recoveryReason || ''), /oversized-default-db:/);
 });
 
 test('frontend search query normalization maps Korean option values to API values', () => {
