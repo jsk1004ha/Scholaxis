@@ -28,8 +28,6 @@ import {
   getSearchSuggestions,
   listSourceStatuses,
   listTrends,
-  searchCatalog,
-  searchCatalogStream,
   getRecommendationsById,
   warmSearchIndex
 } from './search-service.mjs';
@@ -69,6 +67,12 @@ import {
   runAnalysisTask,
   submitAsyncAnalysisJob,
 } from './analysis-runtime.mjs';
+import {
+  getSearchRuntimeDiagnostics,
+  isSearchRuntimeOverloadedError,
+  runSearchCatalogStreamTask,
+  runSearchCatalogTask,
+} from './search-runtime.mjs';
 import { getEmbeddingDiagnostics } from './embedding-service.mjs';
 import { ensureLocalModelBackend, getLocalModelDiagnostics } from './local-model-runtime.mjs';
 import { getSemanticDiagnostics } from './semantic-service.mjs';
@@ -242,6 +246,14 @@ function writeSseEvent(res, event, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function buildSearchRuntimeOverloadPayload(error) {
+  return {
+    error: '검색 요청이 많아 잠시 후 다시 시도해 주세요.',
+    code: 'search_runtime_overloaded',
+    retryAfterMs: Number(error?.retryAfterMs || 1000),
+  };
+}
+
 async function buildSimilarityFromMultipart(fields) {
   return runAnalysisTask(
     'similarity-multipart',
@@ -278,7 +290,8 @@ export function createServer() {
             localModels: getLocalModelDiagnostics(),
             storage: getStorageDiagnostics(),
             embeddings: getEmbeddingDiagnostics(),
-            searchIndex: getSearchIndexDiagnostics()
+            searchIndex: getSearchIndexDiagnostics(),
+            searchRuntime: getSearchRuntimeDiagnostics(),
           }
         });
       }
@@ -292,17 +305,27 @@ export function createServer() {
           .split(',')
           .map((value) => value.trim())
           .filter(Boolean);
-        const payload = await searchCatalog({
-          q: searchParams.get('q') || '',
-          region: searchParams.get('region') || 'all',
-          sourceType: searchParams.get('sourceType') || 'all',
-          sort: searchParams.get('sort') || 'relevance',
-          preferredSources,
-          live: searchParams.get('live') === '1' || appConfig.enableLiveSources,
-          forceRefresh: searchParams.get('refresh') === '1',
-          autoLive: searchParams.get('autoLive') === '0' ? false : appConfig.autoLiveOnEmpty
-        });
-        return json(res, 200, { ...payload, data: { ...payload, items: payload.items } });
+        try {
+          const task = runSearchCatalogTask({
+            q: searchParams.get('q') || '',
+            region: searchParams.get('region') || 'all',
+            sourceType: searchParams.get('sourceType') || 'all',
+            sort: searchParams.get('sort') || 'relevance',
+            preferredSources,
+            live: searchParams.get('live') === '1' || appConfig.enableLiveSources,
+            forceRefresh: searchParams.get('refresh') === '1',
+            autoLive: searchParams.get('autoLive') === '0' ? false : appConfig.autoLiveOnEmpty
+          });
+          const payload = await task.promise;
+          return json(res, 200, { ...payload, data: { ...payload, items: payload.items } });
+        } catch (error) {
+          if (isSearchRuntimeOverloadedError(error)) {
+            const payload = buildSearchRuntimeOverloadPayload(error);
+            res.setHeader('Retry-After', Math.max(1, Math.ceil(payload.retryAfterMs / 1000)));
+            return json(res, 503, payload);
+          }
+          throw error;
+        }
       }
 
       if (pathname === '/api/search/stream') {
@@ -321,23 +344,50 @@ export function createServer() {
           autoLive: searchParams.get('autoLive') === '0' ? false : appConfig.autoLiveOnEmpty
         };
 
+        let closed = false;
+        let headersReady = false;
+        const pendingEvents = [];
+        let task;
+        try {
+          task = runSearchCatalogStreamTask(streamOptions, {
+            onEvent: ({ type, payload }) => {
+              if (!headersReady) {
+                pendingEvents.push({ type, payload });
+                return;
+              }
+              if (closed || res.writableEnded) return;
+              writeSseEvent(res, type, payload);
+            },
+          });
+        } catch (error) {
+          if (isSearchRuntimeOverloadedError(error)) {
+            const payload = buildSearchRuntimeOverloadPayload(error);
+            res.setHeader('Retry-After', Math.max(1, Math.ceil(payload.retryAfterMs / 1000)));
+            return json(res, 503, payload);
+          }
+          throw error;
+        }
+
         res.statusCode = 200;
         res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
         res.setHeader('Cache-Control', 'no-cache, no-transform');
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Accel-Buffering', 'no');
         res.flushHeaders?.();
+        headersReady = true;
+        for (const event of pendingEvents.splice(0)) {
+          if (closed || res.writableEnded) break;
+          writeSseEvent(res, event.type, event.payload);
+        }
 
-        let closed = false;
         req.on('close', () => {
+          if (closed) return;
           closed = true;
+          task.cancel();
         });
 
         try {
-          await searchCatalogStream(streamOptions, ({ type, payload }) => {
-            if (closed || res.writableEnded) return;
-            writeSseEvent(res, type, payload);
-          });
+          await task.promise;
           if (!closed && !res.writableEnded) res.end();
         } catch (error) {
           if (!closed && !res.writableEnded) {
@@ -375,6 +425,7 @@ export function createServer() {
             ocr: await getOcrDiagnostics(),
             sourceRuntime: getSourceRuntimeDiagnostics(),
             analysis: getAnalysisRuntimeDiagnostics(),
+            search: getSearchRuntimeDiagnostics(),
           }
         });
       }
@@ -411,6 +462,7 @@ export function createServer() {
             vectorBackend: getVectorBackendDiagnostics(),
             embeddings: getEmbeddingDiagnostics(),
             searchIndex: getSearchIndexDiagnostics(),
+            search: getSearchRuntimeDiagnostics(),
             graphBackend: getGraphBackendDiagnostics(),
             analysis: getAnalysisRuntimeDiagnostics(),
             parserMonitor: buildParserMonitorSummary(jobs),

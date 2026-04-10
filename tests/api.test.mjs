@@ -1278,6 +1278,70 @@ test('admin ops exposes analysis queue depth, busy workers, and overload state w
   }
 });
 
+test('search runtime applies bounded queueing/backpressure without blocking health/admin endpoints', async () => {
+  const adminEmail = `admin-search-runtime-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
+  process.env.SCHOLAXIS_SEARCH_WORKERS = '1';
+  process.env.SCHOLAXIS_SEARCH_MAX_QUEUED_TASKS = '1';
+  process.env.SCHOLAXIS_TEST_SEARCH_DELAY_MS = '700';
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const searchRequests = Array.from({ length: 4 }, () =>
+      fetch(`${baseUrl}/api/search?q=${encodeURIComponent('배터리 AI')}&autoLive=0`)
+    );
+
+    let runtime = null;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/admin/ops`, { headers: { cookie } });
+      const payload = await response.json();
+      assert.equal(response.status, 200);
+      runtime = payload.runtime?.search || null;
+      if (runtime?.busyWorkers > 0 || runtime?.queuedTasks > 0 || runtime?.rejectedTasks > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const healthResponse = await fetch(`${baseUrl}/api/health`);
+    const healthPayload = await healthResponse.json();
+    assert.equal(healthResponse.status, 200);
+    assert.ok(healthPayload.runtime?.searchRuntime);
+
+    const searchResponses = await Promise.all(searchRequests);
+    const searchPayloads = await Promise.all(searchResponses.map(async (response) => ({
+      status: response.status,
+      body: await response.json(),
+    })));
+
+    const statuses = searchPayloads.map((entry) => entry.status);
+    assert.ok(statuses.some((status) => status === 200));
+    const overloadPayload = searchPayloads.find((entry) => entry.status === 503)?.body || null;
+    if (overloadPayload) {
+      assert.equal(overloadPayload.code, 'search_runtime_overloaded');
+    }
+
+    assert.ok(runtime);
+    assert.equal(typeof runtime.poolSize, 'number');
+    assert.equal(typeof runtime.busyWorkers, 'number');
+    assert.equal(typeof runtime.queuedTasks, 'number');
+    assert.equal(typeof runtime.rejectedTasks, 'number');
+    assert.ok(runtime.busyWorkers > 0 || runtime.queuedTasks > 0 || runtime.rejectedTasks > 0);
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    delete process.env.SCHOLAXIS_SEARCH_WORKERS;
+    delete process.env.SCHOLAXIS_SEARCH_MAX_QUEUED_TASKS;
+    delete process.env.SCHOLAXIS_TEST_SEARCH_DELAY_MS;
+    await closeServer(server);
+  }
+});
+
 test('generic fair/RNE source queries surface representative seeded category results', () => {
   const results = runIsolatedSearchQueries(['전람회', 'RNE', '발명품']);
   const byQuery = new Map(results.map((item) => [item.query, item]));
