@@ -14,6 +14,7 @@ export const REQUIRED_QUALITY_LABELS = Object.freeze([
   'korean',
   'english',
   'mixed_language',
+  'cross_lingual',
   'exact_title',
   'broad_topic',
   'narrow_technical',

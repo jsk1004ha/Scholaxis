@@ -295,6 +295,19 @@ function applyPreferredSourceBoost(item, scoreBundle, preferredSources = []) {
   };
 }
 
+function hasProfileDrivenFallbackEvidence(item, scoreBundle, queryProfile = null) {
+  const requestedTypes = queryProfile?.requestedTypes || [];
+  if (!requestedTypes.some((type) => type !== 'paper')) return false;
+
+  const itemType = classifySourceType(item.type);
+  const typeMatch = requestedTypes.includes(itemType);
+  const sourceMatch = (queryProfile?.sourceHints || []).includes(item.source);
+  if (!typeMatch) return false;
+
+  if (sourceMatch && scoreBundle.total >= 18) return true;
+  return requestedTypes.includes('fair_entry') && itemType === 'fair_entry' && scoreBundle.total >= 28;
+}
+
 function sanitizeDocumentForDetail(document = {}) {
   if (!document) return document;
   return {
@@ -361,7 +374,7 @@ function buildFallbackQueries(query = '', crossLingual = null) {
     .filter((item) => item !== query.trim());
 }
 
-function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') {
+export function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') {
   const selected = preferredSources.length ? preferredSources : [...GLOBAL_SOURCES, ...DOMESTIC_SOURCES];
   if (direction === 'ko-to-en') {
     return {
@@ -378,7 +391,7 @@ function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') 
   return { originalSources: selected, translatedSources: [] };
 }
 
-function rankSourcesByProfile(preferredSources = [], profile = null, direction = 'none') {
+export function rankSourcesByProfile(preferredSources = [], profile = null, direction = 'none') {
   const selected = preferredSources.length ? preferredSources : [...GLOBAL_SOURCES, ...DOMESTIC_SOURCES];
   const scored = selected.map((source) => {
     let score = 0;
@@ -1044,7 +1057,10 @@ async function executeSearchCatalog({
 } = {}, onEvent = null) {
   const crossLingual = await buildCrossLingualQueryContext(q);
   const queryProfile = classifyQueryProfile(q);
-  const retrievalQuery = unique([q, crossLingual.translatedQuery].filter(Boolean)).join(' ').trim() || q;
+  const translatedQueryBundle = crossLingual.translatedVariants?.length
+    ? crossLingual.translatedVariants.join(' ')
+    : crossLingual.translatedQuery;
+  const retrievalQuery = unique([q, translatedQueryBundle].filter(Boolean)).join(' ').trim() || q;
   const queryTokens = buildQueryTokens(retrievalQuery);
   const queryTerms = unique(tokenize(retrievalQuery)).filter((token) => !SEARCH_STOPWORDS.has(token));
   const rawQueryTermCount = unique(tokenize(retrievalQuery)).length;
@@ -1103,7 +1119,10 @@ async function executeSearchCatalog({
           total: scoreBundle.total + (vectorHitScores.get(item.canonicalId || item.id) || 0) * vectorBoostWeight,
         },
       }))
-      .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, retrievalQuery));
+      .filter(({ item, scoreBundle }) =>
+        hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, retrievalQuery) ||
+        hasProfileDrivenFallbackEvidence(item, scoreBundle, queryProfile)
+      );
   }
 
   let liveBundle = { documents: [], statuses: [] };
@@ -1133,7 +1152,7 @@ async function executeSearchCatalog({
     });
     const translatedLiveBundle =
       crossLingual.enabled && crossLingual.translatedQuery && sourceSplit.translatedSources.length
-        ? await searchLiveSources(crossLingual.translatedQuery, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
+        ? await searchLiveSources(translatedQueryBundle, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
             forceRefresh,
             overrideEnable: shouldAutoLive || live
           })
@@ -1205,7 +1224,7 @@ async function executeSearchCatalog({
         });
         const liveFallbackTranslated =
           crossLingual.enabled && crossLingual.translatedQuery && sourceSplit.translatedSources.length
-            ? await searchLiveSources(crossLingual.translatedQuery, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
+            ? await searchLiveSources(translatedQueryBundle, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
                 forceRefresh,
                 overrideEnable: shouldAutoLive || live
               })

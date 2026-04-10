@@ -35,6 +35,7 @@ import { extractPdfText } from '../src/pdf-text-extractor.mjs';
 import { extractDocxText } from '../src/docx-text-extractor.mjs';
 import { persistDocuments } from '../src/storage.mjs';
 import { buildDenseVector, cosineSimilarity } from '../src/vector-service.mjs';
+import { rankSourcesByProfile, splitSourcesForCrossLingual } from '../src/search-service.mjs';
 
 async function startTestServer() {
   const server = createServer();
@@ -1029,6 +1030,8 @@ test('search supports Korean to English and English to Korean semantic retrieval
   const koreanPayload = await koreanToEnglish.json();
   assert.equal(koreanToEnglish.status, 200);
   assert.ok(koreanPayload.items.some((item) => /Quantum Neural Architectures/i.test(item.title)));
+  assert.equal(koreanPayload.crossLingual?.enabled, true);
+  assert.equal(koreanPayload.crossLingual?.direction, 'ko-to-en');
 
   const englishToKorean = await fetch(
     `${baseUrl}/api/search?q=${encodeURIComponent('portable voltage supply')}&region=all&sourceType=all&sort=relevance&autoLive=0`
@@ -1036,6 +1039,8 @@ test('search supports Korean to English and English to Korean semantic retrieval
   const englishPayload = await englishToKorean.json();
   assert.equal(englishToKorean.status, 200);
   assert.ok(englishPayload.items.some((item) => /휴대용 전압 공급장치/.test(item.title)));
+  assert.equal(englishPayload.crossLingual?.enabled, true);
+  assert.equal(englishPayload.crossLingual?.direction, 'en-to-ko');
 
   await closeServer(server);
 });
@@ -1704,13 +1709,77 @@ test('query context uses semantic lexicon fallback for cross-lingual retrieval w
   assert.equal(koContext.enabled, true);
   assert.equal(koContext.backend, 'lexicon');
   assert.equal(koContext.direction, 'ko-to-en');
-  assert.match(koContext.translatedQuery, /scholarly graph|knowledge graph/i);
+  assert.match(koContext.translatedQuery, /scholarly graph|knowledge graph|citation graph/i);
+  assert.ok(Array.isArray(koContext.translatedVariants));
+  assert.ok(koContext.translatedVariants.some((term) => /scholarly graph|knowledge graph/i.test(term)));
+  assert.ok(!koContext.translatedVariants.some((term) => /graph neural network/i.test(term)));
 
   const enContext = await buildCrossLingualQueryContext('portable voltage supply');
   assert.equal(enContext.enabled, true);
   assert.equal(enContext.backend, 'lexicon');
   assert.equal(enContext.direction, 'en-to-ko');
   assert.match(enContext.translatedQuery, /전압 공급장치/);
+});
+
+test('generic queries stay disabled when lexicon fallback has no strong cross-lingual phrase', async () => {
+  const context = await buildCrossLingualQueryContext('새로운 주제 검색');
+  assert.equal(context.enabled, false);
+  assert.equal(context.backend, 'disabled');
+  assert.equal(context.reason, 'translation-backend-not-configured');
+});
+
+test('cross-lingual live-source routing preserves opposite-language fan-out without a translation backend', async () => {
+  const koQuery = '학술 그래프 검색';
+  const koContext = await buildCrossLingualQueryContext(koQuery);
+  const koRouted = rankSourcesByProfile([], classifyQueryProfile(koQuery), koContext.direction);
+  const koSplit = splitSourcesForCrossLingual(koRouted, koContext.direction);
+  assert.equal(koContext.backend, 'lexicon');
+  assert.ok(koSplit.translatedSources.includes('arxiv'));
+  assert.ok(koSplit.translatedSources.includes('semantic_scholar'));
+  assert.ok(!koSplit.originalSources.includes('arxiv'));
+  assert.ok(!koSplit.originalSources.includes('semantic_scholar'));
+  assert.equal(new Set([...koSplit.originalSources, ...koSplit.translatedSources]).size, koSplit.originalSources.length + koSplit.translatedSources.length);
+
+  const enQuery = 'portable voltage supply';
+  const enContext = await buildCrossLingualQueryContext(enQuery);
+  const enRouted = rankSourcesByProfile([], classifyQueryProfile(enQuery), enContext.direction);
+  const enSplit = splitSourcesForCrossLingual(enRouted, enContext.direction);
+  assert.equal(enContext.backend, 'lexicon');
+  assert.ok(enSplit.translatedSources.includes('student_invention_fair'));
+  assert.ok(enSplit.translatedSources.includes('science_fair'));
+  assert.ok(enSplit.translatedSources.includes('kci'));
+  assert.ok(!enSplit.originalSources.includes('student_invention_fair'));
+  assert.ok(enSplit.originalSources.includes('arxiv'));
+
+  const guardedContext = await buildCrossLingualQueryContext('양자 암호');
+  assert.equal(guardedContext.enabled, false);
+  assert.equal(guardedContext.direction, 'none');
+});
+
+test('search supports english-to-korean patent routing via lexicon fallback variants', async () => {
+  const context = await buildCrossLingualQueryContext('medical imaging edge support');
+  assert.equal(context.enabled, true);
+  assert.equal(context.backend, 'lexicon');
+  assert.ok(context.translatedVariants.includes('의료영상'));
+  assert.ok(context.translatedVariants.includes('엣지 컴퓨팅'));
+  assert.ok(!context.translatedVariants.includes('지식 그래프'));
+
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('medical imaging edge support')}&region=domestic&sourceType=patent&sort=relevance&autoLive=0`
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.crossLingual.enabled, true);
+  assert.equal(payload.crossLingual.backend, 'lexicon');
+  assert.ok(payload.crossLingual.translatedVariants.includes('의료영상'));
+  assert.ok(payload.crossLingual.translatedVariants.includes('엣지 컴퓨팅'));
+  assert.ok(
+    payload.items.some((item) =>
+      item.sourceKey === 'kipris' && /의료영상/.test(item.title) && /실시간/.test(item.title)
+    )
+  );
+  await closeServer(server);
 });
 
 test('query profile classifier surfaces source hints without term-translation hacks', () => {
@@ -1730,6 +1799,13 @@ test('query profile classifier surfaces source hints without term-translation ha
   assert.ok(security.domains.includes('security'));
   assert.ok(security.sourceHints.includes('cve'));
   assert.ok(security.sourceHints.includes('blackhat'));
+
+  const scienceFair = classifyQueryProfile('science fair magnetic pendulum');
+  assert.ok(scienceFair.sourceHints.includes('science_fair'));
+  assert.ok(!scienceFair.sourceHints.includes('student_invention_fair'));
+
+  const inventionFair = classifyQueryProfile('student invention portable voltage supply');
+  assert.ok(inventionFair.sourceHints.includes('student_invention_fair'));
 });
 
 test('source registry summary includes newly added databases', () => {

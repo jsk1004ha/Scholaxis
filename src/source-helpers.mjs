@@ -1,5 +1,5 @@
 import { appConfig } from './config.mjs';
-import { expandSemanticLexiconTerms } from './semantic-lexicon.mjs';
+import { expandSemanticLexiconTerms, semanticLexiconGroups } from './semantic-lexicon.mjs';
 import { normalizeText, tokenize, unique } from './vector-service.mjs';
 
 export function makeAbortSignal(timeoutMs = appConfig.sourceTimeoutMs) {
@@ -206,6 +206,24 @@ function isRneLikeQuery(raw = '', normalized = '') {
   );
 }
 
+function hasExplicitScienceFairHint(raw = '', normalized = '') {
+  return (
+    /science\s*fair/i.test(raw) ||
+    String(normalized || '').includes('과학전람회') ||
+    String(normalized || '').includes('전람회')
+  );
+}
+
+function hasExplicitStudentInventionHint(raw = '', normalized = '') {
+  const compactNormalized = String(normalized || '').replace(/\s+/g, '');
+  return (
+    /student\s+invention/i.test(raw) ||
+    compactNormalized.includes('학생발명') ||
+    compactNormalized.includes('발명품경진대회') ||
+    String(normalized || '').includes('발명품')
+  );
+}
+
 export function classifyQueryProfile(query = '') {
   const raw = String(query || '').trim();
   const normalized = normalizeText(raw);
@@ -213,6 +231,8 @@ export function classifyQueryProfile(query = '') {
   const joined = [normalized, ...tokens].join(' ');
   const has = (group) => QUERY_PROFILE_HINTS[group].some((hint) => joined.includes(normalizeText(hint)));
   const rneLikeQuery = isRneLikeQuery(raw, normalized);
+  const explicitScienceFairHint = hasExplicitScienceFairHint(raw, normalized);
+  const explicitStudentInventionHint = hasExplicitStudentInventionHint(raw, normalized);
 
   const types = [];
   if (has('patent')) types.push('patent');
@@ -228,8 +248,18 @@ export function classifyQueryProfile(query = '') {
 
   const sourceHints = [];
   if (types.includes('patent')) sourceHints.push('kipris');
-  if (types.includes('report')) sourceHints.push('ntis', 'rne_report');
-  if (types.includes('fair_entry')) sourceHints.push('science_fair', 'student_invention_fair', 'rne_report');
+  if (types.includes('report')) {
+    if (rneLikeQuery) sourceHints.push('rne_report', 'ntis');
+    else sourceHints.push('ntis', 'rne_report');
+  }
+  if (types.includes('fair_entry')) {
+    if (explicitScienceFairHint) sourceHints.push('science_fair');
+    if (explicitStudentInventionHint) sourceHints.push('student_invention_fair');
+    if (rneLikeQuery) sourceHints.push('rne_report');
+    if (!explicitScienceFairHint && !explicitStudentInventionHint && !rneLikeQuery) {
+      sourceHints.push('science_fair', 'student_invention_fair', 'rne_report');
+    }
+  }
   if (domains.includes('humanities') || domains.includes('education')) sourceHints.push('riss', 'kci', 'dbpia', 'kiss', 'nanet');
   if (domains.includes('biomedical')) sourceHints.push('pubmed', 'biorxiv', 'medrxiv', 'scienceon', 'semantic_scholar', 'riss');
   if (domains.includes('engineering')) sourceHints.push('arxiv', 'semantic_scholar', 'kci', 'dbpia', 'kipris');
@@ -267,6 +297,7 @@ function resolveTranslationProvider() {
 
 const LEXICON_CROSSLINGUAL_GENERIC_LATIN = new Set([
   'search',
+  'retrieval',
   'discovery',
   'research',
   'paper',
@@ -329,6 +360,8 @@ function buildQueryWindows(query = '') {
 function buildLexiconFallbackTranslation(query = '', language = 'none') {
   if (!['ko', 'en'].includes(language)) return '';
 
+  const normalizedQuery = normalizeText(query);
+  const normalizedTokens = unique(tokenize(query).map((token) => normalizeText(token)).filter(Boolean));
   const seeds = unique([
     query,
     ...buildQueryWindows(query),
@@ -345,12 +378,33 @@ function buildLexiconFallbackTranslation(query = '', language = 'none') {
       return tokens.some((token) => !stopwords.has(token));
     });
 
-  const expanded = unique(expandSemanticLexiconTerms(seeds));
-  const candidates = expanded.filter((term) => (
-    language === 'ko' ? /[A-Za-z]/.test(term) : /[가-힣]/.test(term)
-  ));
+  const matchedGroups = semanticLexiconGroups().filter((group) => {
+    return group.some((term) => {
+      if (!term) return false;
+      if (term.includes(' ')) {
+        return normalizedQuery.includes(term);
+      }
+      return normalizedTokens.includes(term);
+    });
+  });
 
-  const filtered = candidates.filter((term) => {
+  const candidates = matchedGroups.flatMap((group) => {
+    const sourceTerms = group.filter((term) => (language === 'ko' ? /[가-힣]/.test(term) : /[A-Za-z]/.test(term)));
+    const matchedSourceTerms = sourceTerms.filter((term) => {
+      if (term.includes(' ')) return normalizedQuery.includes(term);
+      return normalizedTokens.includes(term);
+    });
+    const matchIndex = sourceTerms
+      .map((term) => normalizedQuery.indexOf(term))
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b)[0] ?? Number.MAX_SAFE_INTEGER;
+    const phraseMatched = matchedSourceTerms.some((term) => term.includes(' '));
+    return group
+      .filter((term) => (language === 'ko' ? /[A-Za-z]/.test(term) : /[가-힣]/.test(term)))
+      .map((term) => ({ term, matchIndex, phraseMatched }));
+  });
+
+  const filtered = candidates.filter(({ term }) => {
     const normalized = normalizeText(term);
     if (!normalized) return false;
     if (language === 'ko') return !LEXICON_CROSSLINGUAL_GENERIC_LATIN.has(normalized);
@@ -358,22 +412,26 @@ function buildLexiconFallbackTranslation(query = '', language = 'none') {
   });
 
   const scored = filtered
-    .map((term) => {
+    .map(({ term, matchIndex, phraseMatched }) => {
       const normalized = normalizeText(term);
       const phrase = /\s/.test(term);
       const score =
         (phrase ? 100 : 0) +
-        (/[가-힣]/.test(term) ? term.replace(/\s+/g, '').length : normalized.length);
-      return { term, normalized, score };
+        (matchedGroups.some((group) => group.includes(term) && group.some((item) => item.includes(' '))) ? 25 : 0) +
+        (phraseMatched ? 80 : 0) +
+        (Number.isFinite(matchIndex) ? Math.max(0, 200 - matchIndex) : 0) +
+        normalized.length;
+      return { term, normalized, score, matchIndex };
     })
-    .sort((a, b) => b.score - a.score || a.normalized.localeCompare(b.normalized));
+    .sort((a, b) => b.score - a.score || a.matchIndex - b.matchIndex || a.normalized.localeCompare(b.normalized));
 
-  const selected = unique(scored.map((item) => item.term))
-    .filter((term, index) => index < 4);
-
+  const selected = unique(scored.map((item) => item.term)).slice(0, 4);
   const hasStrongPhrase = selected.some((term) => /\s/.test(term) || normalizeText(term).length >= 8);
   if (!hasStrongPhrase) return '';
-  return selected.join(' ');
+  return {
+    translatedQuery: selected[0],
+    translatedVariants: selected,
+  };
 }
 
 async function translateWithBackend(text = '', source = 'auto', target = 'en') {
@@ -438,8 +496,9 @@ export async function buildCrossLingualQueryContext(query = '') {
         originalQuery: base,
         language,
         direction: language === 'ko' ? 'ko-to-en' : language === 'en' ? 'en-to-ko' : 'none',
-        translatedQuery: lexiconFallback,
-        variants: unique([...variants, lexiconFallback].filter(Boolean)),
+        translatedQuery: lexiconFallback.translatedQuery,
+        translatedVariants: lexiconFallback.translatedVariants,
+        variants: unique([...variants, ...lexiconFallback.translatedVariants].filter(Boolean)),
         backend: 'lexicon',
         reason: 'lexicon-fallback'
       };
@@ -457,30 +516,34 @@ export async function buildCrossLingualQueryContext(query = '') {
   }
 
   if (language === 'ko') {
-    const translatedQuery = await translateWithBackend(base, 'ko', 'en') || lexiconFallback;
+    const translatedQuery = await translateWithBackend(base, 'ko', 'en') || lexiconFallback?.translatedQuery || '';
+    const translatedVariants = lexiconFallback?.translatedVariants || (translatedQuery ? [translatedQuery] : []);
     return {
       enabled: Boolean(translatedQuery),
       originalQuery: base,
       language,
       direction: translatedQuery ? 'ko-to-en' : 'none',
       translatedQuery,
-      variants: unique([...variants, translatedQuery].filter(Boolean)),
-      backend: translatedQuery && translatedQuery === lexiconFallback ? 'lexicon' : 'http',
-      reason: translatedQuery ? (translatedQuery === lexiconFallback ? 'lexicon-fallback' : '') : 'translation-empty'
+      translatedVariants,
+      variants: unique([...variants, ...translatedVariants, translatedQuery].filter(Boolean)),
+      backend: translatedQuery && translatedQuery === lexiconFallback?.translatedQuery ? 'lexicon' : 'http',
+      reason: translatedQuery ? (translatedQuery === lexiconFallback?.translatedQuery ? 'lexicon-fallback' : '') : 'translation-empty'
     };
   }
 
   if (language === 'en') {
-    const translatedQuery = await translateWithBackend(base, 'en', 'ko') || lexiconFallback;
+    const translatedQuery = await translateWithBackend(base, 'en', 'ko') || lexiconFallback?.translatedQuery || '';
+    const translatedVariants = lexiconFallback?.translatedVariants || (translatedQuery ? [translatedQuery] : []);
     return {
       enabled: Boolean(translatedQuery),
       originalQuery: base,
       language,
       direction: translatedQuery ? 'en-to-ko' : 'none',
       translatedQuery,
-      variants: unique([...variants, translatedQuery].filter(Boolean)),
-      backend: translatedQuery && translatedQuery === lexiconFallback ? 'lexicon' : 'http',
-      reason: translatedQuery ? (translatedQuery === lexiconFallback ? 'lexicon-fallback' : '') : 'translation-empty'
+      translatedVariants,
+      variants: unique([...variants, ...translatedVariants, translatedQuery].filter(Boolean)),
+      backend: translatedQuery && translatedQuery === lexiconFallback?.translatedQuery ? 'lexicon' : 'http',
+      reason: translatedQuery ? (translatedQuery === lexiconFallback?.translatedQuery ? 'lexicon-fallback' : '') : 'translation-empty'
     };
   }
 

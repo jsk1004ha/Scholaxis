@@ -90,6 +90,38 @@ test('search quality harness matches fair-entry crosslingual expectations from p
   assert.equal(verdict.topSource, 'student_invention_fair');
 });
 
+test('search quality harness matches patent crosslingual expectations from payload metadata', async () => {
+  const fixtureSet = await loadSearchQualityFixtureSet();
+  const testCase = fixtureSet.deterministicCases.find((item) => item.id === 'en-crosslingual-patent-edge-medical');
+  const verdict = evaluateSearchQualityCase(testCase, {
+    total: 1,
+    items: [
+      {
+        id: 'seed-patent-ko-edge-medical',
+        type: 'patent',
+        region: 'domestic',
+        title: '엣지 컴퓨팅 기반 의료영상 실시간 판독 보조 시스템',
+        englishTitle: 'Edge-Assisted Real-Time Medical Imaging Support System',
+        source: 'KIPRIS',
+        summary: '의료영상 판독과 엣지 컴퓨팅을 결합한 국내 특허 회귀 사례입니다.',
+        keywords: ['의료영상', '실시간', '엣지 컴퓨팅'],
+        highlights: ['의료영상', 'edge support'],
+      },
+    ],
+  });
+  assert.equal(verdict.verdict, 'relevant');
+  assert.equal(verdict.matchedExpectationRank, 1);
+  assert.equal(verdict.topSource, 'kipris');
+});
+
+test('search quality fixtures preserve bidirectional cross-lingual deterministic coverage', async () => {
+  const fixtureSet = await loadSearchQualityFixtureSet();
+  const crossLingualCases = fixtureSet.deterministicCases.filter((item) => item.labels.includes('cross_lingual'));
+  assert.ok(crossLingualCases.some((item) => item.labels.includes('korean') && item.id === 'ko-crosslingual-graph'));
+  assert.ok(crossLingualCases.some((item) => item.labels.includes('english') && item.id === 'en-crosslingual-portable-voltage'));
+  assert.ok(crossLingualCases.some((item) => item.id === 'en-crosslingual-patent-edge-medical'));
+});
+
 test('search quality summary counts verdicts by label', () => {
   const summary = summarizeSearchQualityResults([
     { caseKind: 'deterministic', labels: ['korean', 'exact_title'], verdict: 'relevant' },
