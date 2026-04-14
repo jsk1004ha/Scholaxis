@@ -23,6 +23,20 @@ let idleShutdownTimer = null;
 let rejectedTasks = 0;
 let lastOverloadAt = '';
 
+function buildWorkerExecArgv() {
+  const sanitized = [];
+  for (let index = 0; index < process.execArgv.length; index += 1) {
+    const arg = String(process.execArgv[index] || '');
+    if (arg.startsWith('--input-type')) continue;
+    if (['-e', '--eval', '-p', '--print'].includes(arg)) {
+      index += 1;
+      continue;
+    }
+    sanitized.push(arg);
+  }
+  return sanitized;
+}
+
 export class SearchRuntimeOverloadedError extends Error {
   constructor(message = 'search-runtime-overloaded') {
     super(message);
@@ -93,18 +107,19 @@ function spawnWorker() {
     env: process.env,
     stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
     serialization: 'advanced',
-    execArgv: process.execArgv.filter((arg) => !String(arg || '').startsWith('--input-type')),
+    execArgv: buildWorkerExecArgv(),
   });
 
   const worker = {
     id,
     child,
-    ready: false,
+    ready: true,
     busy: false,
     currentJob: null,
     timeout: null,
   };
   workers.set(id, worker);
+  queueMicrotask(dispatchJobs);
 
   child.on('message', (message = {}) => {
     if (message.type === 'ready') {

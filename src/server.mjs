@@ -158,6 +158,12 @@ function wantsAsyncResponse(req, searchParams) {
   return searchParams.get('async') === '1' || String(req.headers.prefer || '').includes('respond-async');
 }
 
+function readSearchBoolParam(searchParams, name, defaultValue = false) {
+  const value = searchParams.get(name);
+  if (value == null) return defaultValue;
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
 function buildAsyncAcceptedPayload(job = {}) {
   return {
     ok: true,
@@ -312,9 +318,9 @@ export function createServer() {
             sourceType: searchParams.get('sourceType') || 'all',
             sort: searchParams.get('sort') || 'relevance',
             preferredSources,
-            live: searchParams.get('live') === '1' || appConfig.enableLiveSources,
+            live: readSearchBoolParam(searchParams, 'live', appConfig.enableLiveSources),
             forceRefresh: searchParams.get('refresh') === '1',
-            autoLive: searchParams.get('autoLive') === '0' ? false : appConfig.autoLiveOnEmpty
+            autoLive: readSearchBoolParam(searchParams, 'autoLive', appConfig.autoLiveOnEmpty)
           });
           const payload = await task.promise;
           return json(res, 200, { ...payload, data: { ...payload, items: payload.items } });
@@ -339,9 +345,9 @@ export function createServer() {
           sourceType: searchParams.get('sourceType') || 'all',
           sort: searchParams.get('sort') || 'relevance',
           preferredSources,
-          live: searchParams.get('live') === '1' || appConfig.enableLiveSources,
+          live: readSearchBoolParam(searchParams, 'live', appConfig.enableLiveSources),
           forceRefresh: searchParams.get('refresh') === '1',
-          autoLive: searchParams.get('autoLive') === '0' ? false : appConfig.autoLiveOnEmpty
+          autoLive: readSearchBoolParam(searchParams, 'autoLive', appConfig.autoLiveOnEmpty)
         };
 
         let closed = false;

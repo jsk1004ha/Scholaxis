@@ -45,12 +45,15 @@ function makeRecoveryPath(prefix = 'scholaxis-recovery') {
   return path.join(dataDir, `${prefix}-${Date.now()}.db`);
 }
 
-let dbPath = path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 'scholaxis.db'));
+const shouldBootstrapSqlite = !postgresRuntimeReady();
+let dbPath = shouldBootstrapSqlite
+  ? path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 'scholaxis.db'))
+  : ':memory:';
 const opened = openDatabase(dbPath);
 dbPath = opened.path;
 let db = opened.database;
 let dbRecoveryReason = opened.recoveryReason || '';
-if (dbRecoveryReason) {
+if (shouldBootstrapSqlite && dbRecoveryReason) {
   console.warn(`[storage] using recovery database at ${dbPath} (${dbRecoveryReason})`);
 }
 

@@ -98,6 +98,7 @@ function providerPlan() {
   if (appConfig.embeddingProvider === 'hybrid-local') return ['hybrid-local', 'fallback'];
   if (appConfig.embeddingProvider === 'ollama') return ['ollama', 'fallback'];
   if (appConfig.embeddingProvider === 'http') return ['http', 'fallback'];
+  if (['hash', 'fallback', 'local-hash', 'local-hash-projection'].includes(appConfig.embeddingProvider)) return ['fallback'];
 
   const plan = [];
   if (localModelEnabled()) plan.push('hybrid-local');

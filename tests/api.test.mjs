@@ -802,6 +802,16 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   await closeServer(server);
 });
 
+test('search endpoint treats empty live flags as disabled rather than expensive auto-live fanout', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/search?q=CD28&region=all&sourceType=all&sort=relevance&live=&autoLive=`);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.liveSourceCount, 0);
+  assert.ok(Array.isArray(payload.results));
+  await closeServer(server);
+});
+
 test('search endpoint returns a relevant science fair result for 자기진자 queries', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/search?q=자기진자&region=all&sourceType=all&sort=relevance&autoLive=0`);
@@ -1811,6 +1821,7 @@ test('storage falls back to a recovery database when the default sqlite db or wa
     cwd: path.resolve(process.cwd()),
     env: {
       ...process.env,
+      SCHOLAXIS_DB_PATH: '',
     },
     encoding: 'utf8',
   });
