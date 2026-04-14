@@ -170,22 +170,32 @@ export SCHOLAXIS_OLLAMA_RERANKER_MODEL=qwen2.5:3b
 
 ## 빠른 시작
 
-### 1) 설치
-```bash
-npm install
-```
-
-### 2) 개발 서버 실행
-```bash
-npm run dev
-```
-
-### 3) 프로덕션 방식으로 실행
+### 1) 가장 빠른 첫 실행
 ```bash
 npm start
 ```
 
-기본적으로 `PORT`가 없으면 `3000`을 사용하고, 포트가 이미 점유되어 있으면 다음 포트로 자동 fallback 합니다.
+`npm start` 는 **처음 실행 시점에 `.env` 가 없으면 quickstart용 `.env` 를 자동 생성**하고,
+SQLite/local 벡터 기본값으로 바로 부팅합니다. 또한:
+
+- `PORT` 가 없으면 `3000` 을 사용하고, 이미 점유되어 있으면 다음 포트로 자동 fallback
+- `DATABASE_URL` 또는 `PG*` 연결 정보가 이미 있으면 별도 export 없이 `postgres + pgvector` 기본값 자동 추론
+- 로컬 `sentence-transformers` 런타임이 없으면 첫 부팅에서 `SCHOLAXIS_LOCAL_MODEL_AUTOSTART=0` 으로 내려 빠른 fallback 경로 사용
+
+즉, **배포자 입장에서는 clone 후 `npm start` 만으로 1차 부팅**이 가능하도록 맞춰져 있습니다.
+
+### 2) 필요하면 개발 모드 실행
+```bash
+npm run dev
+```
+
+### 3) npm 설치가 필요한 경우
+현재 저장소는 추가 npm 패키지 의존성이 없어서 보통 `npm install` 없이도 바로 부팅할 수 있습니다.
+다만 이후 npm 의존성이 추가되거나 배포 환경 정책상 lockfile 설치를 강제한다면 아래처럼 먼저 실행하세요.
+
+```bash
+npm install
+```
 
 ### 4) 전체 검증
 ```bash
@@ -229,6 +239,9 @@ npm start
 ```
 
 실사용/운영 환경에서는 위 구성을 기본값으로 간주하세요. SQLite/local 벡터 경로는 빠른 로컬 개발과 디버깅용 fallback 입니다.
+
+이미 `DATABASE_URL` 또는 `PGHOST` 계열 환경 변수를 주입한 상태라면 `npm start` 가 `postgres + pgvector` 를 자동 추론하므로,
+위 export 중 일부는 생략해도 됩니다. 명시적 override 가 있으면 그 값을 그대로 존중합니다.
 
 로컬 sentence-transformers + pgvector를 함께 쓸 경우:
 ```bash

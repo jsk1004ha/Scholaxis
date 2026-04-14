@@ -169,22 +169,32 @@ Recommended defaults:
 
 ## Quick start
 
-### 1) Install
+### 1) Fastest first boot
 ```bash
-npm install
+npm start
 ```
+
+On the **first boot**, `npm start` now auto-creates a quickstart `.env` when none exists and brings the app up immediately on the SQLite/local-vector path.
+It also:
+
+- defaults to `3000` and automatically retries the next ports when the requested port is busy
+- infers `postgres + pgvector` automatically when `DATABASE_URL` or `PG*` connection settings are already present
+- disables local `sentence-transformers` autostart for that boot when no local runtime is detected, so fallback search stays responsive
+
+In practice, deployers can now **clone the repo and boot with `npm start`** for the first bring-up.
 
 ### 2) Start the development server
 ```bash
 npm run dev
 ```
 
-### 3) Run in the normal start mode
-```bash
-npm start
-```
+### 3) Install npm packages if your environment requires it
+This repository currently has no extra npm package dependencies, so `npm install` is usually unnecessary for the first boot.
+If your deployment policy still requires an install step, run:
 
-If `PORT` is unset, Scholaxis uses `3000`. If that port is already occupied, the server automatically retries the next ports.
+```bash
+npm install
+```
 
 ### 4) Run the full verification suite
 ```bash
@@ -228,6 +238,8 @@ npm start
 ```
 
 Treat this as the default path for serious-use deployments. SQLite/local vector mode remains a quickstart and debugging fallback.
+
+If `DATABASE_URL` or the standard `PG*` variables are already injected by your deployment environment, `npm start` will infer `postgres + pgvector` automatically unless you explicitly override those backends.
 
 ---
 

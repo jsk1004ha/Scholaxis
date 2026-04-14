@@ -8,9 +8,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node src/server.mjs",
-    "dev": "node --watch src/server.mjs",
-    "test": "rm -f /tmp/scholaxis-test.db /tmp/scholaxis-test.db-shm /tmp/scholaxis-test.db-wal && SCHOLAXIS_DB_PATH=/tmp/scholaxis-test.db NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node --test --test-concurrency=1 tests/api.test.mjs tests/search-quality-browser.test.mjs tests/search-quality-harness.test.mjs",
+    "start": "node scripts/start.mjs",
+    "dev": "node --watch scripts/start.mjs",
+    "test": "rm -f /tmp/scholaxis-test.db /tmp/scholaxis-test.db-shm /tmp/scholaxis-test.db-wal && SCHOLAXIS_DB_PATH=/tmp/scholaxis-test.db NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node --test --test-concurrency=1 tests/runtime-bootstrap.test.mjs tests/api.test.mjs tests/search-quality-browser.test.mjs tests/search-quality-harness.test.mjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "node scripts/typecheck.mjs",
     "smoke": "rm -f /tmp/scholaxis-smoke.db /tmp/scholaxis-smoke.db-shm /tmp/scholaxis-smoke.db-wal && SCHOLAXIS_DB_PATH=/tmp/scholaxis-smoke.db NODE_OPTIONS=--max-old-space-size=8192 NODE_ENV=test node scripts/smoke-test.mjs",

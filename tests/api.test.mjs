@@ -1831,6 +1831,34 @@ test('storage falls back to a recovery database when the default sqlite db or wa
   assert.match(String(diagnostics.recoveryReason || ''), /oversized-default-db:/);
 });
 
+test('storage falls back to in-memory sqlite when the default project db path is not writable', () => {
+  const fixtureDir = path.join(tmpdir(), `scholaxis-readonly-db-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(fixtureDir, { recursive: true });
+
+  const storageModulePath = JSON.stringify(path.resolve(process.cwd(), 'src/storage.mjs'));
+  const script = [
+    "import { chmodSync } from 'node:fs';",
+    "process.chdir(process.argv[1]);",
+    "chmodSync(process.argv[1], 0o555);",
+    "process.env.NODE_ENV = 'test';",
+    `const mod = await import(${storageModulePath});`,
+    "process.stdout.write(JSON.stringify(mod.getStorageDiagnostics()));",
+  ].join('\n');
+
+  const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script, fixtureDir], {
+    cwd: path.resolve(process.cwd()),
+    env: {
+      ...process.env,
+      SCHOLAXIS_DB_PATH: '',
+    },
+    encoding: 'utf8',
+  });
+
+  const diagnostics = JSON.parse(stdout.trim().split('\n').at(-1) || '{}');
+  assert.equal(diagnostics.dbPath, ':memory:');
+  assert.match(String(diagnostics.recoveryReason || ''), /sqlite-open-recovery:.*memory-fallback:/);
+});
+
 test('frontend search query normalization maps Korean option values to API values', () => {
   const normalized = normalizeSearchQuery({
     q: '배터리 AI',

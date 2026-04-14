@@ -6,9 +6,20 @@
 npm start
 ```
 
+On a fresh clone, `npm start` now auto-creates a minimal `.env` quickstart file when none exists,
+boots on SQLite/local-vector defaults, and skips local sentence-transformers autostart when no
+local runtime is detected. This keeps first boot deployer-friendly.
+
 The server listens on `PORT` if provided, otherwise `3000`.
 If `3000` is already occupied, Scholaxis automatically retries the next ports up to
 `SCHOLAXIS_PORT_FALLBACK_ATTEMPTS`.
+
+If `DATABASE_URL` or the standard `PG*` variables are already present, `npm start` also infers:
+
+- `SCHOLAXIS_STORAGE_BACKEND=postgres`
+- `SCHOLAXIS_VECTOR_BACKEND=pgvector`
+
+unless you explicitly override them.
 
 ## Search / infra env example
 

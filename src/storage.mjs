@@ -39,10 +39,43 @@ import {
 import { seedCatalog } from './catalog.mjs';
 
 const dataDir = path.resolve('.data');
-mkdirSync(dataDir, { recursive: true });
+try {
+  mkdirSync(dataDir, { recursive: true });
+} catch (error) {
+  if (!['EACCES', 'EPERM', 'EROFS'].includes(String(error?.code || ''))) {
+    throw error;
+  }
+}
 
 function makeRecoveryPath(prefix = 'scholaxis-recovery') {
   return path.join(dataDir, `${prefix}-${Date.now()}.db`);
+}
+
+function createSqliteDatabase(targetPath) {
+  const database = new DatabaseSync(targetPath);
+  database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+  return database;
+}
+
+function openMemoryRecoveryDatabase(reason = 'sqlite-memory-recovery') {
+  const database = createSqliteDatabase(':memory:');
+  return {
+    database,
+    path: ':memory:',
+    recoveryReason: reason,
+  };
+}
+
+function openRecoveryDatabase(preferredPath, reason) {
+  try {
+    return {
+      database: createSqliteDatabase(preferredPath),
+      path: preferredPath,
+      recoveryReason: reason,
+    };
+  } catch (recoveryError) {
+    return openMemoryRecoveryDatabase(`${reason}:memory-fallback:${recoveryError.message}`);
+  }
 }
 
 const shouldBootstrapSqlite = !postgresRuntimeReady();
@@ -72,19 +105,12 @@ function openDatabase(targetPath) {
     const walSize = existsSync(walPath) ? statSync(walPath).size : 0;
     if (dbSize > maxDbBytesBeforeRecovery || walSize > maxWalBytesBeforeRecovery) {
       const recoveryPath = makeRecoveryPath('scholaxis-startup-recovery');
-      const database = new DatabaseSync(recoveryPath);
-      database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
-      return {
-        database,
-        path: recoveryPath,
-        recoveryReason: `oversized-default-db:${dbSize}:${walSize}`,
-      };
+      return openRecoveryDatabase(recoveryPath, `oversized-default-db:${dbSize}:${walSize}`);
     }
   }
 
   try {
-    const database = new DatabaseSync(targetPath);
-    database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+    const database = createSqliteDatabase(targetPath);
     return { database, path: targetPath };
   } catch (error) {
     if (error?.code === 'ERR_SQLITE_ERROR') {
@@ -95,8 +121,7 @@ function openDatabase(targetPath) {
         try {
           const brokenPath = `${targetPath}.broken-${Date.now()}`;
           renameSync(targetPath, brokenPath);
-          const database = new DatabaseSync(targetPath);
-          database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+          const database = createSqliteDatabase(targetPath);
           return { database, path: targetPath };
         } catch {
           // fall through to tmp recovery
@@ -104,9 +129,7 @@ function openDatabase(targetPath) {
       }
 
       const recoveryPath = makeRecoveryPath('scholaxis-recovery');
-      const database = new DatabaseSync(recoveryPath);
-      database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
-      return { database, path: recoveryPath, recoveryReason: `sqlite-open-recovery:${error.message}` };
+      return openRecoveryDatabase(recoveryPath, `sqlite-open-recovery:${error.message}`);
     }
     throw error;
   }
