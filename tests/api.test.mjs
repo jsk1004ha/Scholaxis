@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { Blob } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, startServer } from '../src/server.mjs';
 import { createGraphBackendServer } from '../src/graph-backend-server.mjs';
 import { buildPostgresMigrationSql } from '../src/postgres-migration.mjs';
-import { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics } from '../src/postgres-store.mjs';
+import { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics, persistDocumentsToPostgresSync } from '../src/postgres-store.mjs';
 import { createRerankerBackendServer } from '../src/reranker-backend-server.mjs';
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
+import { appConfig } from '../src/config.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
 import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
 import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
@@ -1442,6 +1444,46 @@ test('postgres serious-use diagnostics recommend postgres + pgvector when fallba
   assert.ok(diagnostics.missing.includes('storage-backend'));
   assert.ok(diagnostics.missing.includes('vector-backend'));
   assert.equal(diagnostics.validationCommand, 'npm run validate:postgres');
+});
+
+test('postgres sync persistence sanitizes year to prevent SQL injection payloads', () => {
+  const scratchDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-psql-test-'));
+  const argvLogPath = path.join(scratchDir, 'psql-argv.log');
+  const psqlWrapper = path.join(scratchDir, 'psql-wrapper.sh');
+
+  writeFileSync(psqlWrapper, `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${argvLogPath}"
+exit 0
+`);
+  chmodSync(psqlWrapper, 0o755);
+
+  const previousStorageBackend = appConfig.storageBackend;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const previousPsqlBin = process.env.PSQL_BIN;
+  appConfig.storageBackend = 'postgres';
+  process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/scholaxis';
+  process.env.PSQL_BIN = psqlWrapper;
+
+  try {
+    const result = persistDocumentsToPostgresSync([{
+      id: 'doc-1',
+      source: 'test',
+      type: 'paper',
+      title: 'Test title',
+      year: '0); DROP TABLE users;--',
+    }]);
+    assert.equal(result.ready, true);
+
+    const argvLog = readFileSync(argvLogPath, 'utf8');
+    assert.match(argvLog, /,\n  NULL,\n  /);
+    assert.doesNotMatch(argvLog, /\n  0\); DROP TABLE users;--,\n/);
+  } finally {
+    appConfig.storageBackend = previousStorageBackend;
+    if (previousDatabaseUrl == null) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+    if (previousPsqlBin == null) delete process.env.PSQL_BIN;
+    else process.env.PSQL_BIN = previousPsqlBin;
+  }
 });
 
 test('frontend search query normalization maps Korean option values to API values', () => {

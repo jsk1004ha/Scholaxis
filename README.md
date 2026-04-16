@@ -229,6 +229,7 @@ npm start
 ```
 
 실사용/운영 환경에서는 위 구성을 기본값으로 간주하세요. SQLite/local 벡터 경로는 빠른 로컬 개발과 디버깅용 fallback 입니다.
+문서 적재 시 `year` 값은 PostgreSQL INSERT 전에 정수로 정규화되며, 숫자가 아닌 값은 `NULL` 처리되어 SQL 주입 문자열이 실행되지 않습니다.
 
 로컬 sentence-transformers + pgvector를 함께 쓸 경우:
 ```bash

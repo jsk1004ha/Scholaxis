@@ -78,6 +78,15 @@ function sqlBool(value) {
   return value ? 'TRUE' : 'FALSE';
 }
 
+function sqlInteger(value) {
+  if (value == null || value === '') return 'NULL';
+  const normalized = String(value).trim();
+  if (!/^-?\d+$/.test(normalized)) return 'NULL';
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed)) return 'NULL';
+  return String(parsed);
+}
+
 function jsonRows(sql) {
   const output = runPsqlSync(sql);
   if (!output) return [];
@@ -459,7 +468,7 @@ INSERT INTO documents (
   ${sqlString(document.type)},
   ${sqlString(document.title)},
   ${sqlString(document.englishTitle || '')},
-  ${document.year ?? 'NULL'},
+  ${sqlInteger(document.year)},
   ${sqlString(document.organization || '')},
   ${sqlString(document.language || '')},
   ${sqlString(document.region || '')},
@@ -719,7 +728,7 @@ INSERT INTO documents (
   ${sqlString(document.type)},
   ${sqlString(document.title)},
   ${sqlString(document.englishTitle || '')},
-  ${document.year ?? 'NULL'},
+  ${sqlInteger(document.year)},
   ${sqlString(document.organization || '')},
   ${sqlString(document.language || '')},
   ${sqlString(document.region || '')},
