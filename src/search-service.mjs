@@ -8,7 +8,7 @@ import { buildRecommendationSet } from './recommendation-service.mjs';
 import { rerankSearchEntries } from './reranker-service.mjs';
 import { expandSemanticLexiconTerms } from './semantic-lexicon.mjs';
 import { searchLiveSources, sourceRegistrySummary } from './source-adapters.mjs';
-import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
+import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, languageLabel, mergeSourceStatuses, sourceCountryMetadata } from './source-helpers.mjs';
 import {
   averageDocumentLength,
   bm25Score,
@@ -34,7 +34,7 @@ const SEARCH_STOPWORDS = new Set([
   'analysis','research','system','model','based','design','prediction','summary','document','search','data','evaluation','results'
 ]);
 const GLOBAL_SOURCES = new Set(['semantic_scholar', 'arxiv', 'biorxiv', 'medrxiv', 'pubmed', 'cve', 'blackhat', 'defcon']);
-const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'science_fair', 'student_invention_fair']);
+const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'rne_report', 'science_fair', 'student_invention_fair']);
 const HEURISTIC_EMBEDDING_PROVIDERS = new Set(['hash-projection', 'heuristic-hash', 'local-hash-projection', 'local-semantic-projection']);
 let lastSynchronizedIndexKey = '';
 
@@ -388,6 +388,12 @@ export function splitSourcesForCrossLingual(preferredSources = [], direction = '
       translatedSources: selected.filter((source) => DOMESTIC_SOURCES.has(source))
     };
   }
+  if (direction === 'other-to-en') {
+    return {
+      originalSources: selected.filter((source) => !GLOBAL_SOURCES.has(source)),
+      translatedSources: selected.filter((source) => GLOBAL_SOURCES.has(source))
+    };
+  }
   return { originalSources: selected, translatedSources: [] };
 }
 
@@ -401,6 +407,7 @@ export function rankSourcesByProfile(preferredSources = [], profile = null, dire
     if (profile?.requestedTypes?.includes('fair_entry') && ['science_fair', 'student_invention_fair', 'rne_report'].includes(source)) score += 6;
     if (direction === 'ko-to-en' && GLOBAL_SOURCES.has(source)) score += 4;
     if (direction === 'en-to-ko' && DOMESTIC_SOURCES.has(source)) score += 4;
+    if (direction === 'other-to-en' && GLOBAL_SOURCES.has(source)) score += 4;
     if (profile?.domains?.includes('humanities') && ['riss', 'kci', 'dbpia', 'kiss', 'nanet'].includes(source)) score += 5;
     if (profile?.domains?.includes('education') && ['riss', 'kci', 'dbpia', 'kiss', 'nanet'].includes(source)) score += 5;
     if (profile?.domains?.includes('biomedical') && ['pubmed', 'biorxiv', 'medrxiv', 'scienceon', 'semantic_scholar', 'riss'].includes(source)) score += 5;
@@ -976,6 +983,7 @@ export async function warmSearchIndex() {
 }
 
 function normalizeSearchResult(document, rank, scoreBundle) {
+  const sourceCountry = document.sourceCountry || sourceCountryMetadata(document.source, document.region, document.language);
   return {
     id: document.canonicalId || document.id,
     rank,
@@ -989,6 +997,11 @@ function normalizeSearchResult(document, rank, scoreBundle) {
     type: classifySourceType(document.type),
     region: document.region,
     year: document.year,
+    language: document.language || '',
+    languageLabel: document.languageLabel || languageLabel(document.language || ''),
+    sourceCountry,
+    countryCode: sourceCountry.code || '',
+    countryFlag: sourceCountry.flag || '',
     title: document.title,
     englishTitle: document.englishTitle,
     authors: document.authors,

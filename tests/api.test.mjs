@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { Blob } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
+import { createServer as createHttpServer } from 'node:http';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -15,7 +16,7 @@ import { createRerankerBackendServer } from '../src/reranker-backend-server.mjs'
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
 import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
-import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
+import { buildCrossLingualQueryContext, buildDocument, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
 import { getSourceRuntimeDiagnostics, searchLiveSources, sourceRegistrySummary } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
 import {
@@ -1036,6 +1037,27 @@ test('search includes documents persisted in local storage', async () => {
   await closeServer(server);
 });
 
+test('search supports multilingual technical query fallback and source-country metadata', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('量子 グラフ 検索')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.crossLingual?.enabled, true);
+  assert.equal(payload.crossLingual?.direction, 'other-to-en');
+  const globalPaper = payload.items.find((item) => /Quantum Neural Architectures/i.test(item.title));
+  assert.ok(globalPaper);
+  assert.equal(globalPaper.sourceCountry?.flag, '🌐');
+  assert.equal(globalPaper.countryFlag, '🌐');
+  assert.equal(globalPaper.languageLabel, '영어');
+
+  const uiPaper = toUiPaperShape(globalPaper);
+  assert.equal(uiPaper.sourceCountry.flag, '🌐');
+  assert.match(uiPaper.countryBadge, /🌐/);
+  await closeServer(server);
+});
+
 test('search supports Korean to English and English to Korean semantic retrieval', async () => {
   const { server, baseUrl } = await startTestServer();
 
@@ -1893,6 +1915,28 @@ test('frontend result normalization adapts backend search items to UI shape', ()
   assert.ok(Array.isArray(paper.tags));
 });
 
+test('RNE report source is domestic and does not render an overseas country badge', () => {
+  const document = buildDocument({
+    id: 'rne_report:domestic-region-check',
+    source: 'rne_report',
+    sourceLabel: 'R&E 보고서',
+    type: 'report',
+    title: '국내 R&E 보고서',
+  });
+  assert.equal(document.region, 'domestic');
+  assert.equal(document.sourceCountry.code, 'KR');
+
+  const paper = toUiPaperShape({
+    id: document.id,
+    type: document.type,
+    source: document.sourceLabel,
+    region: document.region,
+    sourceCountry: document.sourceCountry,
+  });
+  assert.equal(paper.region, '국내');
+  assert.equal(paper.countryBadge, '');
+});
+
 test('source helper rejects broken-encoding and code-noise titles', () => {
   assert.equal(hasBrokenEncoding('������ ���� ������'), true);
   assert.equal(looksLikeNoise('588 + engJungsung[jung] * 28 + engJongsung[jong] + 44032);'), true);
@@ -1932,6 +1976,61 @@ test('generic queries stay disabled when lexicon fallback has no strong cross-li
   assert.equal(context.enabled, false);
   assert.equal(context.backend, 'disabled');
   assert.equal(context.reason, 'translation-backend-not-configured');
+});
+
+test('query context falls back to lexicon when a configured translation backend fails', async () => {
+  const originalUrl = appConfig.translationServiceUrl;
+  try {
+    appConfig.translationServiceUrl = 'http://127.0.0.1:1/translate';
+    const context = await buildCrossLingualQueryContext('학술 그래프 검색');
+    assert.equal(context.enabled, true);
+    assert.equal(context.backend, 'lexicon');
+    assert.equal(context.direction, 'ko-to-en');
+    assert.match(context.translatedQuery, /scholarly graph|knowledge graph|citation graph/i);
+  } finally {
+    appConfig.translationServiceUrl = originalUrl;
+  }
+});
+
+test('query context times out a hanging translation backend and uses lexicon fallback', async () => {
+  const hangingBackend = createHttpServer((_req, _res) => {
+    // Hold the socket open so AbortSignal.timeout is the only fast recovery path.
+  });
+  hangingBackend.listen(0, '127.0.0.1');
+  await once(hangingBackend, 'listening');
+  const address = hangingBackend.address();
+  const originalUrl = appConfig.translationServiceUrl;
+  const originalTimeout = appConfig.sourceTimeoutMs;
+  try {
+    appConfig.translationServiceUrl = `http://127.0.0.1:${address.port}/translate`;
+    appConfig.sourceTimeoutMs = 25;
+    const startedAt = Date.now();
+    const context = await buildCrossLingualQueryContext('학술 그래프 검색');
+    assert.ok(Date.now() - startedAt < 1000);
+    assert.equal(context.enabled, true);
+    assert.equal(context.backend, 'lexicon');
+    assert.equal(context.direction, 'ko-to-en');
+  } finally {
+    appConfig.translationServiceUrl = originalUrl;
+    appConfig.sourceTimeoutMs = originalTimeout;
+    await closeServer(hangingBackend);
+  }
+});
+
+test('query context supports non Korean-English technical lexicon fallback', async () => {
+  const context = await buildCrossLingualQueryContext('量子 グラフ 検索');
+  assert.equal(context.enabled, true);
+  assert.equal(context.backend, 'lexicon');
+  assert.equal(context.language, 'ja');
+  assert.equal(context.direction, 'other-to-en');
+  assert.ok(context.translatedVariants.includes('quantum'));
+  assert.ok(context.translatedVariants.includes('graph'));
+
+  const routed = rankSourcesByProfile([], classifyQueryProfile('量子 グラフ 検索'), context.direction);
+  const split = splitSourcesForCrossLingual(routed, context.direction);
+  assert.ok(split.translatedSources.includes('arxiv'));
+  assert.ok(split.translatedSources.includes('semantic_scholar'));
+  assert.equal(new Set([...split.originalSources, ...split.translatedSources]).size, split.originalSources.length + split.translatedSources.length);
 });
 
 test('cross-lingual live-source routing preserves opposite-language fan-out without a translation backend', async () => {

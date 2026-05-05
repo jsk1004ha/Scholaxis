@@ -93,12 +93,67 @@ export function normalizeAuthors(input) {
 }
 
 export function estimateRegion(source) {
-  return ['kci', 'riss', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'science_fair', 'student_invention_fair'].includes(source)
+  return ['kci', 'riss', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'rne_report', 'science_fair', 'student_invention_fair'].includes(source)
     ? 'domestic'
     : 'global';
 }
 
+const SOURCE_COUNTRY_BY_SOURCE = {
+  kci: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  riss: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  scienceon: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  dbpia: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  kiss: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  nanet: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  ntis: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  kipris: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  rne_report: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  science_fair: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  student_invention_fair: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  arxiv: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+  semantic_scholar: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+  pubmed: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+  biorxiv: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+  medrxiv: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+  cve: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+  blackhat: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+  defcon: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
+};
+
+const LANGUAGE_LABELS = {
+  ko: '한국어',
+  en: '영어',
+  ja: '일본어',
+  zh: '중국어',
+  ru: '러시아어',
+  ar: '아랍어',
+  mixed: '혼합',
+  other: '기타',
+};
+
+export function sourceCountryMetadata(source = '', region = '', language = '') {
+  const normalizedSource = String(source || '').toLowerCase();
+  const explicit = SOURCE_COUNTRY_BY_SOURCE[normalizedSource];
+  if (explicit) return { ...explicit, inferred: true, basis: 'source-index' };
+  if (String(region || '').toLowerCase() === 'domestic') {
+    return { code: 'KR', label: '대한민국', flag: '🇰🇷', inferred: true, basis: 'region' };
+  }
+  if (String(language || '').toLowerCase() === 'ko') {
+    return { code: 'KR', label: '대한민국', flag: '🇰🇷', inferred: true, basis: 'language' };
+  }
+  if (String(region || '').toLowerCase() === 'global') {
+    return { code: 'INTL', label: '해외/국제 색인', flag: '🌐', inferred: true, basis: 'global-index' };
+  }
+  return { code: '', label: '', flag: '', inferred: true, basis: 'unknown' };
+}
+
+export function languageLabel(language = '') {
+  return LANGUAGE_LABELS[String(language || '').toLowerCase()] || String(language || '').toUpperCase();
+}
+
 export function buildDocument(base) {
+  const region = base.region || estimateRegion(base.source);
+  const language = base.language || 'mixed';
   return {
     citations: 0,
     openAccess: false,
@@ -107,8 +162,10 @@ export function buildDocument(base) {
     highlights: [],
     links: {},
     sourceIds: {},
-    region: estimateRegion(base.source),
-    language: 'mixed',
+    region,
+    language,
+    sourceCountry: sourceCountryMetadata(base.source, region, language),
+    languageLabel: languageLabel(language),
     ...base
   };
 }
@@ -277,12 +334,21 @@ export function classifyQueryProfile(query = '') {
 }
 
 function detectLanguage(value = '') {
-  if (!String(value || '').trim()) return 'none';
-  const hasKorean = /[가-힣]/.test(value);
-  const hasLatin = /[A-Za-z]/.test(value);
+  const text = String(value || '').trim();
+  if (!text) return 'none';
+  const hasKorean = /[가-힣]/.test(text);
+  const hasLatin = /[A-Za-z]/.test(text);
+  const hasKana = /[ぁ-ゟ゠-ヿ]/.test(text);
+  const hasHan = /[一-鿿]/.test(text);
+  const hasCyrillic = /[Ѐ-ӿ]/.test(text);
+  const hasArabic = /[؀-ۿ]/.test(text);
   if (hasKorean && hasLatin) return 'mixed';
   if (hasKorean) return 'ko';
+  if (hasKana) return 'ja';
+  if (hasHan) return 'zh';
   if (hasLatin) return 'en';
+  if (hasCyrillic) return 'ru';
+  if (hasArabic) return 'ar';
   return 'other';
 }
 
@@ -318,6 +384,18 @@ const LEXICON_CROSSLINGUAL_GENERIC_KOREAN = new Set([
   '그래프',
   '네트워크',
   '인공지능',
+]);
+
+const LEXICON_OTHER_LANGUAGE_GENERIC_LATIN = new Set([
+  'search',
+  'retrieval',
+  'discovery',
+  'research',
+  'paper',
+  'article',
+  'study',
+  'report',
+  'ai',
 ]);
 
 const LEXICON_FALLBACK_SEED_STOPWORDS_LATIN = new Set([
@@ -358,7 +436,7 @@ function buildQueryWindows(query = '') {
 }
 
 function buildLexiconFallbackTranslation(query = '', language = 'none') {
-  if (!['ko', 'en'].includes(language)) return '';
+  if (language === 'none' || language === 'mixed') return '';
 
   const normalizedQuery = normalizeText(query);
   const normalizedTokens = unique(tokenize(query).map((token) => normalizeText(token)).filter(Boolean));
@@ -388,27 +466,41 @@ function buildLexiconFallbackTranslation(query = '', language = 'none') {
     });
   });
 
+  const wantsKoreanTargets = language === 'en';
+  const wantsEnglishTargets = language !== 'en';
   const candidates = matchedGroups.flatMap((group) => {
-    const sourceTerms = group.filter((term) => (language === 'ko' ? /[가-힣]/.test(term) : /[A-Za-z]/.test(term)));
-    const matchedSourceTerms = sourceTerms.filter((term) => {
+    const matchedSourceTerms = group.filter((term) => {
       if (term.includes(' ')) return normalizedQuery.includes(term);
       return normalizedTokens.includes(term);
     });
-    const matchIndex = sourceTerms
+    const matchIndex = matchedSourceTerms
       .map((term) => normalizedQuery.indexOf(term))
       .filter((index) => index >= 0)
       .sort((a, b) => a - b)[0] ?? Number.MAX_SAFE_INTEGER;
     const phraseMatched = matchedSourceTerms.some((term) => term.includes(' '));
     return group
-      .filter((term) => (language === 'ko' ? /[A-Za-z]/.test(term) : /[가-힣]/.test(term)))
+      .filter((term) => wantsKoreanTargets ? /[가-힣]/.test(term) : wantsEnglishTargets && /[A-Za-z]/.test(term))
       .map((term) => ({ term, matchIndex, phraseMatched }));
   });
 
   const filtered = candidates.filter(({ term }) => {
     const normalized = normalizeText(term);
-    if (!normalized) return false;
+    if (!normalized || normalizedTokens.includes(normalized)) return false;
     if (language === 'ko') return !LEXICON_CROSSLINGUAL_GENERIC_LATIN.has(normalized);
-    return !LEXICON_CROSSLINGUAL_GENERIC_KOREAN.has(normalized);
+    if (language === 'en') return !LEXICON_CROSSLINGUAL_GENERIC_KOREAN.has(normalized);
+    return !LEXICON_OTHER_LANGUAGE_GENERIC_LATIN.has(normalized);
+  });
+  const hasOtherLanguageTechnicalAnchor = language !== 'ko' && language !== 'en' && matchedGroups.some((group) => {
+    const matchedInQuery = group.some((term) => {
+      if (!term) return false;
+      if (term.includes(' ')) return normalizedQuery.includes(term);
+      return normalizedTokens.includes(term);
+    });
+    const hasNonGenericEnglishTarget = group.some((term) => {
+      const normalized = normalizeText(term);
+      return /[A-Za-z]/.test(term) && normalized && !LEXICON_OTHER_LANGUAGE_GENERIC_LATIN.has(normalized);
+    });
+    return matchedInQuery && hasNonGenericEnglishTarget;
   });
 
   const scored = filtered
@@ -425,11 +517,12 @@ function buildLexiconFallbackTranslation(query = '', language = 'none') {
     })
     .sort((a, b) => b.score - a.score || a.matchIndex - b.matchIndex || a.normalized.localeCompare(b.normalized));
 
-  const selected = unique(scored.map((item) => item.term)).slice(0, 4);
+  const selected = unique(scored.map((item) => item.term)).slice(0, 6);
   const hasStrongPhrase = selected.some((term) => /\s/.test(term) || normalizeText(term).length >= 8);
-  if (!hasStrongPhrase) return '';
+  const hasMultipleTechnicalMatches = language !== 'ko' && language !== 'en' && hasOtherLanguageTechnicalAnchor && matchedGroups.length >= 2 && selected.length >= 2;
+  if (!hasStrongPhrase && !hasMultipleTechnicalMatches) return '';
   return {
-    translatedQuery: selected[0],
+    translatedQuery: selected.slice(0, Math.min(3, selected.length)).join(' '),
     translatedVariants: selected,
   };
 }
@@ -458,7 +551,8 @@ async function translateWithBackend(text = '', source = 'auto', target = 'en') {
   const response = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: makeAbortSignal(appConfig.sourceTimeoutMs)
   });
   if (!response.ok) throw new Error(`translation backend request failed: ${response.status}`);
   const payload = await response.json();
@@ -468,6 +562,14 @@ async function translateWithBackend(text = '', source = 'auto', target = 'en') {
     payload.text ||
     ''
   ).trim();
+}
+
+async function safeTranslateWithBackend(text = '', source = 'auto', target = 'en') {
+  try {
+    return await translateWithBackend(text, source, target);
+  } catch {
+    return '';
+  }
 }
 
 export async function buildCrossLingualQueryContext(query = '') {
@@ -495,7 +597,7 @@ export async function buildCrossLingualQueryContext(query = '') {
         enabled: true,
         originalQuery: base,
         language,
-        direction: language === 'ko' ? 'ko-to-en' : language === 'en' ? 'en-to-ko' : 'none',
+        direction: language === 'ko' ? 'ko-to-en' : language === 'en' ? 'en-to-ko' : 'other-to-en',
         translatedQuery: lexiconFallback.translatedQuery,
         translatedVariants: lexiconFallback.translatedVariants,
         variants: unique([...variants, ...lexiconFallback.translatedVariants].filter(Boolean)),
@@ -516,7 +618,7 @@ export async function buildCrossLingualQueryContext(query = '') {
   }
 
   if (language === 'ko') {
-    const translatedQuery = await translateWithBackend(base, 'ko', 'en') || lexiconFallback?.translatedQuery || '';
+    const translatedQuery = await safeTranslateWithBackend(base, 'ko', 'en') || lexiconFallback?.translatedQuery || '';
     const translatedVariants = lexiconFallback?.translatedVariants || (translatedQuery ? [translatedQuery] : []);
     return {
       enabled: Boolean(translatedQuery),
@@ -532,7 +634,7 @@ export async function buildCrossLingualQueryContext(query = '') {
   }
 
   if (language === 'en') {
-    const translatedQuery = await translateWithBackend(base, 'en', 'ko') || lexiconFallback?.translatedQuery || '';
+    const translatedQuery = await safeTranslateWithBackend(base, 'en', 'ko') || lexiconFallback?.translatedQuery || '';
     const translatedVariants = lexiconFallback?.translatedVariants || (translatedQuery ? [translatedQuery] : []);
     return {
       enabled: Boolean(translatedQuery),
@@ -547,6 +649,24 @@ export async function buildCrossLingualQueryContext(query = '') {
     };
   }
 
+  if (language !== 'mixed') {
+    const translatedQuery = await safeTranslateWithBackend(base, 'auto', 'en') || lexiconFallback?.translatedQuery || '';
+    const translatedVariants = lexiconFallback?.translatedVariants || (translatedQuery ? [translatedQuery] : []);
+    return {
+      enabled: Boolean(translatedQuery),
+      originalQuery: base,
+      language,
+      direction: translatedQuery ? 'other-to-en' : 'none',
+      translatedQuery,
+      translatedVariants,
+      variants: unique([...variants, ...translatedVariants, translatedQuery].filter(Boolean)),
+      backend: translatedQuery && translatedQuery === lexiconFallback?.translatedQuery ? 'lexicon' : (appConfig.translationServiceUrl ? 'http' : 'disabled'),
+      reason: translatedQuery
+        ? (translatedQuery === lexiconFallback?.translatedQuery ? 'lexicon-fallback' : 'auto-to-en')
+        : (appConfig.translationServiceUrl ? 'translation-empty' : 'translation-backend-not-configured')
+    };
+  }
+
   return {
     enabled: false,
     originalQuery: base,
@@ -554,8 +674,8 @@ export async function buildCrossLingualQueryContext(query = '') {
     direction: 'none',
     translatedQuery: '',
     variants,
-    backend: 'http',
-    reason: language === 'mixed' ? 'mixed-language-query' : 'unsupported-language'
+    backend: appConfig.translationServiceUrl ? 'http' : 'disabled',
+    reason: 'mixed-language-query'
   };
 }
 

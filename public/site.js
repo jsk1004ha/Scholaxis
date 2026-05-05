@@ -498,13 +498,21 @@ function createPaperCard(paper) {
   const detailHref = `./detail.html?id=${encodeURIComponent(paper.id)}`;
   const similarityHref = `./similarity.html?paperId=${encodeURIComponent(paper.id)}`;
   const sourceHref = paper.originalUrl || paper.sourceUrl || '#';
+  const countryBadge = paper.countryBadge
+    ? `<span class="pill pill--country" title="출처/색인 기준: ${escapeHtml(paper.sourceCountry?.label || paper.sourceCountry?.code || '')}">${escapeHtml(paper.countryBadge)}</span>`
+    : '';
+  const languageBadge = paper.languageLabel
+    ? `<span>${escapeHtml(paper.languageLabel)}</span>`
+    : '';
   article.innerHTML = `
     <div class="result-card__meta">
-      <span class="pill pill--muted">${paper.badge}</span>
-      <span>${paper.source}</span>
-      <span>${paper.sourceType ?? ''}</span>
-      <span>${paper.year}</span>
-      <span>${paper.region}</span>
+      <span class="pill pill--muted">${escapeHtml(paper.badge)}</span>
+      ${countryBadge}
+      <span>${escapeHtml(paper.source)}</span>
+      <span>${escapeHtml(paper.sourceType ?? '')}</span>
+      <span>${escapeHtml(paper.year)}</span>
+      <span>${escapeHtml(paper.region)}</span>
+      ${languageBadge}
     </div>
     <h3><a href="${detailHref}">${paper.title}</a></h3>
     <p class="result-card__subtitle">${paper.subtitle ?? ''}</p>

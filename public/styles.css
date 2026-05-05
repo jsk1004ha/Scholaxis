@@ -839,6 +839,13 @@ textarea {
   color: var(--text-muted);
 }
 
+.pill--country {
+  border-color: rgba(113, 112, 255, 0.24);
+  background: rgba(94, 106, 210, 0.12);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
 .tag {
   min-height: 28px;
   padding: 0 10px;

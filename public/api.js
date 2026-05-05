@@ -255,7 +255,22 @@ function humanType(type = '') {
   return type === 'paper' ? '논문' : type === 'patent' ? '특허' : type === 'report' ? '보고서' : type || '자료';
 }
 
+function normalizeSourceCountry(item = {}) {
+  const country = item.sourceCountry || {};
+  const code = country.code || item.countryCode || '';
+  const flag = country.flag || item.countryFlag || '';
+  const label = country.label || item.countryLabel || '';
+  return { code, flag, label, inferred: country.inferred !== false, basis: country.basis || 'unknown' };
+}
+
+function buildCountryBadge(country = {}, region = '') {
+  if (!country.flag || humanRegion(region) !== '해외') return '';
+  const suffix = country.basis && country.basis !== 'unknown' ? ' 기준' : '';
+  return `${country.flag} ${country.label || country.code || '해외'}${suffix}`.trim();
+}
+
 export function toUiPaperShape(item = {}) {
+  const sourceCountry = normalizeSourceCountry(item);
   return {
     ...item,
     id: item.id || item.canonicalId,
@@ -266,6 +281,10 @@ export function toUiPaperShape(item = {}) {
     year: item.year || '',
     source: item.source || '',
     sourceType: humanType(item.type || item.sourceType),
+    language: item.language || '',
+    languageLabel: item.languageLabel || item.language || '',
+    sourceCountry,
+    countryBadge: buildCountryBadge(sourceCountry, item.region),
     openAccess: Boolean(item.openAccess),
     badge: item.source || item.badge || 'Scholaxis',
     region: humanRegion(item.region),
