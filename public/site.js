@@ -566,7 +566,16 @@ function renderSearchPayload(searchPayload, resultsRoot) {
 
   resultsRoot.innerHTML = '';
   if (searchPayload.error) {
-    resultsRoot.innerHTML = `<article class="card"><h3>검색 오류</h3><p>${escapeHtml(searchPayload.summary)}</p></article>`;
+    const detail = [searchPayload.errorCode, searchPayload.errorStatus, searchPayload.errorDetail]
+      .filter(Boolean)
+      .join(' · ');
+    resultsRoot.innerHTML = `
+      <article class="card">
+        <h3>검색 오류</h3>
+        <p>${escapeHtml(searchPayload.summary)}</p>
+        ${detail ? `<p class="muted-copy">진단 정보: ${escapeHtml(detail)}</p>` : ''}
+      </article>
+    `;
     return;
   }
 

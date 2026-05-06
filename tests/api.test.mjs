@@ -15,7 +15,7 @@ import { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics } from '../s
 import { createRerankerBackendServer } from '../src/reranker-backend-server.mjs';
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
-import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
+import { fetchSearchStream, normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
 import { buildCrossLingualQueryContext, buildDocument, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
 import { getSourceRuntimeDiagnostics, searchLiveSources, sourceRegistrySummary } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
@@ -1913,6 +1913,60 @@ test('frontend result normalization adapts backend search items to UI shape', ()
   assert.equal(paper.region, '국내');
   assert.equal(paper.badge, 'KCI');
   assert.ok(Array.isArray(paper.tags));
+});
+
+test('frontend search stream fallback retries transient regular-search failures', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEventSource = globalThis.EventSource;
+  let calls = 0;
+
+  try {
+    globalThis.EventSource = undefined;
+    globalThis.fetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({
+          error: '검색 요청이 많아 잠시 후 다시 시도해 주세요.',
+          code: 'search_runtime_overloaded',
+          retryAfterMs: 0,
+        }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({
+        query: '배터리 AI',
+        total: 1,
+        results: [{
+          id: 'paper:retry',
+          title: '배터리 AI',
+          type: 'paper',
+          source: 'KCI',
+          region: 'domestic',
+        }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const payload = await fetchSearchStream(
+      { q: '배터리 AI' },
+      {},
+      { fallbackAttempts: 2, fallbackDelayMs: 0 }
+    );
+
+    assert.equal(calls, 2);
+    assert.equal(payload.total, 1);
+    assert.equal(payload.items[0].id, 'paper:retry');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalEventSource === undefined) {
+      delete globalThis.EventSource;
+    } else {
+      globalThis.EventSource = originalEventSource;
+    }
+  }
 });
 
 test('RNE report source is domestic and does not render an overseas country badge', () => {
