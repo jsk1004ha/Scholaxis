@@ -944,6 +944,26 @@ function buildGraphEdgesFromResults(results = []) {
   }));
 }
 
+function persistSearchArtifacts({ query = '', filters = {}, results = [], liveSourceCount = 0, canonicalCount = 0 } = {}) {
+  try {
+    persistGraphEdges(buildGraphEdgesFromResults(results));
+  } catch (error) {
+    console.warn(`[search] graph-edge persistence skipped: ${error.message}`);
+  }
+
+  try {
+    persistSearchRun({
+      query,
+      filters,
+      total: results.length,
+      liveSourceCount,
+      canonicalCount
+    });
+  } catch (error) {
+    console.warn(`[search] search-run persistence skipped: ${error.message}`);
+  }
+}
+
 async function buildSearchIndexDocuments(options = {}) {
   if (Array.isArray(options)) {
     return loadSearchIndexDocuments({ liveDocuments: options });
@@ -1319,7 +1339,13 @@ async function executeSearchCatalog({
     exploratory: fallbackMode === 'exploratory',
   }));
   const sourceStatus = mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses);
-  persistGraphEdges(buildGraphEdgesFromResults(results));
+  persistSearchArtifacts({
+    query: q,
+    filters,
+    results,
+    liveSourceCount: liveBundle.documents.length,
+    canonicalCount: mergedSourceData.length
+  });
   scheduleBackgroundWork(async () => {
     try {
       await synchronizeIndexedArtifacts(mergedSourceData);
@@ -1327,7 +1353,6 @@ async function executeSearchCatalog({
       console.warn(`[search-sync] background artifact synchronization failed: ${error.message}`);
     }
   });
-  persistSearchRun({ query: q, filters, total: reranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
 
   const payload = {
     query: q,
