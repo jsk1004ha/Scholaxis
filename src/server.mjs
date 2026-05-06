@@ -386,8 +386,8 @@ export function createServer() {
           writeSseEvent(res, event.type, event.payload);
         }
 
-        req.on('close', () => {
-          if (closed) return;
+        res.on('close', () => {
+          if (closed || res.writableEnded) return;
           closed = true;
           task.cancel();
         });
