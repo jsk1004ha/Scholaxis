@@ -1690,6 +1690,16 @@ textarea {
   inset: 0;
 }
 
+.brand-mark__image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
 .brand-mark__core::before,
 .brand-mark__core::after,
 .brand-mark__ring::before {
