@@ -284,13 +284,21 @@ export async function fetchSearchStream(query, handlers = {}, options = {}) {
 }
 
 export function normalizeSearchQuery(query = {}) {
-  return {
-    ...query,
+  const normalized = {
     q: query.q || '',
     region: REGION_MAP[query.region] || query.region || 'all',
     sourceType: SOURCE_TYPE_MAP[query.sourceType] || query.sourceType || 'all',
     sort: SORT_MAP[query.sort] || query.sort || 'relevance',
   };
+
+  for (const key of ['live', 'autoLive', 'refresh', 'preferredSources']) {
+    const value = query[key];
+    if (value != null && String(value).trim() !== '') {
+      normalized[key] = value;
+    }
+  }
+
+  return normalized;
 }
 
 function humanRegion(region = '') {

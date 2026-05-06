@@ -1893,6 +1893,21 @@ test('frontend search query normalization maps Korean option values to API value
   assert.equal(normalized.sort, 'relevance');
 });
 
+test('frontend search query normalization omits empty live flags', () => {
+  const normalized = normalizeSearchQuery({
+    q: '자기진자',
+    region: 'all',
+    sourceType: 'all',
+    sort: 'relevance',
+    live: '',
+    autoLive: '',
+  });
+  const params = new URLSearchParams(normalized);
+
+  assert.equal(params.has('live'), false);
+  assert.equal(params.has('autoLive'), false);
+});
+
 test('frontend result normalization adapts backend search items to UI shape', () => {
   const paper = toUiPaperShape({
     id: 'paper:1',
