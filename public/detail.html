@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      (() => {
+        let stored = '';
+        try { stored = localStorage.getItem('scholaxis-theme') || ''; } catch {}
+        const system = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = stored === 'light' || stored === 'dark' ? stored : system;
+      })();
+    </script>
     <title>Scholaxis · 상세 분석</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,212 +30,168 @@
             </span>
             <span class="brand__copy">
               <strong>Scholaxis</strong>
-              <small>Research discovery engine</small>
+              <small>Research discovery</small>
             </span>
           </a>
-          <nav>
-            <a href="./index.html">탐색</a>
-            <a href="./results.html">검색 결과</a>
-            <a class="is-active" href="./detail.html">상세 분석</a>
-            <a href="./similarity.html">유사도 리포트</a>
-            <a href="./library.html">내 라이브러리</a>
-            <a href="./admin.html">관리</a>
+          <nav aria-label="주요 탐색">
+            <a class="is-active" href="./index.html">탐색</a>
+            <a href="./library.html">라이브러리</a>
+            <a href="./auth.html">계정</a>
           </nav>
+          <div class="topbar__actions">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="테마 전환">
+              <span class="theme-toggle__icon" data-theme-toggle-icon aria-hidden="true">☾</span>
+              <span data-theme-toggle-label>다크</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      <main class="page">
-        <article class="detail-hero" data-detail-root>
-          <span class="pill" data-detail-badge>Loading</span>
-          <p class="lead loading-copy" data-detail-source>문헌 메타데이터를 불러오는 중입니다.</p>
+      <main class="page detail-page page-minimal">
+        <article class="detail-hero detail-hero--minimal" data-detail-root>
+          <div class="detail-kicker-row">
+            <span class="pill" data-detail-badge>Loading</span>
+            <span class="lead loading-copy" data-detail-source>문헌 메타데이터를 불러오는 중입니다.</span>
+          </div>
+          <h1 class="loading-copy loading-copy--title" data-detail-title>문헌 정보를 불러오고 있습니다.</h1>
+          <p class="loading-copy" data-detail-subtitle>선택한 문헌의 핵심 정보를 준비하고 있습니다.</p>
+          <p class="loading-copy detail-authors" data-detail-authors>저자와 기관 정보를 불러오는 중입니다.</p>
+
           <div class="live-status live-status--loading" data-detail-status>문헌 정보를 준비하고 있습니다.</div>
           <div class="analysis-progress" aria-label="상세 분석 진행률">
             <div class="analysis-progress__bar analysis-progress__bar--animated" data-detail-progress-bar style="width: 8%"></div>
           </div>
           <p class="muted-copy" data-detail-progress-label>작업을 준비하고 있습니다.</p>
-          <div class="action-row">
-            <button class="button button--ghost" data-detail-cancel type="button" hidden>상세 분석 취소</button>
-          </div>
-          <h1 class="loading-copy loading-copy--title" data-detail-title>문헌 정보를 불러오고 있습니다.</h1>
-          <p class="loading-copy" data-detail-subtitle>선택한 문헌의 핵심 정보를 준비하고 있습니다.</p>
-          <p class="loading-copy" data-detail-authors>저자와 기관 정보를 불러오는 중입니다.</p>
-          <div class="metric-grid">
-            <div class="metric-card">
-              <strong>인용수</strong>
-              <span data-metric-citations>-</span>
-            </div>
-            <div class="metric-card">
-              <strong>참고문헌</strong>
-              <span data-metric-references>-</span>
-            </div>
-            <div class="metric-card">
-              <strong>영향도</strong>
-              <span data-metric-impact>-</span>
-            </div>
-            <div class="metric-card">
-              <strong>속도</strong>
-              <span data-metric-velocity>-</span>
-            </div>
-          </div>
-          <div class="action-row">
-            <a class="button button--primary" href="./results.html">관련 결과 더 보기</a>
-            <a class="button button--ghost" data-similarity-link href="./similarity.html">유사도 분석으로 이동</a>
-            <a class="button button--ghost" data-source-link href="#" target="_blank" rel="noreferrer noopener">원문/상세 링크</a>
-            <button class="button button--ghost" data-save-library type="button">내 라이브러리에 저장</button>
-          </div>
-          <div class="section-nav">
-            <a class="chip" href="#detail-summary">핵심 요약</a>
-            <a class="chip" href="#detail-metadata">출처 정보</a>
-            <a class="chip" href="#detail-network">연결 관계</a>
-            <a class="chip" href="#detail-queries">다음 탐색 제안</a>
-            <a class="chip" href="#detail-recommendations">추천 비교 문헌</a>
+
+          <div class="action-row detail-primary-actions">
+            <a class="button button--primary" data-source-link href="#" target="_blank" rel="noreferrer noopener">원문 열기</a>
+            <a class="button button--ghost" href="./results.html">검색으로 돌아가기</a>
+            <a class="button button--ghost" data-similarity-link href="./similarity.html">유사도 분석</a>
+            <button class="button button--ghost" data-save-library type="button">저장</button>
+            <button class="button button--ghost" data-detail-cancel type="button" hidden>분석 취소</button>
           </div>
         </article>
 
-        <section class="detail-grid">
-          <div class="stack">
-            <article class="card" id="detail-summary">
-              <span class="section-eyebrow">Abstract</span>
-              <h2>핵심 요약</h2>
-              <p class="loading-copy" data-detail-abstract>초록과 핵심 기여를 불러오는 중입니다.</p>
-              <div class="tag-row" style="margin-top: 1rem" data-detail-tags></div>
-            </article>
+        <section class="detail-reading-layout">
+          <article class="card card--reading" id="detail-summary">
+            <span class="section-eyebrow">Summary</span>
+            <h2>핵심 요약</h2>
+            <p class="loading-copy" data-detail-abstract>초록과 핵심 기여를 불러오는 중입니다.</p>
+            <div class="tag-row" data-detail-tags></div>
+          </article>
 
-            <article class="card" id="detail-metadata">
-              <span class="section-eyebrow">Grounded metadata</span>
-              <h2>출처 정보</h2>
-              <div class="stack">
-                <p class="muted-copy loading-copy" data-detail-novelty>기여 요약과 메타데이터 상태를 계산하는 중입니다.</p>
-                <ul data-detail-metadata>
-                  <li>메타데이터를 확인하는 중입니다.</li>
-                </ul>
-                <p class="muted-copy" data-detail-link-health>원문/상세 링크 상태를 계산 중입니다.</p>
-                <div class="action-row">
-                  <a class="button button--ghost" data-detail-original-link href="#" target="_blank" rel="noreferrer noopener">원문 열기</a>
-                  <a class="button button--ghost" data-detail-detail-link href="#" target="_blank" rel="noreferrer noopener">상세 페이지 열기</a>
-                </div>
+          <aside class="card detail-side-card">
+            <span class="section-eyebrow">Identity</span>
+            <h2>문헌 정보</h2>
+            <div class="metric-grid metric-grid--compact">
+              <div class="metric-card"><strong>인용</strong><span data-metric-citations>-</span></div>
+              <div class="metric-card"><strong>참고</strong><span data-metric-references>-</span></div>
+              <div class="metric-card"><strong>영향</strong><span data-metric-impact>-</span></div>
+              <div class="metric-card"><strong>속도</strong><span data-metric-velocity>-</span></div>
+            </div>
+            <p class="muted-copy" data-detail-novelty>기여 요약과 메타데이터 상태를 계산하는 중입니다.</p>
+            <ul class="metadata-list" data-detail-metadata>
+              <li>메타데이터를 확인하는 중입니다.</li>
+            </ul>
+            <p class="muted-copy" data-detail-link-health>원문/상세 링크 상태를 계산 중입니다.</p>
+            <div class="action-row">
+              <a class="button button--ghost" data-detail-original-link href="#" target="_blank" rel="noreferrer noopener">원문</a>
+              <a class="button button--ghost" data-detail-detail-link href="#" target="_blank" rel="noreferrer noopener">상세 페이지</a>
+            </div>
+          </aside>
+        </section>
+
+        <section class="detail-reading-layout">
+          <article class="card" id="detail-recommendations">
+            <span class="section-eyebrow">Next reading</span>
+            <h2>관련 문헌</h2>
+            <p class="muted-copy loading-copy" data-detail-recommendations-summary>추천 비교 문헌과 후속 읽기 순서를 계산 중입니다.</p>
+            <div class="result-list" data-detail-recommendations></div>
+          </article>
+
+          <article class="card">
+            <span class="section-eyebrow">Insight</span>
+            <h2>핵심 인사이트</h2>
+            <p class="loading-copy" data-detail-insight>핵심 인사이트를 정리하는 중입니다.</p>
+            <details class="advanced-options advanced-options--card" id="detail-queries">
+              <summary>다음 탐색 제안</summary>
+              <div class="chip-row" data-suggested-queries>
+                <span class="muted-copy">추천 질의를 계산 중입니다.</span>
               </div>
-            </article>
+            </details>
+          </article>
+        </section>
 
+        <details class="advanced-panel" id="detail-advanced">
+          <summary>
+            <span>고급 분석 보기</span>
+            <small>인용, 그래프, 신뢰도, 출처 상태</small>
+          </summary>
+          <div class="advanced-panel__grid">
             <article class="card" id="detail-network">
-              <span class="section-eyebrow">Intelligence network map</span>
-              <h2>영향 관계 맵</h2>
+              <span class="section-eyebrow">Network</span>
+              <h3>영향 관계 맵</h3>
               <p class="muted-copy" data-graph-section-summary>그래프 경로를 계산 중입니다.</p>
               <div class="network" data-network-root></div>
-            </article>
-
-            <article class="card" id="detail-references">
-              <span class="section-eyebrow">Reference trail</span>
-              <h2>선행 참고문헌</h2>
-              <div class="result-list" data-reference-results></div>
-            </article>
-
-            <article class="card" id="detail-citations">
-              <span class="section-eyebrow">Citation trail</span>
-              <h2>후속 인용/확장 자료</h2>
-              <div class="result-list" data-citation-results></div>
-            </article>
-
-
-            <article class="card">
-              <span class="section-eyebrow">Path tracing</span>
-              <h2>인용/추천 경로</h2>
-              <ul data-graph-paths>
-                <li>경로 정보를 계산 중입니다.</li>
-              </ul>
-            </article>
-
-            <article class="card" id="detail-grounding">
-              <span class="section-eyebrow">Source grounding</span>
-              <h2>활성 출처 상태</h2>
-              <ul data-source-status>
-                <li>출처 상태를 계산 중입니다.</li>
-              </ul>
-            </article>
-          </div>
-
-          <div class="stack">
-            <article class="card">
-              <span class="section-eyebrow">Insight</span>
-              <h3>핵심 인사이트</h3>
-              <p class="loading-copy" data-detail-insight>핵심 인사이트를 정리하는 중입니다.</p>
             </article>
 
             <article class="card" id="detail-health">
               <span class="section-eyebrow">Reliability</span>
               <h3>신뢰도와 제한 사항</h3>
               <p class="muted-copy" data-detail-health-summary>상세 상태를 계산 중입니다.</p>
-              <ul data-detail-health-warnings>
-                <li>제한 구간을 계산 중입니다.</li>
-              </ul>
+              <ul data-detail-health-warnings><li>제한 구간을 계산 중입니다.</li></ul>
               <div class="stack" data-detail-health-sections></div>
             </article>
 
-            <article class="card">
-              <span class="section-eyebrow">Graph narrative</span>
-              <h3>해석 포인트</h3>
-              <p class="loading-copy" data-detail-explanation-summary>그래프 기반 설명과 비교 포인트를 정리하는 중입니다.</p>
-              <ul data-detail-explanation-points>
-                <li>관련 그래프 설명을 계산 중입니다.</li>
-              </ul>
+            <article class="card" id="detail-references">
+              <span class="section-eyebrow">References</span>
+              <h3>선행 참고문헌</h3>
+              <div class="result-list" data-reference-results></div>
+            </article>
+
+            <article class="card" id="detail-citations">
+              <span class="section-eyebrow">Citations</span>
+              <h3>후속 인용/확장 자료</h3>
+              <div class="result-list" data-citation-results></div>
             </article>
 
             <article class="card">
-              <span class="section-eyebrow">Comparison matrix</span>
-              <h3>추천/인용/참고 비교 포인트</h3>
-              <ul data-comparison-matrix>
-                <li>비교 포인트를 계산 중입니다.</li>
-              </ul>
-            </article>
-
-            <article class="card" id="detail-queries">
-              <span class="section-eyebrow">Suggested queries</span>
-              <h3>다음 탐색 제안</h3>
-              <div class="chip-row" data-suggested-queries>
-                <span class="muted-copy">추천 질의를 계산 중입니다.</span>
-              </div>
-            </article>
-
-            <article class="card">
-              <span class="section-eyebrow">Alternate grounding</span>
-              <h3>연결된 출처와 원문 링크</h3>
-              <p class="muted-copy loading-copy" data-detail-source-links>연결 가능한 원문/상세 링크를 확인하는 중입니다.</p>
-              <ul data-alternate-sources>
-                <li>연결된 출처를 계산 중입니다.</li>
-              </ul>
-            </article>
-
-            <article class="card" id="detail-recommendations">
-              <span class="section-eyebrow">Next reading set</span>
-              <h3>추천 비교 문헌</h3>
-              <p class="muted-copy loading-copy" data-detail-recommendations-summary>추천 비교 문헌과 후속 읽기 순서를 계산 중입니다.</p>
-              <div class="result-list" data-detail-recommendations></div>
-            </article>
-
-            <article class="card">
-              <span class="section-eyebrow">Related items</span>
+              <span class="section-eyebrow">Related</span>
               <h3>함께 읽을 자료</h3>
               <p class="muted-copy loading-copy" data-detail-related-summary>함께 읽으면 좋은 자료 흐름을 계산 중입니다.</p>
               <div class="result-list" data-related-results></div>
             </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Explanation</span>
+              <h3>해석 포인트</h3>
+              <p class="loading-copy" data-detail-explanation-summary>그래프 기반 설명과 비교 포인트를 정리하는 중입니다.</p>
+              <ul data-detail-explanation-points><li>관련 그래프 설명을 계산 중입니다.</li></ul>
+            </article>
+
+            <article class="card">
+              <span class="section-eyebrow">Comparison</span>
+              <h3>비교 포인트</h3>
+              <ul data-comparison-matrix><li>비교 포인트를 계산 중입니다.</li></ul>
+            </article>
+
+            <article class="card" id="detail-grounding">
+              <span class="section-eyebrow">Grounding</span>
+              <h3>출처 상태와 링크</h3>
+              <p class="muted-copy loading-copy" data-detail-source-links>연결 가능한 원문/상세 링크를 확인하는 중입니다.</p>
+              <ul data-source-status><li>출처 상태를 계산 중입니다.</li></ul>
+              <ul data-alternate-sources><li>연결된 출처를 계산 중입니다.</li></ul>
+              <h3>인용/추천 경로</h3>
+              <ul data-graph-paths><li>경로 정보를 계산 중입니다.</li></ul>
+            </article>
           </div>
-        </section>
+        </details>
       </main>
 
       <footer class="footer">
-        <div class="footer__inner footer-grid">
-          <div>
-            <strong>문서 정체성</strong>
-            <p>제목, 출처, 링크, 주요 메타데이터를 먼저 확인하세요.</p>
-          </div>
-          <div>
-            <strong>연결 자료</strong>
-            <p>추천·인용·참고문헌을 함께 확인할 수 있습니다.</p>
-          </div>
-          <div>
-            <strong>다음 단계</strong>
-            <p>라이브러리 저장과 유사도 분석으로 이어갈 수 있습니다.</p>
-          </div>
+        <div class="footer__inner footer-minimal">
+          <strong>Scholaxis</strong>
+          <p>검색, 상세 확인, 유사도 비교에 집중하는 연구 탐색 도구입니다.</p>
         </div>
       </footer>
     </div>

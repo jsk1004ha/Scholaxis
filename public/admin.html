@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      (() => {
+        let stored = '';
+        try { stored = localStorage.getItem('scholaxis-theme') || ''; } catch {}
+        const system = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = stored === 'light' || stored === 'dark' ? stored : system;
+      })();
+    </script>
     <title>Scholaxis · 운영 관리</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,28 +23,30 @@
     <div class="shell">
       <header class="topbar">
         <div class="topbar__inner">
-          <a class="brand brand-link" href="./index.html" aria-label="Scholaxis 홈으로 이동">
-            <span class="brand-mark" aria-hidden="true">
-              <span class="brand-mark__core"></span>
-              <span class="brand-mark__ring brand-mark__ring--one"></span>
-              <img class="brand-mark__image" src="./favicon.png" alt="" />
+          <a class="brand" href="./index.html" aria-label="Scholaxis 홈으로 이동">
+            <span class="brand__mark" aria-hidden="true">
+              <img src="./favicon.png" alt="" />
             </span>
-            <span class="brand__copy brand-copy">
+            <span class="brand__copy">
               <strong>Scholaxis</strong>
-              <span>Research navigator</span>
+              <small>Research discovery</small>
             </span>
           </a>
-          <nav>
+          <nav aria-label="주요 탐색">
             <a href="./index.html">탐색</a>
-            <a href="./results.html">검색 결과</a>
-            <a href="./detail.html">상세 분석</a>
-            <a href="./similarity.html">유사도 리포트</a>
-            <a href="./library.html">내 라이브러리</a>
+            <a href="./library.html">라이브러리</a>
+            <a href="./auth.html">계정</a>
             <a class="is-active" href="./admin.html">관리</a>
           </nav>
+          <div class="topbar__actions">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="테마 전환">
+              <span class="theme-toggle__icon" data-theme-toggle-icon aria-hidden="true">☾</span>
+              <span data-theme-toggle-label>다크</span>
+            </button>
+          </div>
         </div>
       </header>
-      <main class="page admin-shell">
+      <main class="page admin-shell page-minimal">
         <article class="result-hero">
           <span class="section-eyebrow">Operations</span>
           <h1>운영 대시보드</h1>
@@ -131,19 +142,9 @@
         </section>
       </main>
       <footer class="footer">
-        <div class="footer__inner footer-grid">
-          <div>
-            <strong>운영 원칙</strong>
-            <p>경보와 런타임 상태를 먼저 확인하세요.</p>
-          </div>
-          <div>
-            <strong>진단 순서</strong>
-            <p>경보 → 런타임 → 요청 로그 순으로 확인하세요.</p>
-          </div>
-          <div>
-            <strong>관리 작업</strong>
-            <p>필요할 때 캐시를 비우거나 상태를 다시 확인할 수 있습니다.</p>
-          </div>
+        <div class="footer__inner footer-minimal">
+          <strong>Scholaxis</strong>
+          <p>검색, 상세 확인, 유사도 비교에 집중하는 연구 탐색 도구입니다.</p>
         </div>
       </footer>
     </div>

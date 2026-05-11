@@ -64,7 +64,8 @@ In short, Scholaxis is closer to a **research exploration engine** than a generi
 ## Core capabilities
 
 ### Discovery / search
-- unified search UI
+- minimal unified search UI
+- dark/light theme toggle with OS theme defaults
 - SSE-based streamed search (`/api/search/stream`)
 - related-paper expansion
 - citations/references/graph lookup

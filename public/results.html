@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      (() => {
+        let stored = '';
+        try { stored = localStorage.getItem('scholaxis-theme') || ''; } catch {}
+        const system = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = stored === 'light' || stored === 'dark' ? stored : system;
+      })();
+    </script>
     <title>Scholaxis · 검색 결과</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,86 +30,84 @@
             </span>
             <span class="brand__copy">
               <strong>Scholaxis</strong>
-              <small>Research discovery engine</small>
+              <small>Research discovery</small>
             </span>
           </a>
-          <nav>
-            <a href="./index.html">탐색</a>
-            <a class="is-active" href="./results.html">검색 결과</a>
-            <a href="./detail.html">상세 분석</a>
-            <a href="./similarity.html">유사도 리포트</a>
-            <a href="./library.html">내 라이브러리</a>
-            <a href="./admin.html">관리</a>
+          <nav aria-label="주요 탐색">
+            <a class="is-active" href="./index.html">탐색</a>
+            <a href="./library.html">라이브러리</a>
+            <a href="./auth.html">계정</a>
           </nav>
+          <div class="topbar__actions">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="테마 전환">
+              <span class="theme-toggle__icon" data-theme-toggle-icon aria-hidden="true">☾</span>
+              <span data-theme-toggle-label>다크</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      <main class="page layout">
-        <aside class="sidebar">
-          <span class="section-eyebrow">Search controls</span>
-          <h2>검색 조건</h2>
-          <form class="stack inline-search" data-inline-search>
-            <div>
-              <label class="label" for="search-inline">검색어</label>
-              <input id="search-inline" name="q" type="text" placeholder="AI 반도체 설계 자동화" />
-            </div>
-            <div>
-              <label class="label" for="region-inline">지역</label>
-              <select class="select" id="region-inline" name="region">
-                <option value="all">국내 + 해외</option>
-                <option value="domestic">국내 우선</option>
-                <option value="global">해외 우선</option>
-              </select>
-            </div>
-            <div>
-              <label class="label" for="type-inline">유형</label>
-              <select class="select" id="type-inline" name="sourceType">
-                <option value="all">전체</option>
-                <option value="paper">논문</option>
-                <option value="patent">특허</option>
-                <option value="report">보고서</option>
-              </select>
-            </div>
-            <button class="button button--primary" type="submit">다시 탐색</button>
+      <main class="page results-page page-minimal">
+        <section class="result-hero result-hero--compact">
+          <span class="section-eyebrow">Search</span>
+          <h1 class="loading-copy loading-copy--title" data-query-label>검색 결과</h1>
+          <p class="loading-copy" data-results-summary>관련 문헌을 찾고 있습니다.</p>
+          <p class="live-status live-status--loading" data-search-progress aria-live="polite">검색을 준비하고 있습니다.</p>
+
+          <form class="inline-search inline-search--minimal" data-inline-search>
+            <input id="search-inline" name="q" type="search" placeholder="키워드 또는 자연어 질문" />
+            <button class="button button--primary" type="submit">다시 검색</button>
+
+            <details class="advanced-options advanced-options--inline">
+              <summary>필터</summary>
+              <div class="compact-form-grid compact-form-grid--filters">
+                <label>
+                  <span class="label">지역</span>
+                  <select class="select" id="region-inline" name="region">
+                    <option value="all">전체</option>
+                    <option value="domestic">국내</option>
+                    <option value="global">해외</option>
+                  </select>
+                </label>
+                <label>
+                  <span class="label">유형</span>
+                  <select class="select" id="type-inline" name="sourceType">
+                    <option value="all">전체</option>
+                    <option value="paper">논문</option>
+                    <option value="patent">특허</option>
+                    <option value="report">보고서</option>
+                  </select>
+                </label>
+                <label>
+                  <span class="label">정렬</span>
+                  <select class="select" name="sort">
+                    <option value="relevance">추천순</option>
+                    <option value="latest">최신순</option>
+                    <option value="citation">인용순</option>
+                  </select>
+                </label>
+              </div>
+              <div class="filter-source-status">
+                <strong>활성 소스</strong>
+                <ul data-source-list></ul>
+              </div>
+            </details>
           </form>
 
-          <div class="card" style="margin-top: 1rem">
-            <span class="section-eyebrow">지원 소스</span>
-            <ul data-source-list></ul>
+          <div class="result-utility-row">
+            <span class="pill" data-results-count>0개 결과</span>
+            <a class="pill pill--muted" href="./similarity.html">유사도 분석</a>
           </div>
-        </aside>
-
-        <section>
-          <article class="result-hero">
-            <span class="section-eyebrow">Search</span>
-            <h1 class="loading-copy loading-copy--title" data-query-label>검색 결과</h1>
-            <p class="loading-copy" data-results-summary>관련 문헌을 찾고 있습니다.</p>
-            <p class="live-status live-status--loading" data-search-progress aria-live="polite">검색을 준비하고 있습니다.</p>
-            <div class="chip-row" style="margin-top: 1rem" data-related-queries></div>
-            <div class="action-row" style="margin-top: 1rem">
-              <span class="pill" data-results-count>0개 결과</span>
-              <a class="pill pill--muted" href="./similarity.html">유사도 분석</a>
-            </div>
-          </article>
-
-          <div class="result-list" data-results-root></div>
+          <div class="chip-row chip-row--subtle" data-related-queries></div>
         </section>
+
+        <section class="result-list result-list--minimal" data-results-root></section>
       </main>
 
       <footer class="footer">
-        <div class="footer__inner footer-grid">
-          <div>
-            <strong>검색 기준</strong>
-            <p>질의와 필터를 기준으로 결과를 정렬합니다.</p>
-          </div>
-          <div>
-            <strong>상세 보기</strong>
-            <p>원문 링크와 상세 분석으로 바로 이동할 수 있습니다.</p>
-          </div>
-          <div>
-            <strong>다음 단계</strong>
-            <p>유사도 분석이나 라이브러리 저장으로 이어갈 수 있습니다.</p>
-          </div>
+        <div class="footer__inner footer-minimal">
+          <strong>Scholaxis</strong>
+          <p>검색, 상세 확인, 유사도 비교에 집중하는 연구 탐색 도구입니다.</p>
         </div>
       </footer>
     </div>

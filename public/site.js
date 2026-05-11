@@ -24,6 +24,64 @@ import {
   saveSearchRequest,
 } from './api.js';
 
+const THEME_STORAGE_KEY = 'scholaxis-theme';
+const THEME_VALUES = new Set(['dark', 'light']);
+
+function getSystemTheme() {
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function getStoredTheme() {
+  try {
+    const value = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return THEME_VALUES.has(value) ? value : '';
+  } catch {
+    return '';
+  }
+}
+
+function setStoredTheme(theme) {
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // Ignore storage failures; theme can still apply for the current page.
+  }
+}
+
+function applyTheme(theme, { persist = false } = {}) {
+  const resolvedTheme = THEME_VALUES.has(theme) ? theme : getSystemTheme();
+  document.documentElement.dataset.theme = resolvedTheme;
+  if (document.body) document.body.dataset.theme = resolvedTheme;
+  if (persist) setStoredTheme(resolvedTheme);
+
+  const isLight = resolvedTheme === 'light';
+  qsa('[data-theme-toggle]').forEach((button) => {
+    button.setAttribute('aria-label', isLight ? '다크 모드로 전환' : '라이트 모드로 전환');
+    button.setAttribute('aria-pressed', String(isLight));
+  });
+  qsa('[data-theme-toggle-label]').forEach((node) => {
+    node.textContent = isLight ? '라이트' : '다크';
+  });
+  qsa('[data-theme-toggle-icon]').forEach((node) => {
+    node.textContent = isLight ? '☼' : '☾';
+  });
+}
+
+function initThemeToggle() {
+  applyTheme(getStoredTheme() || document.documentElement.dataset.theme || getSystemTheme());
+
+  qsa('[data-theme-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+      applyTheme(current === 'light' ? 'dark' : 'light', { persist: true });
+    });
+  });
+
+  window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change', () => {
+    if (!getStoredTheme()) applyTheme(getSystemTheme());
+  });
+}
+
 function qs(selector, parent = document) {
   return parent.querySelector(selector);
 }
@@ -498,39 +556,28 @@ function createPaperCard(paper) {
   const detailHref = `./detail.html?id=${encodeURIComponent(paper.id)}`;
   const similarityHref = `./similarity.html?paperId=${encodeURIComponent(paper.id)}`;
   const sourceHref = paper.originalUrl || paper.sourceUrl || '#';
+  const typeLabel = paper.sourceType || paper.badge || '문헌';
+  const meta = [paper.source, paper.year, paper.region].filter(Boolean).join(' · ');
   const countryBadge = paper.countryBadge
     ? `<span class="pill pill--country" title="출처/색인 기준: ${escapeHtml(paper.sourceCountry?.label || paper.sourceCountry?.code || '')}">${escapeHtml(paper.countryBadge)}</span>`
     : '';
   const languageBadge = paper.languageLabel
-    ? `<span>${escapeHtml(paper.languageLabel)}</span>`
+    ? `<span class="pill pill--muted">${escapeHtml(paper.languageLabel)}</span>`
     : '';
+  const tags = (paper.tags ?? []).slice(0, 4);
   article.innerHTML = `
     <div class="result-card__meta">
-      <span class="pill pill--muted">${escapeHtml(paper.badge)}</span>
+      <span class="pill">${escapeHtml(typeLabel)}</span>
       ${countryBadge}
-      <span>${escapeHtml(paper.source)}</span>
-      <span>${escapeHtml(paper.sourceType ?? '')}</span>
-      <span>${escapeHtml(paper.year)}</span>
-      <span>${escapeHtml(paper.region)}</span>
       ${languageBadge}
     </div>
-    <h3><a href="${detailHref}">${paper.title}</a></h3>
-    <p class="result-card__subtitle">${paper.subtitle ?? ''}</p>
-    <p>${paper.summary}</p>
-    <div class="result-card__footer">
-      <div>
-        <strong>저자</strong>
-        <span>${formatAuthors(paper.authors)}</span>
-      </div>
-      <div>
-        <strong>핵심 인사이트</strong>
-        <span>${paper.insight}</span>
-      </div>
-    </div>
-    <div class="tag-row">${(paper.tags ?? []).map((tag) => `<span class="tag">${tag}</span>`).join('')}</div>
-    <div class="action-row" style="margin-top: 0.75rem">
-      <a class="button button--ghost" href="${detailHref}">상세 보기</a>
-      <a class="button button--ghost" href="${similarityHref}">유사도 분석</a>
+    <h3><a href="${detailHref}">${escapeHtml(paper.title || '제목 없음')}</a></h3>
+    <p class="result-card__subtitle">${escapeHtml([formatAuthors(paper.authors || []), meta].filter(Boolean).join(' · '))}</p>
+    <p class="result-card__summary">${escapeHtml(paper.summary || paper.subtitle || '요약 정보가 아직 없습니다.')}</p>
+    ${tags.length ? `<div class="tag-row">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
+    <div class="action-row">
+      <a class="button button--primary" href="${detailHref}">상세 보기</a>
+      <a class="button button--ghost" href="${similarityHref}">유사도</a>
       ${sourceHref !== '#' ? `<a class="button button--ghost" href="${sourceHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
     </div>
   `;
@@ -657,6 +704,8 @@ async function initResultsPage() {
   if (regionSelect) regionSelect.value = params.get('region') || 'all';
   const typeSelect = qs('select[name="sourceType"]', form);
   if (typeSelect) typeSelect.value = params.get('sourceType') || 'all';
+  const sortSelect = qs('select[name="sort"]', form);
+  if (sortSelect) sortSelect.value = params.get('sort') || 'relevance';
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -1845,6 +1894,7 @@ async function initAuthPage() {
 }
 
 const page = document.body.dataset.page;
+initThemeToggle();
 if (page === 'home') initHomePage();
 if (page === 'results') initResultsPage();
 if (page === 'detail') initDetailPage();

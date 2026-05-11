@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      (() => {
+        let stored = '';
+        try { stored = localStorage.getItem('scholaxis-theme') || ''; } catch {}
+        const system = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = stored === 'light' || stored === 'dark' ? stored : system;
+      })();
+    </script>
     <title>Scholaxis · Library</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,20 +29,23 @@
             </span>
             <span class="brand__copy">
               <strong>Scholaxis</strong>
-              <small>Research discovery engine</small>
+              <small>Research discovery</small>
             </span>
           </a>
-          <nav>
+          <nav aria-label="주요 탐색">
             <a href="./index.html">탐색</a>
-            <a href="./results.html">검색 결과</a>
-            <a href="./detail.html">상세 분석</a>
-            <a href="./similarity.html">유사도 리포트</a>
-            <a class="is-active" href="./library.html">내 라이브러리</a>
-            <a href="./admin.html">관리</a>
+            <a class="is-active" href="./library.html">라이브러리</a>
+            <a href="./auth.html">계정</a>
           </nav>
+          <div class="topbar__actions">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="테마 전환">
+              <span class="theme-toggle__icon" data-theme-toggle-icon aria-hidden="true">☾</span>
+              <span data-theme-toggle-label>다크</span>
+            </button>
+          </div>
         </div>
       </header>
-      <main class="page library-shell">
+      <main class="page library-shell page-minimal">
         <article class="result-hero">
           <span class="section-eyebrow">Library</span>
           <h1>내 라이브러리</h1>
@@ -157,19 +169,9 @@
         </section>
       </main>
       <footer class="footer">
-        <div class="footer__inner footer-grid">
-          <div>
-            <strong>저장 자료</strong>
-            <p>저장한 문헌을 다시 확인할 수 있습니다.</p>
-          </div>
-          <div>
-            <strong>저장 검색</strong>
-            <p>자주 쓰는 검색어를 빠르게 다시 실행할 수 있습니다.</p>
-          </div>
-          <div>
-            <strong>추천</strong>
-            <p>관심사에 맞는 자료를 추천받을 수 있습니다.</p>
-          </div>
+        <div class="footer__inner footer-minimal">
+          <strong>Scholaxis</strong>
+          <p>검색, 상세 확인, 유사도 비교에 집중하는 연구 탐색 도구입니다.</p>
         </div>
       </footer>
     </div>

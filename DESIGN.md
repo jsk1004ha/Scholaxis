@@ -365,3 +365,16 @@ The color system is almost entirely achromatic — dark backgrounds with white/g
 5. Brand indigo (`#5e6ad2` / `#7170ff`) is the only chromatic color — everything else is grayscale
 6. Borders are always semi-transparent white, never solid dark colors on dark backgrounds
 7. Berkeley Mono for any code or technical content, Inter Variable for everything else
+
+---
+
+## 10. Minimal Dual-Theme Refresh
+
+Scholaxis now supports both dark and light UI modes. The dark theme remains the native visual baseline, while light mode uses the same spacing, hierarchy, and restrained indigo accent on a quiet off-white canvas.
+
+Implementation rules:
+- Theme state is controlled by CSS variables on `:root[data-theme]` and a small `localStorage`-backed toggle.
+- Default theme follows the OS color scheme until the user chooses a theme.
+- Primary navigation stays minimal: search/explore first, then library and account. Result, detail, and similarity screens are contextual continuations of exploration rather than top-level destinations.
+- Home prioritizes a single search field. Filters, source detail, graph/citation diagnostics, and similarity sub-analysis should live behind explicit disclosure controls.
+- Motion should be stateful and calm: fade/translate page entry, subtle hover lifts, and smooth progress width changes. Avoid decorative perpetual motion unless it communicates loading.

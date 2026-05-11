@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      (() => {
+        let stored = '';
+        try { stored = localStorage.getItem('scholaxis-theme') || ''; } catch {}
+        const system = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = stored === 'light' || stored === 'dark' ? stored : system;
+      })();
+    </script>
     <title>Scholaxis · 계정</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,21 +29,24 @@
             </span>
             <span class="brand__copy">
               <strong>Scholaxis</strong>
-              <small>Research discovery engine</small>
+              <small>Research discovery</small>
             </span>
           </a>
-          <nav>
+          <nav aria-label="주요 탐색">
             <a href="./index.html">탐색</a>
-            <a href="./results.html">검색 결과</a>
-            <a href="./detail.html">상세 분석</a>
-            <a href="./similarity.html">유사도 리포트</a>
+            <a href="./library.html">라이브러리</a>
             <a class="is-active" href="./auth.html">계정</a>
-            <a href="./library.html">내 라이브러리</a>
           </nav>
+          <div class="topbar__actions">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="테마 전환">
+              <span class="theme-toggle__icon" data-theme-toggle-icon aria-hidden="true">☾</span>
+              <span data-theme-toggle-label>다크</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      <main class="page auth-page">
+      <main class="page auth-page page-minimal">
         <section class="auth-layout">
           <article class="hero__panel auth-panel auth-panel--intro">
             <span class="hero__eyebrow">Account</span>
@@ -84,19 +96,9 @@
       </main>
 
       <footer class="footer">
-        <div class="footer__inner footer-grid">
-          <div>
-            <strong>보안</strong>
-            <p>로그인 정보는 안전한 세션으로 유지됩니다.</p>
-          </div>
-          <div>
-            <strong>라이브러리</strong>
-            <p>로그인 후 저장 문헌과 검색 기록을 확인할 수 있습니다.</p>
-          </div>
-          <div>
-            <strong>관리자</strong>
-            <p>운영 화면은 권한이 있는 계정에서만 열립니다.</p>
-          </div>
+        <div class="footer__inner footer-minimal">
+          <strong>Scholaxis</strong>
+          <p>검색, 상세 확인, 유사도 비교에 집중하는 연구 탐색 도구입니다.</p>
         </div>
       </footer>
     </div>
