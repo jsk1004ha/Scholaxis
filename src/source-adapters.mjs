@@ -25,6 +25,8 @@ import { clearSourceCache, getCachedSourceResult, getSourceCacheDiagnostics, set
 
 const BROWSERISH_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
 const experimentalLiveSourceSet = new Set((appConfig.experimentalLiveSources || []).map((item) => String(item || '').trim()).filter(Boolean));
+const HANWHA_SCIENCE_CHALLENGE_SOURCE = 'hanwha_science_challenge';
+const HANWHA_SCIENCE_CHALLENGE_LABEL = '한화 사이언스 챌린지';
 
 
 function fetchTextWithPythonDecoding(url, { timeoutMs = 12000, userAgent = BROWSERISH_USER_AGENT } = {}) {
@@ -81,6 +83,8 @@ function sourceDetailUrl(source, query = '') {
       return appConfig.scienceFairUrl;
     case 'student_invention_fair':
       return appConfig.studentInventionFairUrl;
+    case 'hanwha_science_challenge':
+      return appConfig.hanwhaScienceChallengeUrl;
     case 'kipris':
       return appConfig.kiprisPlusSearchUrl || appConfig.kiprisPublicSearchUrl;
     case 'kci':
@@ -173,6 +177,16 @@ const FAIR_QUERY_STOPWORDS = new Set([
   '발명품',
   '학생발명품경진대회',
   '전국학생과학발명품경진대회',
+  '한화',
+  '한화사이언스챌린지',
+  '사이언스',
+  '챌린지',
+  'hanwha',
+  'science',
+  'challenge',
+  'sciencechallenge',
+  'saving',
+  'earth',
   '경진대회',
   '대회'
 ]);
@@ -317,6 +331,118 @@ async function enrichScienceGoDocument(document = {}) {
   } catch {
     return document;
   }
+}
+
+function extractHanwhaScienceChallengeActiveYear(html = '') {
+  const active = String(html || '').match(
+    /<li[^>]+class="[^"]*year_select_node[^"]*is_active[^"]*"[\s\S]*?<a[^>]*>\s*((?:19|20)\d{2})\s*<\/a>/i
+  );
+  return safeYear(active?.[1]);
+}
+
+export function extractHanwhaScienceChallengeYearLinks(html = '', baseUrl = appConfig.hanwhaScienceChallengeUrl) {
+  const links = [];
+  const seen = new Set();
+  const regex = /<li[^>]+class="[^"]*year_select_node[^"]*"[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>\s*((?:19|20)\d{2})\s*<\/a>[\s\S]*?<\/li>/gi;
+
+  for (const match of String(html || '').matchAll(regex)) {
+    const href = match[1];
+    const year = safeYear(match[2]);
+    const url = absoluteUrl(baseUrl, href);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    links.push({
+      year,
+      url,
+      active: /is_active/i.test(match[0])
+    });
+  }
+
+  return links;
+}
+
+function buildHanwhaScienceChallengeDownloadUrl(pageUrl = appConfig.hanwhaScienceChallengeUrl, fileCode = '') {
+  if (!fileCode) return '';
+  return absoluteUrl(pageUrl, `/common/file/download.hsc?fileCode=${encodeURIComponent(fileCode)}`);
+}
+
+function stableRecordKey(value = '', fallback = 'record') {
+  const normalized = normalizeText(value)
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized ? normalized.slice(0, 96) : fallback;
+}
+
+export function extractHanwhaScienceChallengeDocumentsFromHtml(html = '', query = '', limit = 20, options = {}) {
+  const pageUrl = options.pageUrl || options.baseUrl || appConfig.hanwhaScienceChallengeUrl;
+  const year = options.year || extractHanwhaScienceChallengeActiveYear(html);
+  const tableBody =
+    String(html || '').match(/<table[^>]+class="[^"]*tbl_board01[^"]*pager_board[^"]*"[\s\S]*?<tbody>([\s\S]*?)<\/tbody>[\s\S]*?<\/table>/i)?.[1] ||
+    '';
+  const rows = [...tableBody.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)];
+  const documents = [];
+
+  for (const row of rows) {
+    const block = row[0];
+    const tds = [...block.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((entry) => stripTags(entry[1]));
+    if (tds.length < 6) continue;
+
+    const award = tds[0] || '';
+    const teamName = tds[1] || '';
+    const participants = tds[2] || '';
+    const title = tds[3] || '';
+    const advisor = tds[4] || '';
+    if (!title || !teamName) continue;
+
+    const fileCode = block.match(/fileDownload\('([^']+)'\)/i)?.[1] || '';
+    const searchableText = [year, title, teamName, participants, advisor, award, HANWHA_SCIENCE_CHALLENGE_LABEL]
+      .filter(Boolean)
+      .join(' ');
+    if (query && !matchesScienceGoCandidateText(searchableText, query)) continue;
+
+    const recordKey = fileCode || stableRecordKey(`${year || 'unknown'} ${teamName} ${title}`, `row-${documents.length + 1}`);
+    const pdfUrl = buildHanwhaScienceChallengeDownloadUrl(pageUrl, fileCode);
+
+    documents.push(
+      buildDocument({
+        id: `${HANWHA_SCIENCE_CHALLENGE_SOURCE}:${recordKey}`,
+        source: HANWHA_SCIENCE_CHALLENGE_SOURCE,
+        sourceLabel: HANWHA_SCIENCE_CHALLENGE_LABEL,
+        type: 'fair_entry',
+        title,
+        englishTitle: title,
+        authors: normalizeAuthors(participants),
+        organization: HANWHA_SCIENCE_CHALLENGE_LABEL,
+        year,
+        abstract: '',
+        summary: `${year ? `${year}년 ` : ''}${award || '수상'} 수상작(${teamName})입니다.`,
+        keywords: normalizeKeywordBag(`${year || ''} ${title} ${teamName} ${award} ${HANWHA_SCIENCE_CHALLENGE_LABEL}`).slice(0, 8),
+        highlights: [award, teamName, advisor ? `지도교사 ${advisor}` : '', year ? `${year}년` : ''].filter(Boolean),
+        links: {
+          detail: pdfUrl || pageUrl,
+          original: pageUrl,
+          ...(pdfUrl ? { pdf: pdfUrl } : {})
+        },
+        sourceIds: {
+          [HANWHA_SCIENCE_CHALLENGE_SOURCE]: recordKey,
+          ...(fileCode ? { fileCode } : {})
+        },
+        rawRecord: {
+          year,
+          award,
+          teamName,
+          participants,
+          advisor,
+          fileCode,
+          pageUrl
+        }
+      })
+    );
+
+    if (documents.length >= limit) break;
+  }
+
+  return documents;
 }
 
 export function extractPreprintDocumentsFromHtml(source, html = '', query = '', limit = 10, searchUrl = '') {
@@ -1193,6 +1319,43 @@ async function searchScienceGo(source, query, limit) {
   return matched.map((document) => enrichedMap.get(document.id) || document).slice(0, limit);
 }
 
+async function searchHanwhaScienceChallenge(query, limit) {
+  const baseUrl = appConfig.hanwhaScienceChallengeUrl;
+  const firstHtml = await fetchText(baseUrl, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+  const yearLinks = extractHanwhaScienceChallengeYearLinks(firstHtml, baseUrl);
+  const firstYear = extractHanwhaScienceChallengeActiveYear(firstHtml) || yearLinks.find((link) => link.active)?.year || yearLinks[0]?.year || null;
+  const pages = [{ url: baseUrl, year: firstYear, html: firstHtml }];
+  const seenPages = new Set([baseUrl]);
+
+  for (const link of yearLinks) {
+    if (!link.url || seenPages.has(link.url)) continue;
+    seenPages.add(link.url);
+    pages.push({ url: link.url, year: link.year });
+  }
+
+  const maxPages = query ? pages.length : 1;
+  const matched = [];
+  const seenDocuments = new Set();
+
+  for (const page of pages.slice(0, maxPages)) {
+    const html = page.html || await fetchText(page.url, { timeoutMs: 9000, userAgent: BROWSERISH_USER_AGENT });
+    const docs = extractHanwhaScienceChallengeDocumentsFromHtml(html, query, Math.max(limit * 2, 12), {
+      pageUrl: page.url,
+      year: page.year,
+    });
+
+    for (const doc of docs) {
+      if (seenDocuments.has(doc.id)) continue;
+      seenDocuments.add(doc.id);
+      matched.push(doc);
+      if (matched.length >= limit) break;
+    }
+    if (matched.length >= limit) break;
+  }
+
+  return matched.slice(0, limit);
+}
+
 export function extractRneReportDocumentsFromHtml(html, query = '') {
   const documents = [];
   const seen = new Set();
@@ -1539,6 +1702,12 @@ const liveSourceRegistry = {
     coverage: '전국학생과학발명품경진대회',
     note: '공식 목록 페이지 파싱',
     search: (query, limit) => searchScienceGo('student_invention_fair', query, limit)
+  },
+  hanwha_science_challenge: {
+    type: 'crawl',
+    coverage: '한화 사이언스 챌린지 연도별 수상작',
+    note: '공식 연도별 수상작 페이지 파싱',
+    search: searchHanwhaScienceChallenge
   },
   rne_report: {
     type: 'crawl',

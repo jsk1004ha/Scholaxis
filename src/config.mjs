@@ -116,6 +116,7 @@ export const appConfig = {
   scienceOnSearchUrl: process.env.SCIENCEON_SEARCH_URL || 'https://scienceon.kisti.re.kr/srch/selectPORSrchArticleList.do',
   scienceFairUrl: process.env.SCIENCE_FAIR_URL || 'https://www.science.go.kr/mps/1079/bbs/423/moveBbsNttList.do',
   studentInventionFairUrl: process.env.STUDENT_INVENTION_FAIR_URL || 'https://www.science.go.kr/mps/1075/bbs/424/moveBbsNttList.do',
+  hanwhaScienceChallengeUrl: process.env.HANWHA_SCIENCE_CHALLENGE_URL || 'https://www.sciencechallenge.or.kr/result/paper.hsc?searchMasterCode=250820110428268R4Y73',
   rneReportUrl: process.env.RNE_REPORT_URL || 'http://www.rne.or.kr/gnuboard5/bbs/board.php?bo_table=rs_report',
   rerankerProvider: process.env.SCHOLAXIS_RERANKER_PROVIDER || 'auto',
   rerankerHost: process.env.SCHOLAXIS_RERANKER_HOST || '127.0.0.1',
@@ -155,6 +156,7 @@ export const appConfig = {
     'defcon',
     'science_fair',
     'student_invention_fair',
+    'hanwha_science_challenge',
     'rne_report'
   ]
 };

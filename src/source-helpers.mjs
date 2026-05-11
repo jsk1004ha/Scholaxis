@@ -93,7 +93,7 @@ export function normalizeAuthors(input) {
 }
 
 export function estimateRegion(source) {
-  return ['kci', 'riss', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'rne_report', 'science_fair', 'student_invention_fair'].includes(source)
+  return ['kci', 'riss', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'rne_report', 'science_fair', 'student_invention_fair', 'hanwha_science_challenge'].includes(source)
     ? 'domestic'
     : 'global';
 }
@@ -110,6 +110,7 @@ const SOURCE_COUNTRY_BY_SOURCE = {
   rne_report: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
   science_fair: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
   student_invention_fair: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
+  hanwha_science_challenge: { code: 'KR', label: '대한민국', flag: '🇰🇷' },
   arxiv: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
   semantic_scholar: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
   pubmed: { code: 'INTL', label: '해외/국제 색인', flag: '🌐' },
@@ -245,7 +246,7 @@ export function expandQueryVariants(query = '') {
 const QUERY_PROFILE_HINTS = {
   patent: ['patent', '특허', 'kipris', '실용신안'],
   report: ['report', '보고서', 'ntis', '과제', '성과', 'rne', 'r&e', '알앤이'],
-  fair: ['science fair', 'student invention', '발명', '전람회', 'rne', 'r&e', '알앤이', '과학전람회', '발명품경진대회'],
+  fair: ['science fair', 'science challenge', 'student invention', '발명', '전람회', '사이언스 챌린지', 'sciencechallenge', 'rne', 'r&e', '알앤이', '과학전람회', '발명품경진대회'],
   humanities: ['문학', '역사', '철학', '예술', '미술', '연극', 'humanities', 'archaeology'],
   education: ['교육', '학습', '수학 불안', '국어 교육', 'pedagogy', 'education'],
   biomedical: ['bio', 'biorxiv', 'medrxiv', 'pubmed', '의료', '의학', '생명과학', '유전자', '면역', '임플란트', 'medical', 'genetic', 'immun', 'clinical'],
@@ -281,6 +282,17 @@ function hasExplicitStudentInventionHint(raw = '', normalized = '') {
   );
 }
 
+function hasExplicitScienceChallengeHint(raw = '', normalized = '') {
+  const compactNormalized = String(normalized || '').replace(/\s+/g, '');
+  return (
+    /science\s*challenge/i.test(raw) ||
+    /hanwha/i.test(raw) ||
+    compactNormalized.includes('사이언스챌린지') ||
+    compactNormalized.includes('한화사이언스챌린지') ||
+    compactNormalized.includes('sciencechallenge')
+  );
+}
+
 export function classifyQueryProfile(query = '') {
   const raw = String(query || '').trim();
   const normalized = normalizeText(raw);
@@ -290,6 +302,7 @@ export function classifyQueryProfile(query = '') {
   const rneLikeQuery = isRneLikeQuery(raw, normalized);
   const explicitScienceFairHint = hasExplicitScienceFairHint(raw, normalized);
   const explicitStudentInventionHint = hasExplicitStudentInventionHint(raw, normalized);
+  const explicitScienceChallengeHint = hasExplicitScienceChallengeHint(raw, normalized);
 
   const types = [];
   if (has('patent')) types.push('patent');
@@ -312,9 +325,10 @@ export function classifyQueryProfile(query = '') {
   if (types.includes('fair_entry')) {
     if (explicitScienceFairHint) sourceHints.push('science_fair');
     if (explicitStudentInventionHint) sourceHints.push('student_invention_fair');
+    if (explicitScienceChallengeHint) sourceHints.push('hanwha_science_challenge');
     if (rneLikeQuery) sourceHints.push('rne_report');
-    if (!explicitScienceFairHint && !explicitStudentInventionHint && !rneLikeQuery) {
-      sourceHints.push('science_fair', 'student_invention_fair', 'rne_report');
+    if (!explicitScienceFairHint && !explicitStudentInventionHint && !explicitScienceChallengeHint && !rneLikeQuery) {
+      sourceHints.push('science_fair', 'student_invention_fair', 'hanwha_science_challenge', 'rne_report');
     }
   }
   if (domains.includes('humanities') || domains.includes('education')) sourceHints.push('riss', 'kci', 'dbpia', 'kiss', 'nanet');

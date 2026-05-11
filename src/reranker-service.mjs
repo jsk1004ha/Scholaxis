@@ -2,6 +2,7 @@ import { appConfig } from './config.mjs';
 
 let recentOllamaFailureAt = 0;
 import { ensureLocalModelBackend, getLocalModelDiagnostics } from './local-model-runtime.mjs';
+import { expandSemanticLexiconTerms } from './semantic-lexicon.mjs';
 import { normalizeText, tokenize, unique } from './vector-service.mjs';
 
 function localRerankerEnabled() {
@@ -29,27 +30,69 @@ function bigramCoverage(query = '', text = '') {
   return grams.filter((gram) => normalized.includes(gram)).length / grams.length;
 }
 
+function buildCoverageTerms(query = '', crossLingual = null) {
+  const queryVariants = unique([
+    query,
+    crossLingual?.translatedQuery || '',
+    ...(crossLingual?.translatedVariants || []),
+    ...(crossLingual?.variants || []),
+  ].filter(Boolean));
+  const tokens = unique(queryVariants.flatMap((variant) => tokenize(variant)));
+  const semantic = expandSemanticLexiconTerms([
+    ...queryVariants.map((variant) => normalizeText(variant)),
+    ...tokens,
+  ]);
+  const phrases = [];
+  for (const variant of queryVariants) {
+    const variantTokens = tokenize(variant);
+    for (let index = 0; index < variantTokens.length - 1; index += 1) {
+      phrases.push(`${variantTokens[index]} ${variantTokens[index + 1]}`);
+    }
+    for (let index = 0; index < variantTokens.length - 2; index += 1) {
+      phrases.push(`${variantTokens[index]} ${variantTokens[index + 1]} ${variantTokens[index + 2]}`);
+    }
+  }
+  return {
+    queryVariants,
+    tokens,
+    semantic: unique([...semantic, ...phrases]).filter((term) => normalizeText(term).length >= 2),
+  };
+}
+
+function maxCoverage(terms = [], text = '') {
+  if (!terms.length) return 0;
+  const normalizedTerms = unique(terms.map((term) => normalizeText(term)).filter(Boolean));
+  return tokenCoverage(normalizedTerms, text);
+}
+
 function buildRerankScore(entry, query = '', crossLingual = null) {
   const titleText = [entry.item.title, entry.item.englishTitle].filter(Boolean).join(' ');
-  const summaryText = [entry.item.abstract, entry.item.summary, ...(entry.item.keywords || []), ...(entry.item.methods || [])]
+  const keywordText = [...(entry.item.keywords || []), ...(entry.item.methods || []), ...(entry.item.highlights || [])]
+    .filter(Boolean)
+    .join(' ');
+  const summaryText = [entry.item.abstract, entry.item.summary, keywordText]
     .filter(Boolean)
     .join(' ');
   const title = normalizeText(titleText);
-  const summary = normalizeText(summaryText);
+  const allText = `${titleText} ${summaryText}`;
+  const coverageTerms = buildCoverageTerms(query, crossLingual);
   const baseTokens = unique(tokenize(query));
-  const translatedTokens = unique(tokenize(crossLingual?.translatedQuery || ''));
   const normalizedQuery = normalizeText(query);
   const exactTitle = normalizedQuery ? title.includes(normalizedQuery) : false;
+  const translatedExactTitle = coverageTerms.queryVariants
+    .map((variant) => normalizeText(variant))
+    .filter(Boolean)
+    .some((variant) => title.includes(variant));
   const titleCoverage = tokenCoverage(baseTokens, titleText);
   const summaryCoverage = tokenCoverage(baseTokens, summaryText);
   const titleBigramCoverage = bigramCoverage(query, titleText);
   const summaryBigramCoverage = bigramCoverage(query, summaryText);
-  const translatedCoverage = translatedTokens.length
-    ? tokenCoverage(translatedTokens, `${titleText} ${summaryText}`)
-    : 0;
+  const translatedCoverage = maxCoverage(coverageTerms.semantic, allText);
+  const semanticTitleCoverage = maxCoverage(coverageTerms.semantic, titleText);
   const keywordCoverage = (entry.item.keywords || []).length
     ? tokenCoverage(baseTokens, (entry.item.keywords || []).join(' '))
     : 0;
+  const semanticKeywordCoverage = maxCoverage(coverageTerms.semantic, keywordText);
   const denseScore = Number(entry.scoreBundle?.denseScore || 0);
   const sparseScore = Number(entry.scoreBundle?.sparseScore || 0);
   const lexicalScore = Math.min(1, Number(entry.scoreBundle?.lexicalScore || 0) / 24);
@@ -58,12 +101,15 @@ function buildRerankScore(entry, query = '', crossLingual = null) {
   return {
     rerankScore:
       (exactTitle ? 0.28 : 0) +
+      (translatedExactTitle && !exactTitle ? 0.18 : 0) +
       titleCoverage * 0.2 +
       summaryCoverage * 0.14 +
       titleBigramCoverage * 0.12 +
       summaryBigramCoverage * 0.08 +
-      translatedCoverage * 0.12 +
+      translatedCoverage * 0.14 +
+      semanticTitleCoverage * 0.16 +
       keywordCoverage * 0.08 +
+      semanticKeywordCoverage * 0.08 +
       denseScore * 0.16 +
       sparseScore * 0.1 +
       lexicalScore * 0.06 +
@@ -71,11 +117,14 @@ function buildRerankScore(entry, query = '', crossLingual = null) {
       freshnessBoost,
     rerankReason: [
       exactTitle ? '제목 직접 일치' : null,
+      translatedExactTitle && !exactTitle ? '번역/동의어 제목 일치' : null,
       titleCoverage >= 0.5 ? '제목 핵심어 정합성 높음' : null,
       summaryCoverage >= 0.34 ? '초록/요약 정합성 높음' : null,
       titleBigramCoverage >= 0.5 ? '핵심 구문이 제목에 반영됨' : null,
-      translatedCoverage >= 0.34 ? '교차언어 질의와 정합' : null,
+      translatedCoverage >= 0.34 ? '교차언어/동의어 질의와 정합' : null,
+      semanticTitleCoverage >= 0.34 ? '제목의 의미 동의어 정합성 높음' : null,
       keywordCoverage >= 0.34 ? '키워드 직접 매칭' : null,
+      semanticKeywordCoverage >= 0.34 ? '키워드 동의어 매칭' : null,
       denseScore >= 0.45 ? '의미 임베딩 정합성 높음' : null,
       sparseScore >= 0.08 ? '희소 표현 정합성 높음' : null,
       citationBoost >= 0.04 ? '인용 신호 보강' : null,

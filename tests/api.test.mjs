@@ -23,6 +23,7 @@ import {
   extractBlackHatDocumentsFromHtml,
   extractCveDocumentsFromPayload,
   extractDefconDocumentsFromHtml,
+  extractHanwhaScienceChallengeDocumentsFromHtml,
   extractKciDocumentsFromHtml,
   extractKissDocumentsFromHtml,
   extractNanetDocumentsFromHtml,
@@ -37,7 +38,7 @@ import { extractPdfText } from '../src/pdf-text-extractor.mjs';
 import { extractDocxText } from '../src/docx-text-extractor.mjs';
 import { persistDocuments } from '../src/storage.mjs';
 import { buildDenseVector, cosineSimilarity } from '../src/vector-service.mjs';
-import { rankSourcesByProfile, splitSourcesForCrossLingual } from '../src/search-service.mjs';
+import { buildFallbackQueries, rankSourcesByProfile, splitSourcesForCrossLingual } from '../src/search-service.mjs';
 
 async function startTestServer() {
   const server = createServer();
@@ -93,6 +94,19 @@ async function closeServer(server) {
       resolve();
     });
   });
+}
+
+async function pollAsyncJob(baseUrl, statusUrl, { attempts = 60, intervalMs = 75 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const jobResponse = await fetch(`${baseUrl}${statusUrl}`);
+    const jobPayload = await jobResponse.json();
+    assert.equal(jobResponse.status, 200);
+    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
+      return jobPayload.job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return null;
 }
 
 
@@ -191,7 +205,8 @@ function runIsolatedSearchQueries(queries = []) {
           canonicalId: item.canonicalId,
           sourceKey: item.sourceKey,
           type: item.type,
-          title: item.title
+          title: item.title,
+          matchSortScore: item.matchSortScore || 0
         }))
       });
     }
@@ -803,6 +818,196 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   await closeServer(server);
 });
 
+test('fallback query generation keeps phrase windows for unseen broad technical terms', async () => {
+  const autonomousFallbacks = buildFallbackQueries('autonomous driving lidar sensor fusion');
+  assert.ok(autonomousFallbacks.includes('autonomous driving'));
+  assert.ok(autonomousFallbacks.includes('lidar sensor'));
+  assert.ok(autonomousFallbacks.includes('sensor fusion'));
+
+  const carbonFallbacks = buildFallbackQueries('carbon capture solid electrolyte');
+  assert.ok(carbonFallbacks.includes('carbon capture'));
+  assert.ok(carbonFallbacks.includes('solid electrolyte'));
+
+  const batteryFallbacks = buildFallbackQueries('solid state battery dendrite suppression');
+  assert.ok(batteryFallbacks.includes('solid state battery'));
+  assert.ok(batteryFallbacks.includes('dendrite suppression'));
+
+  const perovskiteFallbacks = buildFallbackQueries('perovskite solar cell stability');
+  assert.ok(perovskiteFallbacks.includes('perovskite solar cell'));
+  assert.ok(perovskiteFallbacks.includes('metal halide perovskite'));
+  assert.ok(!perovskiteFallbacks.includes('battery'));
+
+  const federatedFallbacks = buildFallbackQueries('federated learning healthcare privacy');
+  assert.ok(federatedFallbacks.includes('federated learning'));
+  assert.ok(federatedFallbacks.includes('medical data') || federatedFallbacks.includes('electronic health record'));
+
+  const mrnaFallbacks = buildFallbackQueries('mRNA vaccine lipid nanoparticle stability');
+  assert.ok(mrnaFallbacks.includes('mrna vaccine'));
+  assert.ok(mrnaFallbacks.includes('lipid nanoparticle'));
+  assert.ok(mrnaFallbacks.includes('lyophilization') || mrnaFallbacks.includes('freeze drying'));
+  assert.ok(!mrnaFallbacks.includes('perovskite'));
+
+  const pfasFallbacks = buildFallbackQueries('PFAS water treatment adsorption membrane');
+  assert.ok(pfasFallbacks.includes('pfas water treatment'));
+  assert.ok(pfasFallbacks.includes('adsorptive membrane'));
+  assert.ok(!pfasFallbacks.includes('microplastic remediation'));
+
+  const ragFallbacks = buildFallbackQueries('privacy preserving RAG watermarking');
+  assert.ok(ragFallbacks.includes('privacy preserving rag'));
+  assert.ok(ragFallbacks.includes('retrieval augmented generation'));
+  assert.ok(ragFallbacks.includes('data provenance'));
+});
+
+test('search expands recall for unseen broad technical terms without losing top relevance', () => {
+  const results = runIsolatedSearchQueries([
+    'autonomous driving lidar sensor fusion',
+    'carbon capture solid electrolyte',
+    'microfluidics protein immunotherapy',
+    'water quality anomaly sensor',
+  ]);
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  const autonomous = byQuery.get('autonomous driving lidar sensor fusion');
+  assert.ok(autonomous.total >= 6);
+  assert.match(autonomous.items[0]?.title || '', /LiDAR Sensor Fusion|LiDAR Point Cloud|Radar Camera/i);
+  assert.ok(autonomous.items.slice(0, 3).every((item, index, items) => index === 0 || items[index - 1].matchSortScore >= item.matchSortScore));
+
+  const carbon = byQuery.get('carbon capture solid electrolyte');
+  assert.ok(carbon.total >= 4);
+  assert.match(carbon.items[0]?.title || '', /Carbon Capture|탄소 포집|Solid Electrolyte/i);
+  assert.ok(carbon.items.slice(0, 3).every((item, index, items) => index === 0 || items[index - 1].matchSortScore >= item.matchSortScore));
+
+  const microfluidics = byQuery.get('microfluidics protein immunotherapy');
+  assert.ok(microfluidics.total >= 3);
+  assert.match(microfluidics.items[0]?.title || '', /Microfluidic|Protein|Immunotherapy/i);
+
+  const water = byQuery.get('water quality anomaly sensor');
+  assert.ok(water.total >= 6);
+  assert.match(water.items[0]?.title || '', /Water Quality|수질|Anomaly|이상 탐지/i);
+});
+
+test('search maps observed alternate terminology for digital-twin smart-farming queries', () => {
+  const results = runIsolatedSearchQueries([
+    'digital twin smart farm optimization',
+    '디지털 트윈 스마트팜',
+    'smart greenhouse crop growth optimization',
+    'precision agriculture crop recommendation',
+  ]);
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  const englishSmartFarm = byQuery.get('digital twin smart farm optimization');
+  assert.ok(englishSmartFarm.total >= 6);
+  assert.match(englishSmartFarm.items[0]?.title || '', /Digital Twin|디지털 트윈/i);
+  assert.match(englishSmartFarm.items[0]?.title || '', /Smart|스마트|Greenhouse|온실|Agriculture|농업|Farm|팜/i);
+
+  const koreanSmartFarm = byQuery.get('디지털 트윈 스마트팜');
+  assert.ok(koreanSmartFarm.total >= 6);
+  assert.match(koreanSmartFarm.items[0]?.title || '', /디지털 트윈|Digital Twin/i);
+  assert.match(koreanSmartFarm.items[0]?.title || '', /스마트팜|Smart|Greenhouse|Agriculture|농업/i);
+
+  const greenhouse = byQuery.get('smart greenhouse crop growth optimization');
+  assert.ok(greenhouse.total >= 6);
+  assert.match(greenhouse.items[0]?.title || '', /Greenhouse|온실|Smart|스마트/i);
+
+  const precisionAgriculture = byQuery.get('precision agriculture crop recommendation');
+  assert.ok(precisionAgriculture.total >= 6);
+  assert.match(precisionAgriculture.items[0]?.title || '', /Precision Agriculture|Digital Twin|Crop Recommendation/i);
+});
+
+test('search maps externally observed terminology clusters for sparse unseen queries', () => {
+  const results = runIsolatedSearchQueries([
+    'solid state battery dendrite suppression',
+    '전고체 배터리 리튬 덴드라이트',
+    'perovskite solar cell stability',
+    'federated learning healthcare privacy',
+    'causal inference education policy',
+    'satellite flood detection deep learning',
+    'plastic recycling pyrolysis catalyst',
+    'wearable glucose sensor noninvasive',
+    '초전도체 상온 저항 제로',
+    'graph retrieval llm agent memory',
+  ]);
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+  const assertSorted = (query) => {
+    const items = byQuery.get(query).items.slice(0, 3);
+    assert.ok(items.every((item, index) => index === 0 || items[index - 1].matchSortScore >= item.matchSortScore));
+  };
+
+  const solidState = byQuery.get('solid state battery dendrite suppression');
+  assert.ok(solidState.total >= 8);
+  assert.match(solidState.items[0]?.title || '', /Dendrite|전고체|Solid-State|Lithium/i);
+  assertSorted('solid state battery dendrite suppression');
+
+  const koreanBattery = byQuery.get('전고체 배터리 리튬 덴드라이트');
+  assert.ok(koreanBattery.total >= 8);
+  assert.match(koreanBattery.items[0]?.title || '', /전고체|Dendrite|Lithium/i);
+
+  const perovskite = byQuery.get('perovskite solar cell stability');
+  assert.ok(perovskite.total >= 8);
+  assert.match(perovskite.items[0]?.title || '', /Perovskite|페로브스카이트|Passivation|Stability/i);
+  assertSorted('perovskite solar cell stability');
+
+  const federated = byQuery.get('federated learning healthcare privacy');
+  assert.ok(federated.total >= 8);
+  assert.match(federated.items[0]?.title || '', /Federated|페더레이티드|Healthcare|의료/i);
+  assertSorted('federated learning healthcare privacy');
+
+  const causal = byQuery.get('causal inference education policy');
+  assert.ok(causal.total >= 8);
+  assert.match(causal.items[0]?.title || '', /Causal|Difference|Education|교육|인과/i);
+
+  const flood = byQuery.get('satellite flood detection deep learning');
+  assert.ok(flood.total >= 8);
+  assert.match(flood.items[0]?.title || '', /Satellite|Sentinel|SAR|Flood|위성|홍수/i);
+
+  const plastic = byQuery.get('plastic recycling pyrolysis catalyst');
+  assert.ok(plastic.total >= 8);
+  assert.match(plastic.items[0]?.title || '', /Plastic|Pyrolysis|Catalyst|폐플라스틱|열분해/i);
+
+  const glucose = byQuery.get('wearable glucose sensor noninvasive');
+  assert.ok(glucose.total >= 8);
+  assert.match(glucose.items[0]?.title || '', /Glucose|혈당|Noninvasive|Wearable/i);
+
+  const superconductor = byQuery.get('초전도체 상온 저항 제로');
+  assert.ok(superconductor.total >= 8);
+  assert.match(superconductor.items[0]?.title || '', /초전도|Superconduct|Zero|제로/i);
+
+  const graphMemory = byQuery.get('graph retrieval llm agent memory');
+  assert.ok(graphMemory.total >= 8);
+  assert.match(graphMemory.items[0]?.title || '', /Graph-Based Agent Memory|LLM 에이전트|Agent Memory/i);
+  assertSorted('graph retrieval llm agent memory');
+});
+
+test('search keeps top-three relevance for acronym-heavy emerging technical queries', () => {
+  const scenarios = [
+    ['PFAS water treatment adsorption membrane', /PFAS|과불화|PFOA|PFOS/i],
+    ['direct lithium extraction brine sorbent', /Direct Lithium|직접 리튬|Lithium Extraction|염수|Brine|DLE/i],
+    ['green hydrogen ammonia cracking catalyst', /Ammonia|암모니아|NH3/i],
+    ['mRNA vaccine lipid nanoparticle stability', /mRNA|LNP|Lipid|지질 나노입자|백신/i],
+    ['CRISPR base editing off target', /CRISPR|Base Editor|Base Editing|염기교정|Prime/i],
+    ['protein language model enzyme design', /Protein Language|단백질 언어|Enzyme|효소/i],
+    ['urban heat island satellite remote sensing', /Urban Heat Island|도시 열섬|Local Climate|Land-Surface|LST/i],
+    ['soil carbon sequestration biochar', /Soil Carbon|토양|Biochar|바이오차/i],
+    ['membrane desalination fouling prediction', /Desalination|담수화|Membrane Fouling|막오염|Reverse-Osmosis|Ultrafiltration/i],
+    ['solid oxide electrolysis hydrogen', /Solid Oxide|SOEC|고체산화물|수전해|Protonic Ceramic/i],
+    ['battery recycling black mass hydrometallurgy', /Black Mass|블랙매스|Battery Recycling|배터리 재활용|Hydrometallurgical|습식제련|Relithiation/i],
+    ['semiconductor EUV photoresist stochastic defect', /EUV|Photoresist|포토레지스트|Stochastic|확률적|High-NA/i],
+    ['robot tactile sensing soft gripper', /Tactile|촉각|Soft Robotic|소프트|Gripper|그리퍼/i],
+    ['privacy preserving RAG watermarking', /RAG|Retrieval-Augmented|검색증강|Watermark|워터마킹|GraphRAG/i],
+  ];
+  const results = runIsolatedSearchQueries(scenarios.map(([query]) => query));
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  for (const [query, expectedTitle] of scenarios) {
+    const result = byQuery.get(query);
+    assert.ok(result.total >= 8, `${query} should recall at least 8 results`);
+    const topThree = result.items.slice(0, 3);
+    assert.equal(topThree.length, 3);
+    assert.ok(topThree.every((item) => expectedTitle.test(item.title)), `${query} top3 should stay in-domain`);
+    assert.ok(topThree.every((item, index) => index === 0 || topThree[index - 1].matchSortScore >= item.matchSortScore));
+  }
+});
+
 test('search endpoint treats empty live flags as disabled rather than expensive auto-live fanout', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/search?q=CD28&region=all&sourceType=all&sort=relevance&live=&autoLive=`);
@@ -1147,61 +1352,45 @@ test('search recalls English-only and Korean-only documents through semantic cro
 
 test('async similarity job API returns accepted job and polling result', async () => {
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/similarity/report?async=1`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: '비동기 배터리 AI 초안',
-      text: '배터리 열폭주 예측과 센서융합 딥러닝 기반 진단 연구 초안입니다.',
-    }),
-  });
-  const payload = await response.json();
-  assert.equal(response.status, 202);
-  assert.equal(payload.async, true);
-  assert.ok(payload.job?.id);
+  try {
+    const response = await fetch(`${baseUrl}/api/similarity/report?async=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '비동기 배터리 AI 초안',
+        text: '배터리 열폭주 예측과 센서융합 딥러닝 기반 진단 연구 초안입니다.',
+      }),
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 202);
+    assert.equal(payload.async, true);
+    assert.ok(payload.job?.id);
 
-  let finalJob = null;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const jobResponse = await fetch(`${baseUrl}${payload.statusUrl}`);
-    const jobPayload = await jobResponse.json();
-    assert.equal(jobResponse.status, 200);
-    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
-      finalJob = jobPayload.job;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const finalJob = await pollAsyncJob(baseUrl, payload.statusUrl);
+    assert.ok(finalJob);
+    assert.equal(finalJob.status, 'completed');
+    assert.ok(finalJob.result?.topMatches?.length > 0);
+  } finally {
+    await closeServer(server);
   }
-
-  assert.ok(finalJob);
-  assert.equal(finalJob.status, 'completed');
-  assert.ok(finalJob.result?.topMatches?.length > 0);
-  await closeServer(server);
 });
 
 test('async paper expand job API returns accepted job and polling result', async () => {
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/papers/${encodeURIComponent('paper:seed-paper-global-quantum')}/expand?async=1`);
-  const payload = await response.json();
-  assert.equal(response.status, 202);
-  assert.equal(payload.async, true);
-  assert.ok(payload.job?.id);
+  try {
+    const response = await fetch(`${baseUrl}/api/papers/${encodeURIComponent('paper:seed-paper-global-quantum')}/expand?async=1`);
+    const payload = await response.json();
+    assert.equal(response.status, 202);
+    assert.equal(payload.async, true);
+    assert.ok(payload.job?.id);
 
-  let finalJob = null;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const jobResponse = await fetch(`${baseUrl}${payload.statusUrl}`);
-    const jobPayload = await jobResponse.json();
-    assert.equal(jobResponse.status, 200);
-    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
-      finalJob = jobPayload.job;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const finalJob = await pollAsyncJob(baseUrl, payload.statusUrl);
+    assert.ok(finalJob);
+    assert.equal(finalJob.status, 'completed');
+    assert.match(finalJob.result?.paper?.title || '', /Quantum Neural Architectures/);
+  } finally {
+    await closeServer(server);
   }
-
-  assert.ok(finalJob);
-  assert.equal(finalJob.status, 'completed');
-  assert.match(finalJob.result?.paper?.title || '', /Quantum Neural Architectures/);
-  await closeServer(server);
 });
 
 test('async analysis job API supports cancellation', async () => {
@@ -1293,13 +1482,13 @@ test('admin ops exposes analysis queue depth, busy workers, and overload state w
     await Promise.all(
       jobs.map(async (payload) => {
         let status = '';
-        for (let attempt = 0; attempt < 30; attempt += 1) {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
           const response = await fetch(`${baseUrl}${payload.statusUrl}`);
           const jobPayload = await response.json();
           assert.equal(response.status, 200);
           status = jobPayload.job?.status || '';
           if (['completed', 'failed', 'cancelled'].includes(status)) return;
-          await new Promise((resolve) => setTimeout(resolve, 50));
+          await new Promise((resolve) => setTimeout(resolve, 75));
         }
         assert.fail(`Timed out waiting for async analysis job ${payload.job?.id} to finish; last status=${status}`);
       })
@@ -1382,6 +1571,75 @@ test('generic fair/RNE source queries surface representative seeded category res
   assert.ok(byQuery.get('전람회')?.items.some((item) => item.sourceKey === 'science_fair'));
   assert.ok(byQuery.get('RNE')?.items.some((item) => item.sourceKey === 'rne_report' && item.type === 'report'));
   assert.ok(byQuery.get('발명품')?.items.some((item) => item.sourceKey === 'student_invention_fair'));
+});
+
+
+test('fair/RNE/Hanwha topic queries prefer student research sources with sorted topical matches', () => {
+  const scenarios = [
+    {
+      query: '과학전람회 수질 이상 탐지 센서',
+      sourceKey: 'science_fair',
+      title: /수질|Water Quality|이상 탐지|Anomaly/i,
+    },
+    {
+      query: '학생과학전람회 미세플라스틱 정화',
+      sourceKey: 'science_fair',
+      title: /미세플라스틱|Microplastic|바이오차|Biochar/i,
+    },
+    {
+      query: 'RNE HPLC 데이터 기울기 용리 AI',
+      sourceKey: 'rne_report',
+      title: /HPLC|기울기 용리|Method 추천/i,
+    },
+    {
+      query: 'R&E MOF 키토산 리그닌 멤브레인',
+      sourceKey: 'rne_report',
+      title: /MOF|키토산|리그닌|멤브레인/i,
+    },
+    {
+      query: 'R&E 항균 펩타이드 천연물',
+      sourceKey: 'rne_report',
+      title: /항균|펩타이드|천연물|Antimicrobial/i,
+    },
+    {
+      query: '한화 사이언스 챌린지 재선충 유인 트랩',
+      sourceKey: 'hanwha_science_challenge',
+      title: /재선충|솔수염하늘소|유인 트랩/i,
+    },
+    {
+      query: '한화사이언스챌린지 해상 풍력 블레이드',
+      sourceKey: 'hanwha_science_challenge',
+      title: /해상 풍력|수위 저장형 ESS|바람 불연속성/i,
+    },
+    {
+      query: 'science challenge carbon capture student project',
+      sourceKey: 'hanwha_science_challenge',
+      title: /Carbon Capture|탄소 포집|학생/i,
+    },
+    {
+      query: 'Hanwha Science Challenge marine waste pollutants',
+      sourceKey: 'hanwha_science_challenge',
+      title: /해양 폐기물|해수면|오염물질|Marine Waste|Pollutants/i,
+    },
+    {
+      query: 'Hanwha Science Challenge microplastic biochar',
+      sourceKey: 'hanwha_science_challenge',
+      title: /해양 폐기물|미세플라스틱|바이오차|Microplastic|Biochar/i,
+    },
+  ];
+
+  const results = runIsolatedSearchQueries(scenarios.map((scenario) => scenario.query));
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  for (const scenario of scenarios) {
+    const result = byQuery.get(scenario.query);
+    assert.ok(result, `${scenario.query} should be evaluated`);
+    assert.ok(result.total >= 8, `${scenario.query} should recall at least 8 results`);
+    assert.equal(result.items[0]?.sourceKey, scenario.sourceKey, `${scenario.query} should rank the requested student-research source first`);
+    const topThree = result.items.slice(0, 3);
+    assert.ok(topThree.some((item) => scenario.title.test(item.title)), `${scenario.query} top3 should include a topical match`);
+    assert.ok(topThree.every((item, index) => index === 0 || topThree[index - 1].matchSortScore >= item.matchSortScore));
+  }
 });
 
 
@@ -1726,6 +1984,74 @@ test('science fair parser excludes 지도논문 rows and avoids query leakage in
   assert.match(docs[0].links.detail, /searchKrwd=%EC%A7%84%EC%9E%90/);
 });
 
+test('hanwha science challenge parser extracts award rows and pdf links', () => {
+  const pageUrl = 'https://www.sciencechallenge.or.kr/result/paper.hsc?searchMasterCode=250820110428268R4Y73';
+  const html = `
+    <li class="year_select_node swiper-slide is_active ">
+      <a href="/result/paper.hsc?searchMasterCode=250820110428268R4Y73">2025</a>
+    </li>
+    <table class="tbl_board01 pager_board">
+      <tbody>
+        <tr class="tr_award tr_grand">
+          <td class="td_category"><p>대상</p></td>
+          <td class="td_color td_pl">춤추는 소나무</td>
+          <td class="t_center">김주은, 노윤아</td>
+          <td class="td_pl">기존 솔수염하늘소(재선충) 유인 트랩의 문제점 및 한계점을 보완한 고효율 유인 트랩 제작</td>
+          <td class="t_center">장영규</td>
+          <td class="t_center btn_area">
+            <a href="javascript:fileDownload('250820160504484MDLPL')" class="btn_download">PDF</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+  const docs = extractHanwhaScienceChallengeDocumentsFromHtml(html, '재선충', 10, { pageUrl });
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'hanwha_science_challenge');
+  assert.equal(docs[0].year, 2025);
+  assert.deepEqual(docs[0].authors, ['김주은', '노윤아']);
+  assert.match(docs[0].title, /솔수염하늘소/);
+  assert.match(docs[0].links.pdf, /common\/file\/download\.hsc\?fileCode=250820160504484MDLPL/);
+  assert.equal(docs[0].links.original, pageUrl);
+});
+
+
+test('hanwha science challenge parser filters source-label-only matches from topical queries', () => {
+  const pageUrl = 'https://www.sciencechallenge.or.kr/result/paper.hsc?searchMasterCode=250820110428268R4Y73';
+  const html = `
+    <li class="year_select_node swiper-slide is_active ">
+      <a href="/result/paper.hsc?searchMasterCode=250820110428268R4Y73">2025</a>
+    </li>
+    <table class="tbl_board01 pager_board">
+      <tbody>
+        <tr class="tr_award tr_grand">
+          <td class="td_category"><p>대상</p></td>
+          <td class="td_color td_pl">춤추는 소나무</td>
+          <td class="t_center">김주은, 노윤아</td>
+          <td class="td_pl">기존 솔수염하늘소(재선충) 유인 트랩의 문제점 및 한계점을 보완한 고효율 유인 트랩 제작</td>
+          <td class="t_center">장영규</td>
+          <td class="t_center btn_area">
+            <a href="javascript:fileDownload('250820160504484MDLPL')" class="btn_download">PDF</a>
+          </td>
+        </tr>
+        <tr class="tr_award tr_gold">
+          <td class="td_category"><p>금상</p></td>
+          <td class="td_color td_pl">슈퍼마리오 브라더스</td>
+          <td class="t_center">김정우, 정서헌</td>
+          <td class="td_pl">바람 불연속성 극복을 위한 수위 저장형 ESS 기반 해상 풍력 발전시스템</td>
+          <td class="t_center">도현진</td>
+          <td class="t_center btn_area">
+            <a href="javascript:fileDownload('250820160504484WIND')" class="btn_download">PDF</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+  const docs = extractHanwhaScienceChallengeDocumentsFromHtml(html, '한화 사이언스 챌린지 재선충 유인 트랩', 10, { pageUrl });
+  assert.equal(docs.length, 1);
+  assert.match(docs[0].title, /재선충|솔수염하늘소/);
+});
+
 
 
 test('dbpia public fallback returns structured results without api key', async () => {
@@ -1923,10 +2249,17 @@ test('frontend result normalization adapts backend search items to UI shape', ()
     highlights: ['국내 데이터셋'],
     citations: 10,
     score: 82.1,
+    matchSortScore: 123.4,
+    titleCoverage: 0.5,
+    keywordCoverage: 1,
+    orderedPhraseCoverage: 0.25,
+    rerankScore: 0.7,
   });
   assert.equal(paper.sourceType, '논문');
   assert.equal(paper.region, '국내');
   assert.equal(paper.badge, 'KCI');
+  assert.equal(paper.matchSortScore, 123.4);
+  assert.equal(paper.relevanceEvidence.keywordCoverage, 1);
   assert.ok(Array.isArray(paper.tags));
 });
 
@@ -2180,6 +2513,9 @@ test('query profile classifier surfaces source hints without term-translation ha
 
   const inventionFair = classifyQueryProfile('student invention portable voltage supply');
   assert.ok(inventionFair.sourceHints.includes('student_invention_fair'));
+
+  const scienceChallenge = classifyQueryProfile('한화 사이언스 챌린지 해상 풍력');
+  assert.ok(scienceChallenge.sourceHints.includes('hanwha_science_challenge'));
 });
 
 test('source registry summary includes newly added databases', () => {
@@ -2188,6 +2524,8 @@ test('source registry summary includes newly added databases', () => {
   for (const source of ['biorxiv', 'medrxiv', 'pubmed', 'kiss', 'nanet', 'cve', 'blackhat', 'defcon']) {
     assert.ok(sources.has(source));
   }
+  assert.ok(sources.has('hanwha_science_challenge'));
+  assert.match(summary.find((item) => item.source === 'hanwha_science_challenge')?.detailUrl || '', /sciencechallenge\.or\.kr/);
   assert.equal(summary.find((item) => item.source === 'pubmed')?.experimental, false);
   assert.equal(summary.find((item) => item.source === 'pubmed')?.autoRoutedByDefault, true);
 });
@@ -2196,6 +2534,7 @@ test('config includes new sources in default preferred source routing', () => {
   for (const source of ['biorxiv', 'medrxiv', 'pubmed', 'kiss', 'nanet', 'cve', 'blackhat', 'defcon']) {
     assert.equal(appConfig.preferredSources.includes(source), true);
   }
+  assert.equal(appConfig.preferredSources.includes('hanwha_science_challenge'), true);
   assert.equal(appConfig.experimentalLiveSources.length, 0);
 });
 
