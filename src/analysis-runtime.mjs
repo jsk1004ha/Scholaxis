@@ -10,14 +10,43 @@ const workerPath = path.join(__dirname, 'analysis-worker.mjs');
 const requestedPoolSize = Number(process.env.SCHOLAXIS_ANALYSIS_WORKERS || 0);
 const defaultPoolSize = Math.max(2, Math.min(4, (availableParallelism?.() || 2) - 1 || 1));
 const maxWorkers = Math.max(1, requestedPoolSize || defaultPoolSize);
+const requestedQueueSize = Number(process.env.SCHOLAXIS_ANALYSIS_MAX_QUEUED_TASKS || 0);
+const maxQueuedTasks = Math.max(maxWorkers, requestedQueueSize || maxWorkers * 4);
 const idleShutdownMs = Number(process.env.SCHOLAXIS_ANALYSIS_IDLE_SHUTDOWN_MS || 750);
 const asyncJobTtlMs = Number(process.env.SCHOLAXIS_ASYNC_JOB_TTL_MS || 10 * 60 * 1000);
+const overloadRetryAfterMs = Number(process.env.SCHOLAXIS_ANALYSIS_OVERLOAD_RETRY_AFTER_MS || 1000);
 
 const workers = new Map();
 const pendingJobs = [];
 let workerSequence = 0;
 let idleShutdownTimer = null;
 const asyncJobs = new Map();
+let rejectedTasks = 0;
+let lastOverloadAt = '';
+
+function buildWorkerExecArgv() {
+  const sanitized = [];
+  for (let index = 0; index < process.execArgv.length; index += 1) {
+    const arg = String(process.execArgv[index] || '');
+    if (arg.startsWith('--input-type')) continue;
+    if (['-e', '--eval', '-p', '--print'].includes(arg)) {
+      index += 1;
+      continue;
+    }
+    sanitized.push(arg);
+  }
+  return sanitized;
+}
+
+export class AnalysisRuntimeOverloadedError extends Error {
+  constructor(message = 'analysis-runtime-overloaded') {
+    super(message);
+    this.name = 'AnalysisRuntimeOverloadedError';
+    this.code = 'analysis_runtime_overloaded';
+    this.statusCode = 503;
+    this.retryAfterMs = overloadRetryAfterMs;
+  }
+}
 
 function makeWorkerId() {
   workerSequence += 1;
@@ -57,7 +86,7 @@ function spawnWorker() {
     env: process.env,
     stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
     serialization: 'advanced',
-    execArgv: process.execArgv.filter((arg) => !String(arg || '').startsWith('--input-type')),
+    execArgv: buildWorkerExecArgv(),
   });
 
   const worker = {
@@ -173,7 +202,18 @@ function maybeScheduleIdleShutdown() {
   }, idleShutdownMs);
 }
 
+function enforceQueueLimit() {
+  const activeOrQueuedTasks = pendingJobs.length + [...workers.values()].filter((worker) => worker.busy).length;
+  const capacity = maxWorkers + maxQueuedTasks;
+  if (activeOrQueuedTasks >= capacity) {
+    rejectedTasks += 1;
+    lastOverloadAt = new Date().toISOString();
+    throw new AnalysisRuntimeOverloadedError();
+  }
+}
+
 export async function runAnalysisTask(taskType = '', payload = {}, options = {}) {
+  enforceQueueLimit();
   const timeoutMs = Number(options.timeoutMs || 120000);
   const taskId = randomUUID();
   if (idleShutdownTimer) {
@@ -349,13 +389,17 @@ export function getAnalysisRuntimeDiagnostics() {
   const queueDepth = pendingJobs.length;
   return {
     poolSize: maxWorkers,
+    maxQueuedTasks,
     workerCount: workerEntries.length,
     readyWorkers: workerEntries.filter((worker) => worker.ready).length,
     busyWorkers,
     queuedTasks: queueDepth,
     queueDepth,
     overloaded: busyWorkers >= maxWorkers && queueDepth > 0,
+    rejectedTasks,
+    lastOverloadAt,
     idleShutdownMs,
+    overloadRetryAfterMs,
     asyncJobs: {
       total: jobs.length,
       queued: jobs.filter((job) => job.status === 'queued').length,

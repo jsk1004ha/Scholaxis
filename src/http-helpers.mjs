@@ -59,15 +59,26 @@ export async function readJsonBody(req, maxBytes = 200_000) {
 }
 
 export function parseMultipartForm(buffer, contentType = '') {
-  const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
+  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
   if (!boundaryMatch) return {};
 
-  const boundary = `--${boundaryMatch[1]}`;
+  const boundaryValue = String(boundaryMatch[1] || boundaryMatch[2] || '').trim();
+  if (!boundaryValue || boundaryValue.length > 200) return {};
+
+  const boundary = `--${boundaryValue}`;
   const raw = buffer.toString('latin1');
   const chunks = raw.split(boundary).slice(1, -1);
   const fields = {};
+  const maxFields = 20;
+  let fieldCount = 0;
 
   for (const chunk of chunks) {
+    fieldCount += 1;
+    if (fieldCount > maxFields) {
+      const error = new Error('Too many multipart fields');
+      error.statusCode = 413;
+      throw error;
+    }
     const normalized = chunk.replace(/^\r\n/, '');
     const splitIndex = normalized.indexOf('\r\n\r\n');
     if (splitIndex === -1) continue;
@@ -80,11 +91,12 @@ export function parseMultipartForm(buffer, contentType = '') {
     const filenameMatch = rawHeaders.match(/filename="([^"]*)"/i);
     const contentTypeMatch = rawHeaders.match(/Content-Type:\s*([^\r\n]+)/i);
     const bodyBuffer = Buffer.from(rawBody, 'latin1');
+    const rawFilename = filenameMatch?.[1] || '';
 
     fields[nameMatch[1]] = {
       value: bodyBuffer.toString('utf8'),
       buffer: bodyBuffer,
-      filename: filenameMatch?.[1] || '',
+      filename: path.basename(rawFilename.replace(/\\/g, '/')).slice(0, 180),
       contentType: contentTypeMatch?.[1] || 'application/octet-stream'
     };
   }
@@ -94,8 +106,18 @@ export function parseMultipartForm(buffer, contentType = '') {
 
 export async function serveStatic(reqPath, res, publicDir) {
   const resolvedPath = reqPath === '/' ? '/index.html' : reqPath;
-  const safePath = path.normalize(resolvedPath).replace(/^([.][.][/\\])+/, '');
-  const filePath = path.join(publicDir, safePath);
+  let decodedPath = resolvedPath;
+  try {
+    decodedPath = decodeURIComponent(resolvedPath);
+  } catch {
+    return false;
+  }
+  const relativePath = path.normalize(decodedPath).replace(/^[/\\]+/, '');
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return false;
+
+  const root = path.resolve(publicDir);
+  const filePath = path.resolve(root, relativePath);
+  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) return false;
 
   try {
     const contents = await readFile(filePath);

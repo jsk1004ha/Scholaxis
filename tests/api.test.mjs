@@ -264,17 +264,38 @@ test('startServer falls back to the next port when requested port is already occ
 
 
 test('cache clear endpoint responds with diagnostics', async () => {
+  const adminEmail = `admin-cache-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/cache/clear`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: 'dbpia', query: '배터리 AI' })
-  });
-  const payload = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(payload.ok, true);
-  assert.ok(payload.runtime.cache || payload.runtime);
-  await closeServer(server);
+  try {
+    const anonymousResponse = await fetch(`${baseUrl}/api/cache/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'dbpia', query: '배터리 AI' })
+    });
+    assert.equal(anonymousResponse.status, 401);
+
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Cache Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const response = await fetch(`${baseUrl}/api/cache/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ source: 'dbpia', query: '배터리 AI' })
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.ok, true);
+    assert.ok(payload.runtime.cache || payload.runtime);
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('sources status endpoint exposes cache/runtime diagnostics', async () => {
@@ -292,13 +313,30 @@ test('sources status endpoint exposes cache/runtime diagnostics', async () => {
 });
 
 test('storage stats endpoint returns sqlite diagnostics', async () => {
+  const adminEmail = `admin-storage-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/storage/stats`);
-  const payload = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(payload.ready, true);
-  assert.ok(payload.dbPath);
-  await closeServer(server);
+  try {
+    const anonymousResponse = await fetch(`${baseUrl}/api/storage/stats`);
+    assert.equal(anonymousResponse.status, 401);
+
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Storage Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const response = await fetch(`${baseUrl}/api/storage/stats`, { headers: { cookie } });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.ready, true);
+    assert.ok(payload.dbPath);
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('auth and library flow works end-to-end', async () => {
@@ -788,6 +826,61 @@ test('admin endpoints reject unauthenticated and non-admin users', async () => {
     assert.equal(adminPageResponse.headers.get('location'), '/index.html');
   } finally {
     delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
+});
+
+test('admin self-registration requires an explicit production registration code', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const adminEmail = `admin-production-${Date.now()}@example.com`;
+  process.env.NODE_ENV = 'production';
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
+  delete process.env.SCHOLAXIS_ADMIN_REGISTRATION_CODE;
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const blockedResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const blockedPayload = await blockedResponse.json();
+    assert.equal(blockedResponse.status, 403);
+    assert.match(blockedPayload.error, /등록 코드/);
+
+    process.env.SCHOLAXIS_ADMIN_REGISTRATION_CODE = 'test-admin-code';
+    const allowedResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: adminEmail,
+        password: 'test-password',
+        displayName: 'Admin',
+        adminRegistrationCode: 'test-admin-code',
+      }),
+    });
+    const allowedPayload = await allowedResponse.json();
+    assert.equal(allowedResponse.status, 200);
+    assert.equal(allowedPayload.ok, true);
+  } finally {
+    if (previousNodeEnv == null) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    delete process.env.SCHOLAXIS_ADMIN_REGISTRATION_CODE;
+    await closeServer(server);
+  }
+});
+
+test('unsafe API requests with a foreign origin are rejected before state changes', async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Origin: 'https://attacker.example' },
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 403);
+    assert.match(payload.error, /Cross-origin/);
+  } finally {
     await closeServer(server);
   }
 });

@@ -263,7 +263,8 @@ curl "http://127.0.0.1:3000/api/search/stream?q=battery%20AI&live=1"
 
 ### Clear the cache
 ```bash
-curl -X POST "http://127.0.0.1:3000/api/cache/clear"
+curl -X POST "http://127.0.0.1:3000/api/cache/clear" \
+  -H "cookie: scholaxis_session=<admin-session-cookie>"
 ```
 
 ### Schedule infrastructure jobs
@@ -373,6 +374,10 @@ Stored entities include:
 - `SCHOLAXIS_SCHEDULER_INTERVAL_MS`
 - `SCHOLAXIS_WORKER_POLL_MS`
 - `SCHOLAXIS_WORKER_LEASE_MS`
+- `SCHOLAXIS_ANALYSIS_MAX_QUEUED_TASKS`
+- `SCHOLAXIS_ADMIN_EMAILS`
+- `SCHOLAXIS_ADMIN_REGISTRATION_CODE`
+- `SCHOLAXIS_AUTH_RATE_LIMIT_ATTEMPTS`
 
 </details>
 
@@ -390,6 +395,9 @@ Stored entities include:
 - a real reranker service layer and local HTTP reranker path were added
 - translation + reranker diagnostics are surfaced through runtime APIs
 - saved-search, library sharing, and recommendation-feed user-state features were expanded
+- admin surfaces, cache clearing, and storage diagnostics now require authenticated allowlisted admin access; production admin self-registration requires `SCHOLAXIS_ADMIN_REGISTRATION_CODE`
+- unsafe API requests enforce same-origin Origin/Referer checks, and analysis worker queues now expose bounded queue diagnostics
+- source-explicit student-research queries such as Hanwha Science Challenge, R&E, and science-fair searches now keep the requested source ahead of sibling student-research sources
 
 ---
 
@@ -418,8 +426,8 @@ Stored entities include:
 - `POST /api/similarity/analyze`
 
 ### Ops / persistence
-- `GET /api/storage/stats`
-- `POST /api/cache/clear`
+- `GET /api/storage/stats` (admin)
+- `POST /api/cache/clear` (admin)
 - `GET /api/admin/summary`
 - `GET /api/admin/ops`
 - `GET /api/admin/infra`

@@ -400,9 +400,11 @@ function applyQueryProfileBoost(item, scoreBundle, queryProfile = null) {
   if (!queryProfile) return { item, scoreBundle };
   const requestedTypes = queryProfile.requestedTypes || [];
   const sourceHints = queryProfile.sourceHints || [];
+  const requestedStudentSources = sourceHints.filter((source) => STUDENT_RESEARCH_SOURCES.has(source));
   const itemType = classifySourceType(item.type);
   let total = scoreBundle.total;
   let studentResearchTopicalBoost = 0;
+  let sourceCompetitionPenalty = 0;
 
   if (requestedTypes.length && !requestedTypes.includes('paper')) {
     if (requestedTypes.includes(itemType)) total += 18;
@@ -411,6 +413,14 @@ function applyQueryProfileBoost(item, scoreBundle, queryProfile = null) {
 
   if (sourceHints.includes(item.source)) {
     total += STUDENT_RESEARCH_SOURCES.has(item.source) ? 24 : 10;
+  }
+  if (
+    requestedStudentSources.length > 0 &&
+    STUDENT_RESEARCH_SOURCES.has(item.source) &&
+    !requestedStudentSources.includes(item.source)
+  ) {
+    sourceCompetitionPenalty = 36;
+    total -= sourceCompetitionPenalty;
   }
   if (
     requestedTypes.some((type) => ['fair_entry', 'report'].includes(type)) &&
@@ -449,7 +459,8 @@ function applyQueryProfileBoost(item, scoreBundle, queryProfile = null) {
       ...scoreBundle,
       total,
       profileBoost: Number((total - scoreBundle.total).toFixed(2)),
-      studentResearchTopicalBoost: Number(studentResearchTopicalBoost.toFixed(2))
+      studentResearchTopicalBoost: Number(studentResearchTopicalBoost.toFixed(2)),
+      sourceCompetitionPenalty
     }
   };
 }

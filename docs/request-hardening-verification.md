@@ -45,6 +45,8 @@ The current runtime draft is shaping around these knobs:
 - `SCHOLAXIS_SEARCH_MAX_QUEUED_TASKS`
 - `SCHOLAXIS_SEARCH_REQUEST_TIMEOUT_MS`
 - `SCHOLAXIS_SEARCH_OVERLOAD_RETRY_AFTER_MS`
+- `SCHOLAXIS_ANALYSIS_MAX_QUEUED_TASKS`
+- `SCHOLAXIS_ANALYSIS_OVERLOAD_RETRY_AFTER_MS`
 - `SCHOLAXIS_TEST_SEARCH_DELAY_MS` (useful for deterministic burst tests)
 - `SCHOLAXIS_BURST_HEALTH_BUDGET_MS` (response-time budget for the health probe in the standalone harness)
 - `SCHOLAXIS_BURST_REQUIRE_OVERLOAD` (mark the run as failed unless at least one request is rejected under load)

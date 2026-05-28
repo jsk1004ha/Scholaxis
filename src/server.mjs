@@ -85,6 +85,9 @@ import { getVectorBackendDiagnostics } from './vector-index-service.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, '..', 'public');
+const AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_RATE_LIMIT_MAX_ATTEMPTS = Number(process.env.SCHOLAXIS_AUTH_RATE_LIMIT_ATTEMPTS || 12);
+const authRateLimitState = new Map();
 
 function isDirectRun() {
   if (!process.argv[1]) return false;
@@ -103,6 +106,123 @@ function setCookieHeader(res, cookie) {
     return;
   }
   res.setHeader('Set-Cookie', [...(Array.isArray(existing) ? existing : [existing]), cookie]);
+}
+
+function isHttpsRequest(req) {
+  if (req.socket?.encrypted) return true;
+  return String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase() === 'https';
+}
+
+function shouldUseSecureCookies(req) {
+  return isHttpsRequest(req) || String(process.env.SCHOLAXIS_SECURE_COOKIES || '').toLowerCase() === 'true';
+}
+
+function requestHost(req) {
+  return String(req.headers['x-forwarded-host'] || req.headers.host || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+}
+
+function isSameRequestOrigin(req, rawOrigin = '') {
+  if (!rawOrigin) return true;
+  try {
+    const originUrl = new URL(rawOrigin);
+    const expectedHost = requestHost(req);
+    if (!expectedHost || originUrl.host.toLowerCase() !== expectedHost) return false;
+
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    if (forwardedProto && originUrl.protocol.replace(':', '').toLowerCase() !== forwardedProto) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function enforceSameOriginForUnsafeRequest(req, res, pathname = '') {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method) || !pathname.startsWith('/api/')) return true;
+  const origin = req.headers.origin || '';
+  const referer = req.headers.referer || '';
+  let originToCheck = origin;
+  if (!originToCheck && referer) {
+    try {
+      originToCheck = new URL(referer).origin;
+    } catch {
+      originToCheck = 'invalid-referer';
+    }
+  }
+  if (originToCheck && !isSameRequestOrigin(req, originToCheck)) {
+    json(res, 403, { error: 'Cross-origin request rejected' });
+    return false;
+  }
+  return true;
+}
+
+function clientRateLimitKey(req, email = '') {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '')
+    .split(',')[0]
+    .trim();
+  const ip = forwardedFor || req.socket?.remoteAddress || 'unknown';
+  return `${ip}:${String(email || '').toLowerCase()}`;
+}
+
+function checkAuthRateLimit(req, email = '') {
+  const now = Date.now();
+  const key = clientRateLimitKey(req, email);
+  for (const [entryKey, entry] of authRateLimitState.entries()) {
+    if (now - entry.startedAt > AUTH_RATE_LIMIT_WINDOW_MS) authRateLimitState.delete(entryKey);
+  }
+  const entry = authRateLimitState.get(key) || { count: 0, startedAt: now };
+  entry.count += 1;
+  authRateLimitState.set(key, entry);
+  if (entry.count > AUTH_RATE_LIMIT_MAX_ATTEMPTS) {
+    const error = new Error('Too many authentication attempts; try again later.');
+    error.statusCode = 429;
+    throw error;
+  }
+}
+
+function normalizeEmail(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function sanitizeDisplayName(value = '', fallback = 'User') {
+  const normalized = String(value || fallback).replace(/\s+/g, ' ').trim();
+  return normalized.slice(0, 80) || fallback;
+}
+
+function validateAuthPayload({ email = '', password = '' } = {}) {
+  if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const error = new Error('valid email required');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (typeof password !== 'string' || password.length < 8 || password.length > 256) {
+    const error = new Error('password must be 8-256 characters');
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function readBoolEnv(name, defaultValue = false) {
+  const value = process.env[name];
+  if (value == null || value === '') return defaultValue;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
+function canSelfRegisterAdminEmail(email = '', body = {}) {
+  if (!isAdminEmail(email)) return true;
+  if (process.env.NODE_ENV === 'test') return true;
+  if (readBoolEnv('SCHOLAXIS_ALLOW_ADMIN_SELF_REGISTRATION', false)) return true;
+  const expectedCode = process.env.SCHOLAXIS_ADMIN_REGISTRATION_CODE || '';
+  return Boolean(expectedCode && body.adminRegistrationCode === expectedCode);
 }
 
 function getSessionContext(req) {
@@ -260,6 +380,32 @@ function buildSearchRuntimeOverloadPayload(error) {
   };
 }
 
+function buildPublicStorageDiagnostics() {
+  const diagnostics = getStorageDiagnostics();
+  return {
+    ready: Boolean(diagnostics.ready),
+    backend: appConfig.storageBackend,
+    documents: diagnostics.documents || 0,
+    searchRuns: diagnostics.searchRuns || 0,
+    similarityRuns: diagnostics.similarityRuns || 0,
+    graphEdges: diagnostics.graphEdges || 0,
+    pendingJobs: diagnostics.pendingJobs || 0,
+  };
+}
+
+function buildPublicSourceRuntimeDiagnostics() {
+  const diagnostics = getSourceRuntimeDiagnostics();
+  return {
+    cache: {
+      entries: diagnostics.cache?.entries || 0,
+      ttlMs: diagnostics.cache?.ttlMs || appConfig.sourceCacheTtlMs,
+      strategy: diagnostics.cache?.strategy || {},
+    },
+    experimentalSources: diagnostics.experimentalSources || [],
+    quota: diagnostics.quota || {},
+  };
+}
+
 async function buildSimilarityFromMultipart(fields) {
   return runAnalysisTask(
     'similarity-multipart',
@@ -271,17 +417,22 @@ async function buildSimilarityFromMultipart(fields) {
 export function createServer() {
   return http.createServer(async (req, res) => {
     const requestStartedAt = performance.now();
+    let requestLogged = false;
     applySecurityHeaders(res);
+    if (isHttpsRequest(req)) {
+      res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+    }
 
     if (!req.url || !req.method) return notFound(res);
 
     const url = new URL(req.url, 'http://localhost');
     const { pathname, searchParams } = url;
+    if (!enforceSameOriginForUnsafeRequest(req, res, pathname)) return;
 
     try {
       if (pathname === '/api/health') {
         const ocr = await getOcrDiagnostics();
-        const sourceRuntime = getSourceRuntimeDiagnostics();
+        const sourceRuntime = buildPublicSourceRuntimeDiagnostics();
         return json(res, 200, {
           ok: true,
           service: 'scholaxis',
@@ -294,7 +445,7 @@ export function createServer() {
             reranker: getRerankerDiagnostics(),
             rerankerRuntime: getRerankerRuntimeDiagnostics(),
             localModels: getLocalModelDiagnostics(),
-            storage: getStorageDiagnostics(),
+            storage: buildPublicStorageDiagnostics(),
             embeddings: getEmbeddingDiagnostics(),
             searchIndex: getSearchIndexDiagnostics(),
             searchRuntime: getSearchRuntimeDiagnostics(),
@@ -409,15 +560,19 @@ export function createServer() {
       }
 
       if (pathname === '/api/sources/status') {
-        return json(res, 200, { sources: listSourceStatuses(), runtime: { ...getSourceRuntimeDiagnostics(), storage: getStorageDiagnostics() } });
+        return json(res, 200, { sources: listSourceStatuses(), runtime: { ...buildPublicSourceRuntimeDiagnostics(), storage: buildPublicStorageDiagnostics() } });
       }
 
       if (pathname === '/api/cache/clear' && req.method === 'POST') {
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
         const body = await readJsonBody(req);
         return json(res, 200, { ok: true, cleared: clearSourceCache({ source: body.source || '', query: body.query || '' }), runtime: getSourceRuntimeDiagnostics() });
       }
 
       if (pathname === '/api/storage/stats') {
+        const admin = requireAdminSession(req, res);
+        if (!admin) return;
         return json(res, 200, getStorageDiagnostics());
       }
 
@@ -549,11 +704,16 @@ export function createServer() {
 
       if (pathname === '/api/auth/register' && req.method === 'POST') {
         const body = await readJsonBody(req);
-        if (!body.email || !body.password) return json(res, 400, { error: 'email/password required' });
-        if (findUserByEmail(body.email)) return json(res, 409, { error: '이미 존재하는 계정입니다.' });
+        const email = normalizeEmail(body.email);
+        validateAuthPayload({ email, password: body.password });
+        checkAuthRateLimit(req, email);
+        if (!canSelfRegisterAdminEmail(email, body)) {
+          return json(res, 403, { error: '관리자 계정 생성에는 등록 코드가 필요합니다.' });
+        }
+        if (findUserByEmail(email)) return json(res, 409, { error: '이미 존재하는 계정입니다.' });
         const user = createUser({
-          email: body.email,
-          displayName: body.displayName || String(body.email).split('@')[0],
+          email,
+          displayName: sanitizeDisplayName(body.displayName, email.split('@')[0]),
           passwordDigest: hashPassword(body.password).digest
         });
         const token = createSessionToken();
@@ -562,13 +722,15 @@ export function createServer() {
           tokenHash: hashSessionToken(token),
           expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString()
         });
-        setCookieHeader(res, buildSessionCookie(token));
+        setCookieHeader(res, buildSessionCookie(token, { secure: shouldUseSecureCookies(req) }));
         return json(res, 200, { ok: true, user: { id: user.id, email: user.email, displayName: user.displayName } });
       }
 
       if (pathname === '/api/auth/login' && req.method === 'POST') {
         const body = await readJsonBody(req);
-        const user = findUserByEmail(body.email || '');
+        const email = normalizeEmail(body.email);
+        checkAuthRateLimit(req, email);
+        const user = findUserByEmail(email);
         if (!user || !verifyPassword(body.password || '', user.passwordDigest)) {
           return json(res, 401, { error: '로그인 정보가 올바르지 않습니다.' });
         }
@@ -578,14 +740,14 @@ export function createServer() {
           tokenHash: hashSessionToken(token),
           expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString()
         });
-        setCookieHeader(res, buildSessionCookie(token));
+        setCookieHeader(res, buildSessionCookie(token, { secure: shouldUseSecureCookies(req) }));
         return json(res, 200, { ok: true, user: { id: user.id, email: user.email, displayName: user.displayName } });
       }
 
       if (pathname === '/api/auth/logout' && req.method === 'POST') {
         const ctx = getSessionContext(req);
         if (ctx) deleteSessionByHash(hashSessionToken(ctx.token));
-        setCookieHeader(res, buildClearedSessionCookie());
+        setCookieHeader(res, buildClearedSessionCookie({ secure: shouldUseSecureCookies(req) }));
         return json(res, 200, { ok: true });
       }
 
@@ -832,11 +994,15 @@ export function createServer() {
       if (fallbackServed) return;
       return notFound(res);
     } catch (error) {
-      persistRequestLog({ method: req.method || '', path: pathname, status: error.statusCode || 500, durationMs: performance.now() - requestStartedAt });
-      return json(res, error.statusCode || 500, { error: error.message || 'Unexpected server error' });
+      const status = Number(error.statusCode || 500);
+      persistRequestLog({ method: req.method || '', path: pathname, status, durationMs: performance.now() - requestStartedAt });
+      requestLogged = true;
+      return json(res, status, { error: status >= 500 ? 'Unexpected server error' : (error.message || 'Request failed') });
     } finally {
       if (!res.writableEnded) return;
-      persistRequestLog({ method: req.method || '', path: pathname, status: res.statusCode || 200, durationMs: performance.now() - requestStartedAt });
+      if (!requestLogged) {
+        persistRequestLog({ method: req.method || '', path: pathname, status: res.statusCode || 200, durationMs: performance.now() - requestStartedAt });
+      }
     }
   });
 }

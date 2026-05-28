@@ -279,7 +279,8 @@ curl "http://127.0.0.1:3000/api/search/stream?q=배터리%20AI&live=1"
 
 ### 캐시 초기화
 ```bash
-curl -X POST "http://127.0.0.1:3000/api/cache/clear"
+curl -X POST "http://127.0.0.1:3000/api/cache/clear" \
+  -H "cookie: scholaxis_session=<admin-session-cookie>"
 ```
 
 ### 백그라운드 잡 스케줄링
@@ -392,9 +393,12 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - `SCHOLAXIS_WORKER_POLL_MS`
 - `SCHOLAXIS_WORKER_LEASE_MS`
 - `SCHOLAXIS_ANALYSIS_WORKERS`
+- `SCHOLAXIS_ANALYSIS_MAX_QUEUED_TASKS`
 - `SCHOLAXIS_ANALYSIS_IDLE_SHUTDOWN_MS`
 - `SCHOLAXIS_ASYNC_JOB_TTL_MS`
 - `SCHOLAXIS_ADMIN_EMAILS`
+- `SCHOLAXIS_ADMIN_REGISTRATION_CODE`
+- `SCHOLAXIS_AUTH_RATE_LIMIT_ATTEMPTS`
 
 </details>
 
@@ -419,7 +423,9 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - 검색 결과 카드에서 **유사도 분석으로 바로 이동** 가능
 - `detail.html`, `similarity.html` 이 **202 + polling 기반 async 분석 흐름** 을 사용하고, 진행바/취소 버튼으로 현재 상태를 보여주도록 개선
 - 무거운 상세/유사도 분석은 **analysis worker pool** 로 분리되어 요청마다 새 프로세스를 띄우지 않도록 최적화
-- admin 화면/API는 **로그인 + `SCHOLAXIS_ADMIN_EMAILS` allowlist** 로 제한
+- admin 화면/API는 **로그인 + `SCHOLAXIS_ADMIN_EMAILS` allowlist** 로 제한되며, 운영 환경에서 allowlist 이메일 계정 생성에는 `SCHOLAXIS_ADMIN_REGISTRATION_CODE` 가 필요
+- 캐시 초기화와 저장소 진단 API를 admin 전용으로 전환하고, unsafe API 요청에는 same-origin Origin/Referer 검증을 적용
+- 한화 사이언스 챌린지/R&E/과학전람회처럼 특정 학생연구 소스가 명시된 질의는 같은 학생연구 계열의 다른 소스보다 요청 소스를 우선하도록 랭킹 보정
 - ScienceON 크롤링에 **cp949/euc-kr 우선 디코딩 + escaped `<em>` 제거** 를 적용해 한글 제목 깨짐과 강조 태그 노출을 완화
 
 ---
@@ -451,8 +457,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - `DELETE /api/analysis/jobs/:id`
 
 ### 운영 / 저장소
-- `GET /api/storage/stats`
-- `POST /api/cache/clear`
+- `GET /api/storage/stats` (admin)
+- `POST /api/cache/clear` (admin)
 - `GET /api/admin/summary`
 - `GET /api/admin/ops`
 - `GET /api/admin/infra`
@@ -493,7 +499,10 @@ admin API와 `admin.html` 은 로그인만으로는 열리지 않으며, 아래 
 
 ```bash
 export SCHOLAXIS_ADMIN_EMAILS=admin1@example.com,admin2@example.com
+export SCHOLAXIS_ADMIN_REGISTRATION_CODE='<long one-time setup code>'
 ```
+
+운영 환경에서는 allowlist 이메일이라고 해도 등록 코드 없이 `/api/auth/register` 로 admin 계정을 만들 수 없습니다.
 
 </details>
 

@@ -5,6 +5,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const MAX_HWPX_XML_BYTES = Number(process.env.SCHOLAXIS_HWPX_XML_BYTES || 2_000_000);
+const MAX_HWPX_TOTAL_XML_BYTES = Number(process.env.SCHOLAXIS_HWPX_TOTAL_XML_BYTES || 4_000_000);
 
 function sanitizeExtractedText(value = '') {
   return String(value || '')
@@ -33,6 +35,8 @@ export async function extractHwpxText(buffer) {
       'import io, re, zipfile',
       'from xml.etree import ElementTree as ET',
       `path = ${JSON.stringify(inputPath)}`,
+      `max_xml_bytes = ${JSON.stringify(MAX_HWPX_XML_BYTES)}`,
+      `max_total_xml_bytes = ${JSON.stringify(MAX_HWPX_TOTAL_XML_BYTES)}`,
       'parts = []',
       'def local(tag):',
       "    return tag.split('}', 1)[-1] if '}' in tag else tag",
@@ -66,10 +70,16 @@ export async function extractHwpxText(buffer) {
       '    for child in list(node):',
       '        collect_block(child, lines)',
       'with zipfile.ZipFile(path) as zf:',
-      '    names = sorted(name for name in zf.namelist() if name.lower().endswith(".xml") and ("section" in name.lower() or "contents" in name.lower()))',
-      '    for name in names:',
+      '    infos = sorted((info for info in zf.infolist() if info.filename.lower().endswith(".xml") and ("section" in info.filename.lower() or "contents" in info.filename.lower())), key=lambda info: info.filename)',
+      '    total_xml_bytes = 0',
+      '    for info in infos:',
+      '        if info.file_size > max_xml_bytes:',
+      '            continue',
+      '        total_xml_bytes += info.file_size',
+      '        if total_xml_bytes > max_total_xml_bytes:',
+      '            break',
       '        try:',
-      '            root = ET.fromstring(zf.read(name))',
+      '            root = ET.fromstring(zf.read(info))',
       '            lines = []',
       '            collect_block(root, lines)',
       "            section = '\\n'.join(line for line in lines if line).strip()",

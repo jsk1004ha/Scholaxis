@@ -5,12 +5,20 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const COMMAND_CACHE_TTL_MS = Number(process.env.SCHOLAXIS_COMMAND_CACHE_TTL_MS || 30000);
+const commandAvailabilityCache = new Map();
 
 async function commandExists(command) {
+  const cached = commandAvailabilityCache.get(command);
+  if (cached && Date.now() - cached.checkedAt < COMMAND_CACHE_TTL_MS) {
+    return cached.available;
+  }
   try {
-    await execFileAsync('bash', ['-lc', `command -v ${command}`]);
+    await execFileAsync('bash', ['-lc', `command -v ${command}`], { timeout: 1500 });
+    commandAvailabilityCache.set(command, { checkedAt: Date.now(), available: true });
     return true;
   } catch {
+    commandAvailabilityCache.set(command, { checkedAt: Date.now(), available: false });
     return false;
   }
 }
@@ -100,9 +108,11 @@ export async function extractPdfTextWithOcr(pdfBuffer) {
 }
 
 export async function getOcrDiagnostics() {
-  const hasTesseract = await commandExists('tesseract');
-  const hasPdftoppm = await commandExists('pdftoppm');
-  const hasPdftocairo = await commandExists('pdftocairo');
+  const [hasTesseract, hasPdftoppm, hasPdftocairo] = await Promise.all([
+    commandExists('tesseract'),
+    commandExists('pdftoppm'),
+    commandExists('pdftocairo'),
+  ]);
   return {
     tesseract: hasTesseract,
     pdftoppm: hasPdftoppm,
