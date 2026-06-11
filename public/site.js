@@ -575,9 +575,9 @@ function createPaperCard(paper) {
     <p class="result-card__subtitle">${escapeHtml([formatAuthors(paper.authors || []), meta].filter(Boolean).join(' · '))}</p>
     <p class="result-card__summary">${escapeHtml(paper.summary || paper.subtitle || '요약 정보가 아직 없습니다.')}</p>
     ${tags.length ? `<div class="tag-row">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
-    <div class="action-row">
+    <div class="action-row result-card__actions" aria-label="${escapeHtml(paper.title || '문헌')} 후속 행동">
       <a class="button button--primary" href="${detailHref}">상세 보기</a>
-      <a class="button button--ghost" href="${similarityHref}">유사도</a>
+      <a class="button button--ghost" href="${similarityHref}">유사도 비교</a>
       ${sourceHref !== '#' ? `<a class="button button--ghost" href="${sourceHref}" target="_blank" rel="noreferrer noopener">원문 링크</a>` : ''}
     </div>
   `;
@@ -593,8 +593,39 @@ function renderSourceList(searchPayload, sourceRoot) {
   if (!sourceRoot) return;
   const sources = searchPayload.sourceStatus?.map((item) => item.source) ?? searchPayload.filters?.sources ?? [];
   sourceRoot.innerHTML = sources.length
-    ? sources.map((source) => `<li>${source}</li>`).join('')
+    ? sources.map((source) => `<li>${escapeHtml(source)}</li>`).join('')
     : '<li>활성화된 소스가 아직 없습니다.</li>';
+}
+
+const SEARCH_SCOPE_LABELS = {
+  region: {
+    all: '전체 지역',
+    domestic: '국내 자료',
+    global: '해외 자료',
+  },
+  sourceType: {
+    all: '전체 유형',
+    paper: '논문',
+    patent: '특허',
+    report: '보고서',
+  },
+  sort: {
+    relevance: '추천순',
+    latest: '최신순',
+    citation: '인용순',
+  },
+};
+
+function updateScopeSummary({ q = '', region = 'all', sourceType = 'all', sort = 'relevance' } = {}) {
+  const root = qs('[data-scope-summary]');
+  if (!root) return;
+  const queryLabel = q ? `“${q}”` : '검색어 없음';
+  const labels = [
+    SEARCH_SCOPE_LABELS.region[region] || region || '전체 지역',
+    SEARCH_SCOPE_LABELS.sourceType[sourceType] || sourceType || '전체 유형',
+    SEARCH_SCOPE_LABELS.sort[sort] || sort || '추천순',
+  ];
+  root.textContent = `${queryLabel} · ${labels.join(' · ')}`;
 }
 
 function renderSearchPayload(searchPayload, resultsRoot) {
@@ -605,7 +636,7 @@ function renderSearchPayload(searchPayload, resultsRoot) {
   const relatedRoot = qs('[data-related-queries]');
   if (relatedRoot) {
     relatedRoot.innerHTML = (searchPayload.relatedQueries ?? [])
-      .map((query) => `<a class="chip" href="./results.html?q=${encodeURIComponent(query)}">${query}</a>`)
+      .map((query) => `<a class="chip" href="./results.html?q=${encodeURIComponent(query)}">${escapeHtml(query)}</a>`)
       .join('');
   }
 
@@ -671,6 +702,7 @@ async function initResultsPage() {
     live: params.get('live') || '',
     autoLive: params.get('autoLive') || '',
   };
+  updateScopeSummary(query);
   renderResultsLoadingState(resultsRoot);
   renderSourceListLoading(sourceRoot);
   setLiveStatus(progressRoot, '검색을 불러오는 중입니다.', 'loading');
@@ -706,6 +738,23 @@ async function initResultsPage() {
   if (typeSelect) typeSelect.value = params.get('sourceType') || 'all';
   const sortSelect = qs('select[name="sort"]', form);
   if (sortSelect) sortSelect.value = params.get('sort') || 'relevance';
+
+  const readCurrentScope = () => ({
+    q: input ? input.value : query.q,
+    region: regionSelect?.value || query.region,
+    sourceType: typeSelect?.value || query.sourceType,
+    sort: sortSelect?.value || query.sort,
+  });
+  updateScopeSummary(readCurrentScope());
+
+  for (const control of [input, regionSelect, typeSelect, sortSelect]) {
+    control?.addEventListener('input', () => {
+      updateScopeSummary(readCurrentScope());
+    });
+    control?.addEventListener('change', () => {
+      updateScopeSummary(readCurrentScope());
+    });
+  }
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();

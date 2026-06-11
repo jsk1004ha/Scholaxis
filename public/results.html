@@ -58,8 +58,15 @@
             <input id="search-inline" name="q" type="search" placeholder="키워드 또는 자연어 질문" />
             <button class="button button--primary" type="submit">다시 검색</button>
 
-            <details class="advanced-options advanced-options--inline">
-              <summary>필터</summary>
+            <section class="results-refinement" aria-labelledby="results-refinement-title">
+              <div class="results-refinement__header">
+                <div>
+                  <span class="section-eyebrow">Refine</span>
+                  <h2 id="results-refinement-title">검색 범위 조정</h2>
+                </div>
+                <p class="scope-summary" data-scope-summary>전체 자료 · 추천순</p>
+              </div>
+
               <div class="compact-form-grid compact-form-grid--filters">
                 <label>
                   <span class="label">지역</span>
@@ -70,7 +77,7 @@
                   </select>
                 </label>
                 <label>
-                  <span class="label">유형</span>
+                  <span class="label">자료 유형</span>
                   <select class="select" id="type-inline" name="sourceType">
                     <option value="all">전체</option>
                     <option value="paper">논문</option>
@@ -87,11 +94,12 @@
                   </select>
                 </label>
               </div>
+
               <div class="filter-source-status">
                 <strong>활성 소스</strong>
                 <ul data-source-list></ul>
               </div>
-            </details>
+            </section>
           </form>
 
           <div class="result-utility-row">

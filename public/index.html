@@ -55,6 +55,9 @@
           </div>
 
           <form class="search-box search-box--minimal" data-search-form>
+            <input type="hidden" name="region" value="all" />
+            <input type="hidden" name="sourceType" value="all" />
+            <input type="hidden" name="sort" value="relevance" />
             <label class="label" for="query">연구 주제</label>
             <div class="search-box__input-shell">
               <input
@@ -68,69 +71,7 @@
               />
               <button class="button button--primary button--large" type="submit">탐색</button>
             </div>
-
-            <details class="advanced-options">
-              <summary>고급 옵션</summary>
-              <div class="home-filter-grid">
-                <fieldset class="segmented-field">
-                  <legend class="label">탐색 범위</legend>
-                  <div class="segmented-control">
-                    <label class="segmented-option">
-                      <input type="radio" name="region" value="all" checked />
-                      <span>전체</span>
-                    </label>
-                    <label class="segmented-option">
-                      <input type="radio" name="region" value="domestic" />
-                      <span>국내</span>
-                    </label>
-                    <label class="segmented-option">
-                      <input type="radio" name="region" value="global" />
-                      <span>해외</span>
-                    </label>
-                  </div>
-                </fieldset>
-
-                <fieldset class="segmented-field">
-                  <legend class="label">자료 유형</legend>
-                  <div class="segmented-control segmented-control--wide">
-                    <label class="segmented-option">
-                      <input type="radio" name="sourceType" value="all" checked />
-                      <span>전체</span>
-                    </label>
-                    <label class="segmented-option">
-                      <input type="radio" name="sourceType" value="paper" />
-                      <span>논문</span>
-                    </label>
-                    <label class="segmented-option">
-                      <input type="radio" name="sourceType" value="patent" />
-                      <span>특허</span>
-                    </label>
-                    <label class="segmented-option">
-                      <input type="radio" name="sourceType" value="report" />
-                      <span>보고서</span>
-                    </label>
-                  </div>
-                </fieldset>
-
-                <fieldset class="segmented-field">
-                  <legend class="label">정렬</legend>
-                  <div class="segmented-control">
-                    <label class="segmented-option">
-                      <input type="radio" name="sort" value="relevance" checked />
-                      <span>추천순</span>
-                    </label>
-                    <label class="segmented-option">
-                      <input type="radio" name="sort" value="latest" />
-                      <span>최신순</span>
-                    </label>
-                    <label class="segmented-option">
-                      <input type="radio" name="sort" value="citation" />
-                      <span>인용순</span>
-                    </label>
-                  </div>
-                </fieldset>
-              </div>
-            </details>
+            <p class="search-scope-hint">먼저 주제만 입력하세요. 국내/해외, 자료 유형, 정렬은 결과 화면에서 바로 조정할 수 있습니다.</p>
           </form>
 
           <div class="quick-strip" aria-label="추천 검색어">
