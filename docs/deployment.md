@@ -21,6 +21,12 @@ If `DATABASE_URL` or the standard `PG*` variables are already present, `npm star
 
 unless you explicitly override them.
 
+### SQLite persistence on restart
+
+SQLite always attempts to reopen `SCHOLAXIS_DB_PATH` (or `.data/scholaxis.db` when unset). Database and WAL size alone never trigger an empty recovery database, so users, sessions, library items, and saved searches remain in the original store across restarts. The former `SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY` and `SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY` variables no longer redirect storage.
+
+Manage storage growth with backups, retention, and WAL maintenance. Existing handling of genuine SQLite corruption and open failures is unchanged; check storage diagnostics and startup warnings when recovery is used.
+
 ## Search / infra env example
 
 ```bash
