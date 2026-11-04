@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
@@ -95,20 +95,8 @@ function usePostgresStorage() {
 }
 
 function openDatabase(targetPath) {
-  const explicitDbPath = Boolean(process.env.SCHOLAXIS_DB_PATH);
-  const walPath = `${targetPath}-wal`;
-  const maxDbBytesBeforeRecovery = Number(process.env.SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY || 1024 * 1024 * 1024);
-  const maxWalBytesBeforeRecovery = Number(process.env.SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY || 256 * 1024 * 1024);
-
-  if (!explicitDbPath) {
-    const dbSize = existsSync(targetPath) ? statSync(targetPath).size : 0;
-    const walSize = existsSync(walPath) ? statSync(walPath).size : 0;
-    if (dbSize > maxDbBytesBeforeRecovery || walSize > maxWalBytesBeforeRecovery) {
-      const recoveryPath = makeRecoveryPath('scholaxis-startup-recovery');
-      return openRecoveryDatabase(recoveryPath, `oversized-default-db:${dbSize}:${walSize}`);
-    }
-  }
-
+  // A large database or WAL is not evidence of corruption. Always open the
+  // configured store first so every process keeps using the same persisted data.
   try {
     const database = createSqliteDatabase(targetPath);
     return { database, path: targetPath };

@@ -309,6 +309,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 기본 로컬 저장소:
 - `.data/scholaxis.db`
 
+정상 SQLite DB와 WAL은 파일 크기와 관계없이 같은 경로로 다시 엽니다. 용량 증가만으로 빈 복구 DB로 전환하지 않으며, 기존 `SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY` / `SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY` 설정은 저장소 경로를 바꾸지 않습니다. 실제 손상·열기 오류의 기존 복구 경로는 유지됩니다.
+
 저장 항목 예시:
 - documents
 - search runs

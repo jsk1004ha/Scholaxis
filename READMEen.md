@@ -293,6 +293,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 Default local store:
 - `.data/scholaxis.db`
 
+Healthy SQLite databases and WAL files reopen at the same path regardless of size. Growth alone never switches the application to an empty recovery database, and the former `SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY` / `SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY` settings no longer redirect storage. Existing recovery behavior for actual corruption or open failures is retained.
+
 Stored entities include:
 - documents
 - search runs

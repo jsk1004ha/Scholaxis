@@ -4,9 +4,10 @@ import { once } from 'node:events';
 import { Blob } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { createServer, startServer } from '../src/server.mjs';
 import { appConfig } from '../src/config.mjs';
 import { createGraphBackendServer } from '../src/graph-backend-server.mjs';
@@ -2239,37 +2240,93 @@ test('postgres serious-use diagnostics recommend postgres + pgvector when fallba
   assert.equal(diagnostics.validationCommand, 'npm run validate:postgres');
 });
 
-test('storage falls back to a recovery database when the default sqlite db or wal is oversized', () => {
-  const fixtureDir = path.join(tmpdir(), `scholaxis-oversized-db-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  mkdirSync(fixtureDir, { recursive: true });
-  const dataFixtureDir = path.join(fixtureDir, '.data');
-  mkdirSync(dataFixtureDir, { recursive: true });
-  const dbPath = path.join(dataFixtureDir, 'scholaxis.db');
-  writeFileSync(dbPath, Buffer.alloc(4, 1));
-  writeFileSync(`${dbPath}-wal`, Buffer.alloc(4, 2));
-
+function runSqliteStartupSnapshot(fixtureDir, { seed = false, dbLimit = '1', walLimit = '1' } = {}) {
   const storageModulePath = JSON.stringify(path.resolve(process.cwd(), 'src/storage.mjs'));
   const script = [
     "process.chdir(process.argv[1]);",
-    "process.env.NODE_ENV = 'test';",
-    "process.env.SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY = '1';",
-    "process.env.SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY = '1';",
     `const mod = await import(${storageModulePath});`,
-    "process.stdout.write(JSON.stringify(mod.getStorageDiagnostics()));",
+    `if (${seed}) {`,
+    "  mod.persistDocuments([{ canonicalId: 'preserved-paper', source: 'fixture', type: 'paper', title: 'Persisted paper' }]);",
+    "  const user = mod.createUser({ email: 'persisted@example.test', displayName: 'Persisted', passwordDigest: 'fixture' });",
+    "  mod.createSession({ userId: user.id, tokenHash: 'preserved-session', expiresAt: '2099-01-01T00:00:00.000Z' });",
+    "  mod.addLibraryItem({ userId: user.id, canonicalId: 'preserved-paper', note: 'Keep this note' });",
+    "  mod.saveSearch({ userId: user.id, label: 'Saved', queryText: 'persistent storage' });",
+    "}",
+    "const user = mod.findUserByEmail('persisted@example.test');",
+    "process.stdout.write(JSON.stringify({",
+    "  diagnostics: mod.getStorageDiagnostics(),",
+    "  documents: mod.getStoredDocuments(),",
+    "  user, session: mod.findSessionByHash('preserved-session'),",
+    "  library: user ? mod.listLibraryItems(user.id) : [],",
+    "  searches: user ? mod.listSavedSearches(user.id) : []",
+    "}));",
   ].join('\n');
-
   const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script, fixtureDir], {
     cwd: path.resolve(process.cwd()),
     env: {
       ...process.env,
+      NODE_ENV: 'test',
+      SCHOLAXIS_STORAGE_BACKEND: 'sqlite',
       SCHOLAXIS_DB_PATH: '',
+      SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY: dbLimit,
+      SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY: walLimit,
     },
     encoding: 'utf8',
   });
+  return JSON.parse(stdout.trim().split('\n').at(-1) || '{}');
+}
 
-  const diagnostics = JSON.parse(stdout.trim().split('\n').at(-1) || '{}');
-  assert.notEqual(path.resolve(diagnostics.dbPath), path.resolve(dbPath));
-  assert.match(String(diagnostics.recoveryReason || ''), /oversized-default-db:/);
+for (const oversizedPart of ['database', 'wal']) {
+  test(`storage preserves a healthy default ${oversizedPart} above the former size threshold across restarts`, (t) => {
+    const fixtureDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-persistent-db-'));
+    t.after(() => rmSync(fixtureDir, { recursive: true, force: true }));
+    const dbPath = path.join(fixtureDir, '.data', 'scholaxis.db');
+    runSqliteStartupSnapshot(fixtureDir, { seed: true, dbLimit: '1000000000000', walLimit: '1000000000000' });
+    let writer;
+    try {
+      if (oversizedPart === 'wal') {
+        writer = new DatabaseSync(dbPath);
+        writer.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE wal_probe (value TEXT);');
+        writer.prepare('INSERT INTO wal_probe VALUES (?)').run('Committed WAL data');
+        assert.ok(statSync(`${dbPath}-wal`).size > 1);
+      } else {
+        assert.ok(statSync(dbPath).size > 1);
+      }
+      const limits = oversizedPart === 'database'
+        ? { dbLimit: '1', walLimit: '1000000000000' }
+        : { dbLimit: '1000000000000', walLimit: '1' };
+      for (let restart = 0; restart < 2; restart += 1) {
+        const snapshot = runSqliteStartupSnapshot(fixtureDir, limits);
+        assert.equal(path.resolve(snapshot.diagnostics.dbPath), path.resolve(dbPath));
+        assert.equal(snapshot.diagnostics.recoveryReason, '');
+        assert.equal(snapshot.user?.email, 'persisted@example.test');
+        assert.ok(snapshot.session);
+        assert.equal(snapshot.documents[0].canonicalId, 'preserved-paper');
+        assert.equal(snapshot.library[0].note, 'Keep this note');
+        assert.equal(snapshot.searches[0].queryText, 'persistent storage');
+      }
+      assert.deepEqual(readdirSync(path.dirname(dbPath)).filter((name) => /recovery|broken/.test(name)), []);
+    } finally {
+      writer?.close();
+    }
+  });
+}
+
+test('storage still archives a genuinely corrupt database before rebuilding it', (t) => {
+  const fixtureDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-corrupt-db-'));
+  t.after(() => rmSync(fixtureDir, { recursive: true, force: true }));
+  const dataFixtureDir = path.join(fixtureDir, '.data');
+  mkdirSync(dataFixtureDir);
+  const dbPath = path.join(dataFixtureDir, 'scholaxis.db');
+  const corruptBytes = Buffer.from('This is not a SQLite database.');
+  writeFileSync(dbPath, corruptBytes);
+  const snapshot = runSqliteStartupSnapshot(fixtureDir);
+  assert.equal(path.resolve(snapshot.diagnostics.dbPath), path.resolve(dbPath));
+  assert.equal(snapshot.diagnostics.ready, true);
+  assert.equal(snapshot.diagnostics.users, 0);
+  const archives = readdirSync(dataFixtureDir).filter((name) => name.startsWith('scholaxis.db.broken-'));
+  assert.equal(archives.length, 1);
+  assert.deepEqual(readFileSync(path.join(dataFixtureDir, archives[0])), corruptBytes);
 });
 
 test('storage falls back to in-memory sqlite when the default project db path is not writable', () => {
