@@ -30,6 +30,8 @@ const files = [
   'public/site.js',
   'tests/api.test.mjs',
   'tests/runtime-bootstrap.test.mjs',
+  'tests/sqlite-backup.test.mjs',
+  'tests/background-jobs.test.mjs',
   'scripts/lint.mjs',
   'scripts/smoke-test.mjs',
   'scripts/postgres-migrate.mjs',

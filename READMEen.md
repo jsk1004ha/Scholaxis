@@ -228,6 +228,10 @@ npm run backup
 npm run restore -- <backup-file>
 ```
 
+`npm run backup` writes a consistent SQLite snapshot to `.data/backups/`, including committed data still in the live WAL. The final `.db` file appears only after snapshot creation succeeds; missing or corrupt source databases fail the command. Restore only after stopping the API, scheduler, and workers and closing the existing SQLite connections and WAL cleanly.
+
+Background workers renew their leases while running, and another worker can reclaim an expired lease after a worker stops. Both SQLite and PostgreSQL check the claim's attempt number so stale completion, failure, and retry operations cannot overwrite a newer claim. See [deployment guidance](docs/deployment.md) for the contract and PostgreSQL integration test command.
+
 ### 6) PostgreSQL + pgvector mode
 ```bash
 export SCHOLAXIS_STORAGE_BACKEND=postgres

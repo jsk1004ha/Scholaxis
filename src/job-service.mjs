@@ -14,6 +14,7 @@ import {
   leaseNextBackgroundJob,
   persistDocuments,
   persistGraphEdges,
+  renewBackgroundJobLease,
   requeueBackgroundJob,
 } from './storage.mjs';
 import { attachVectors } from './vector-service.mjs';
@@ -158,16 +159,31 @@ export async function runBackgroundJob(job) {
   }
 }
 
-export async function workNextJob() {
+export async function workNextJob({ runJob = runBackgroundJob } = {}) {
   const leased = leaseNextBackgroundJob({ leaseMs: appConfig.workerLeaseMs });
   if (!leased) return null;
+  const ownership = { attempts: leased.attempts };
+  let leaseLost = false;
+  // Keep asynchronous source/model work owned for longer than the initial lease.
+  const heartbeat = setInterval(() => {
+    try {
+      if (renewBackgroundJobLease(leased.id, { ...ownership, leaseMs: appConfig.workerLeaseMs })) return;
+    } catch {
+      // If ownership cannot be confirmed, leave recovery to a subsequent claimant.
+    }
+    leaseLost = true;
+    clearInterval(heartbeat);
+  }, Math.max(1, Math.floor(appConfig.workerLeaseMs / 3)));
+  heartbeat.unref();
   try {
-    const result = await runBackgroundJob(leased);
-    completeBackgroundJob(leased.id);
-    return { ...leased, result, status: 'completed' };
+    const result = await runJob(leased);
+    const completed = leaseLost ? null : completeBackgroundJob(leased.id, ownership);
+    return { ...(completed || leased), result, status: completed ? 'completed' : 'lease-lost' };
   } catch (error) {
-    failBackgroundJob(leased.id, error.message);
-    return { ...leased, status: 'failed', error: error.message };
+    const failed = leaseLost ? null : failBackgroundJob(leased.id, error.message, ownership);
+    return { ...(failed || leased), status: failed ? 'failed' : 'lease-lost', error: error.message };
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
@@ -177,8 +193,8 @@ export async function runWorkerLoop({ iterations = 1 } = {}) {
     const next = await workNextJob();
     if (!next) break;
     processed.push(next);
-    if (next.status !== 'completed') {
-      requeueBackgroundJob(next.id, 5000);
+    if (next.status === 'failed') {
+      requeueBackgroundJob(next.id, 5000, { attempts: next.attempts });
     }
   }
   return processed;

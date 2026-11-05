@@ -27,6 +27,12 @@ SQLite always attempts to reopen `SCHOLAXIS_DB_PATH` (or `.data/scholaxis.db` wh
 
 Manage storage growth with backups, retention, and WAL maintenance. Existing handling of genuine SQLite corruption and open failures is unchanged; check storage diagnostics and startup warnings when recovery is used.
 
+### SQLite backups
+
+Run `npm run backup` with the same `SCHOLAXIS_DB_PATH` as the application. The command opens the source read-only and uses SQLite `VACUUM INTO` to snapshot committed data from both the database and its WAL while the application remains online. Uncommitted transactions are excluded. A unique `.partial` file is renamed to the final `.data/backups/scholaxis-*.db` only after the snapshot succeeds; ordinary failures remove the partial file and return a nonzero exit status. A missing source is never created as an empty database.
+
+The resulting `.db` is self-contained. Before `npm run restore -- <backup-file>`, stop all processes using the target database and let their SQLite connections close cleanly so an old WAL is not replayed over the restored file. For a database left behind by an unclean shutdown, recover/checkpoint it with SQLite before replacing it. Keep the original files until the restored data has been checked.
+
 ## Search / infra env example
 
 ```bash
@@ -126,6 +132,21 @@ Process queued jobs in a separate worker process:
 ```bash
 npm run worker
 ```
+
+Acquisition is atomic in both storage backends. Workers can take due `queued` jobs or reclaim `leased` jobs whose `leased_until` has passed. PostgreSQL uses `FOR UPDATE SKIP LOCKED` so parallel workers skip claims already being acquired. Each acquisition increments `attempts`, which acts as the ownership token for renewal and completion/failure updates. Retry updates only apply to a failed job with the same attempt number.
+
+Restart all worker processes when deploying this change so older workers cannot acknowledge jobs without checking the ownership token. No schema migration is needed; the token uses the existing `attempts` column.
+
+While an asynchronous job runs, the worker renews its lease every third of `SCHOLAXIS_WORKER_LEASE_MS` (default 15000 ms). A worker that loses ownership returns `lease-lost` and leaves the current claim alone. Set the lease duration above the longest synchronous operation or event-loop stall in your workload; a blocked or stopped process cannot send a heartbeat. Recovery is at-least-once: job side effects should remain idempotent because a worker can stop after applying a side effect and before recording completion.
+
+The normal test command includes live-WAL backup, lease recovery, concurrent SQLite claim, heartbeat, and stale-owner regression tests. To run the same queue contract against real PostgreSQL, use a dedicated disposable database with pgvector already installed and a role permitted to create schemas:
+
+```bash
+SCHOLAXIS_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/scholaxis_test \
+  node --test tests/background-jobs.test.mjs
+```
+
+PostgreSQL tests create and remove their own schemas and explicitly fail if storage falls back to SQLite. They are skipped when the test URL is unset.
 
 Run standalone vector / graph services on separate ports:
 

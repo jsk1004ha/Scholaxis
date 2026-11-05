@@ -978,14 +978,17 @@ FROM (
 
 export function leaseNextBackgroundJobFromPostgresSync({ now = new Date().toISOString(), leaseMs = 15000 } = {}) {
   if (!ensurePostgresSchemaSync()) return null;
-  const leasedUntil = new Date(Date.now() + leaseMs).toISOString();
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
   return firstJsonRow(`
 WITH candidate AS (
   SELECT id
   FROM background_jobs
-  WHERE status = 'queued' AND run_after <= ${sqlString(now)}
+  WHERE (status = 'queued' AND run_after <= ${sqlString(now)})
+    OR (status = 'leased' AND (leased_until IS NULL OR leased_until <= ${sqlString(now)}))
   ORDER BY priority DESC, id ASC
   LIMIT 1
+  FOR UPDATE SKIP LOCKED
 ),
 upd AS (
   UPDATE background_jobs
@@ -1012,53 +1015,66 @@ FROM (
 ) t;`);
 }
 
-function updateJobStatusSql(id, fields = {}) {
+function updateBackgroundJobInPostgresSync(id, attempts, fields, condition) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1 || !ensurePostgresSchemaSync()) return null;
   const sets = Object.entries(fields)
     .map(([key, value]) => `${key} = ${value}`)
     .join(', ');
-  return `
-UPDATE background_jobs
-SET ${sets}
-WHERE id = ${Number(id)};
-`;
+  return firstJsonRow(`
+WITH upd AS (
+  UPDATE background_jobs
+  SET ${sets}
+  WHERE id = ${Number(id)} AND attempts = ${attempts} AND ${condition}
+  RETURNING *
+)
+SELECT row_to_json(t)
+FROM (
+  SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts,
+    last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil",
+    created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt"
+  FROM upd
+) t;`);
 }
 
-export function completeBackgroundJobInPostgresSync(id) {
-  if (!ensurePostgresSchemaSync()) return null;
+export function renewBackgroundJobLeaseInPostgresSync(id, { attempts, now = new Date().toISOString(), leaseMs = 15000 } = {}) {
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
+  return updateBackgroundJobInPostgresSync(id, attempts, {
+    leased_until: sqlString(leasedUntil),
+    updated_at: sqlString(now)
+  }, `status = 'leased' AND leased_until > ${sqlString(now)}`);
+}
+
+export function completeBackgroundJobInPostgresSync(id, { attempts } = {}) {
   const now = new Date().toISOString();
-  runPsqlSync(updateJobStatusSql(id, {
+  return updateBackgroundJobInPostgresSync(id, attempts, {
     status: sqlString('completed'),
     leased_until: 'NULL',
     last_error: 'NULL',
     updated_at: sqlString(now),
     completed_at: sqlString(now)
-  }));
-  return firstJsonRow(`SELECT row_to_json(t) FROM (SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts, last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil", created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt" FROM background_jobs WHERE id = ${Number(id)}) t;`);
+  }, `status = 'leased' AND leased_until > ${sqlString(now)}`);
 }
 
-export function failBackgroundJobInPostgresSync(id, error = '') {
-  if (!ensurePostgresSchemaSync()) return null;
+export function failBackgroundJobInPostgresSync(id, error = '', { attempts } = {}) {
   const now = new Date().toISOString();
-  runPsqlSync(updateJobStatusSql(id, {
+  return updateBackgroundJobInPostgresSync(id, attempts, {
     status: sqlString('failed'),
     leased_until: 'NULL',
     last_error: sqlString(String(error || '')),
     updated_at: sqlString(now)
-  }));
-  return firstJsonRow(`SELECT row_to_json(t) FROM (SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts, last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil", created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt" FROM background_jobs WHERE id = ${Number(id)}) t;`);
+  }, `status = 'leased' AND leased_until > ${sqlString(now)}`);
 }
 
-export function requeueBackgroundJobInPostgresSync(id, delayMs = 0) {
-  if (!ensurePostgresSchemaSync()) return null;
+export function requeueBackgroundJobInPostgresSync(id, delayMs = 0, { attempts } = {}) {
   const now = new Date().toISOString();
   const runAfter = new Date(Date.now() + delayMs).toISOString();
-  runPsqlSync(updateJobStatusSql(id, {
+  return updateBackgroundJobInPostgresSync(id, attempts, {
     status: sqlString('queued'),
     leased_until: 'NULL',
     updated_at: sqlString(now),
     run_after: sqlString(runAfter)
-  }));
-  return firstJsonRow(`SELECT row_to_json(t) FROM (SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts, last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil", created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt" FROM background_jobs WHERE id = ${Number(id)}) t;`);
+  }, "status = 'failed'");
 }
 
 export function getStoredDocumentsFromPostgresSync() {
