@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, closeSync, mkdirSync, openSync, renameSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -11,10 +11,14 @@ const temporary = `${target}.partial`;
 // A read-only connection also ensures a missing source cannot become an empty backup.
 const database = new DatabaseSync(source, { readOnly: true });
 try {
+  const sourceMode = statSync(source).mode & 0o777;
   mkdirSync(backupDir, { recursive: true });
   database.exec('PRAGMA busy_timeout = 5000;');
+  // VACUUM INTO accepts an empty file; keep in-progress data private even with a permissive umask.
+  closeSync(openSync(temporary, 'wx', 0o600));
   // SQLite reads a consistent snapshot, including committed pages still in the WAL.
   database.prepare('VACUUM INTO ?').run(temporary);
+  chmodSync(temporary, sourceMode);
   renameSync(temporary, target);
 } finally {
   database.close();

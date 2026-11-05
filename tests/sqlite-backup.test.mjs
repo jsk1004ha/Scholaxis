@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +58,29 @@ test('backup snapshots committed WAL data while a writer stays open', (t) => {
   assert.equal(writer.prepare('SELECT COUNT(*) AS n FROM notes').get().n, 2);
   assert.equal(readdirSync(path.join(directory, '.data/backups')).filter((name) => name.endsWith('.partial')).length, 0);
 });
+
+for (const sourceMode of [0o600, 0o400, 0o640]) {
+  test(`backup preserves source permissions ${sourceMode.toString(8)}`, { skip: process.platform === 'win32' }, (t) => {
+    const { source, options } = fixture(t);
+    const writer = new DatabaseSync(source);
+    writer.exec("CREATE TABLE notes (body TEXT); INSERT INTO notes VALUES ('private note');");
+    writer.close();
+    chmodSync(source, sourceMode);
+
+    const originalUmask = process.umask(0o022);
+    let target;
+    try {
+      target = execFileSync(process.execPath, [backupScript], options).trim();
+    } finally {
+      process.umask(originalUmask);
+    }
+    assert.equal(statSync(target).mode & 0o777, sourceMode);
+    assert.equal(statSync(source).mode & 0o777, sourceMode);
+    const backup = new DatabaseSync(target, { readOnly: true });
+    assert.equal(backup.prepare('SELECT body FROM notes').get().body, 'private note');
+    backup.close();
+  });
+}
 
 for (const failure of ['missing', 'corrupt']) {
   test(`backup rejects a ${failure} source without publishing a snapshot`, (t) => {
