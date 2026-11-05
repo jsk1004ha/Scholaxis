@@ -34,6 +34,8 @@ const files = [
   'public/index.html',
   'tests/api.test.mjs',
   'tests/runtime-bootstrap.test.mjs',
+  'tests/sqlite-backup.test.mjs',
+  'tests/background-jobs.test.mjs',
   'scripts/sync-sources.mjs',
   'scripts/postgres-migrate.mjs',
   'scripts/search-quality-browser.mjs',

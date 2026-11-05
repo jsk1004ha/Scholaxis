@@ -229,6 +229,10 @@ npm run backup
 npm run restore -- <backup-file>
 ```
 
+`npm run backup`은 실행 중인 SQLite의 WAL에만 남아 있는 커밋까지 포함한 일관된 스냅샷을 `.data/backups/`에 저장합니다. 스냅샷 생성이 완료된 후에만 최종 `.db` 파일을 공개하며, 원본 DB가 없거나 손상된 경우 실패합니다. 복원은 API·스케줄러·워커를 모두 종료하고 기존 SQLite 연결과 WAL을 정리한 상태에서 수행하세요.
+
+백그라운드 워커는 실행 중 lease를 갱신하고, 중단된 워커의 만료 lease는 다음 워커가 회수합니다. SQLite와 PostgreSQL 모두 이전 실행의 완료·실패·재시도가 새 실행의 상태를 덮어쓰지 않도록 실행 횟수를 확인합니다. 자세한 동작과 PostgreSQL 통합 테스트 명령은 [배포 문서](docs/deployment.md)를 참고하세요.
+
 ### 6) PostgreSQL + pgvector 모드
 ```bash
 export SCHOLAXIS_STORAGE_BACKEND=postgres

@@ -31,6 +31,7 @@ import {
   postgresRuntimeReady,
   removeLibraryItemInPostgresSync,
   removeSavedSearchInPostgresSync,
+  renewBackgroundJobLeaseInPostgresSync,
   replaceGraphEdgesForSourceInPostgresSync,
   requeueBackgroundJobInPostgresSync,
   saveSearchInPostgresSync,
@@ -620,8 +621,7 @@ const insertBackgroundJobStmt = db.prepare(`
     job_type, status, payload_json, priority, attempts, last_error, run_after, leased_until, created_at, updated_at, completed_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-const listBackgroundJobsStmt = db.prepare(`
-  SELECT
+const backgroundJobColumns = `
     id,
     job_type AS jobType,
     status,
@@ -633,54 +633,57 @@ const listBackgroundJobsStmt = db.prepare(`
     leased_until AS leasedUntil,
     created_at AS createdAt,
     updated_at AS updatedAt,
-    completed_at AS completedAt
+    completed_at AS completedAt`;
+const listBackgroundJobsStmt = db.prepare(`
+  SELECT ${backgroundJobColumns}
   FROM background_jobs
   ORDER BY id DESC
   LIMIT ?
 `);
-const leaseCandidateJobStmt = db.prepare(`
-  SELECT id
-  FROM background_jobs
-  WHERE status = 'queued' AND datetime(run_after) <= datetime(?)
-  ORDER BY priority DESC, id ASC
-  LIMIT 1
-`);
 const leaseJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'leased', leased_until = ?, attempts = attempts + 1, updated_at = ?
-  WHERE id = ?
+  WHERE id = (
+    SELECT id
+    FROM background_jobs
+    WHERE (status = 'queued' AND julianday(run_after) <= julianday(?))
+      OR (status = 'leased' AND (leased_until IS NULL OR julianday(leased_until) <= julianday(?)))
+    ORDER BY priority DESC, id ASC
+    LIMIT 1
+  )
+  RETURNING ${backgroundJobColumns}
 `);
 const getBackgroundJobByIdStmt = db.prepare(`
-  SELECT
-    id,
-    job_type AS jobType,
-    status,
-    payload_json AS payloadJson,
-    priority,
-    attempts,
-    last_error AS lastError,
-    run_after AS runAfter,
-    leased_until AS leasedUntil,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    completed_at AS completedAt
+  SELECT ${backgroundJobColumns}
   FROM background_jobs
   WHERE id = ?
+`);
+const renewJobLeaseStmt = db.prepare(`
+  UPDATE background_jobs
+  SET leased_until = ?, updated_at = ?
+  WHERE id = ? AND attempts = ? AND status = 'leased'
+    AND julianday(leased_until) > julianday(?)
+  RETURNING ${backgroundJobColumns}
 `);
 const completeJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'completed', leased_until = NULL, last_error = NULL, updated_at = ?, completed_at = ?
-  WHERE id = ?
+  WHERE id = ? AND attempts = ? AND status = 'leased'
+    AND julianday(leased_until) > julianday(?)
+  RETURNING ${backgroundJobColumns}
 `);
 const failJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'failed', leased_until = NULL, last_error = ?, updated_at = ?
-  WHERE id = ?
+  WHERE id = ? AND attempts = ? AND status = 'leased'
+    AND julianday(leased_until) > julianday(?)
+  RETURNING ${backgroundJobColumns}
 `);
 const releaseJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'queued', leased_until = NULL, updated_at = ?, run_after = ?
-  WHERE id = ?
+  WHERE id = ? AND attempts = ? AND status = 'failed'
+  RETURNING ${backgroundJobColumns}
 `);
 const getAllDocumentsStmt = db.prepare(`
   SELECT
@@ -864,33 +867,40 @@ export function leaseNextBackgroundJob({
   if (usePostgresStorage()) {
     return leaseNextBackgroundJobFromPostgresSync({ now, leaseMs });
   }
-  const candidate = leaseCandidateJobStmt.get(now);
-  if (!candidate?.id) return null;
-  const leasedUntil = new Date(Date.now() + leaseMs).toISOString();
-  leaseJobStmt.run(leasedUntil, now, candidate.id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(candidate.id));
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
+  // Selection and acquisition are one write so concurrent processes cannot claim the same attempt.
+  return normalizeBackgroundJob(leaseJobStmt.get(leasedUntil, now, now, now));
 }
 
-export function completeBackgroundJob(id) {
-  if (usePostgresStorage()) return completeBackgroundJobInPostgresSync(id);
+export function renewBackgroundJobLease(id, { attempts, now = new Date().toISOString(), leaseMs = 15000 } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return renewBackgroundJobLeaseInPostgresSync(id, { attempts, now, leaseMs });
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
+  return normalizeBackgroundJob(renewJobLeaseStmt.get(leasedUntil, now, id, attempts, now));
+}
+
+export function completeBackgroundJob(id, { attempts } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return completeBackgroundJobInPostgresSync(id, { attempts });
   const now = new Date().toISOString();
-  completeJobStmt.run(now, now, id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+  return normalizeBackgroundJob(completeJobStmt.get(now, now, id, attempts, now));
 }
 
-export function failBackgroundJob(id, error = '') {
-  if (usePostgresStorage()) return failBackgroundJobInPostgresSync(id, error);
+export function failBackgroundJob(id, error = '', { attempts } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return failBackgroundJobInPostgresSync(id, error, { attempts });
   const now = new Date().toISOString();
-  failJobStmt.run(String(error || ''), now, id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+  return normalizeBackgroundJob(failJobStmt.get(String(error || ''), now, id, attempts, now));
 }
 
-export function requeueBackgroundJob(id, delayMs = 0) {
-  if (usePostgresStorage()) return requeueBackgroundJobInPostgresSync(id, delayMs);
+export function requeueBackgroundJob(id, delayMs = 0, { attempts } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return requeueBackgroundJobInPostgresSync(id, delayMs, { attempts });
   const now = new Date().toISOString();
   const runAfter = new Date(Date.now() + delayMs).toISOString();
-  releaseJobStmt.run(now, runAfter, id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+  return normalizeBackgroundJob(releaseJobStmt.get(now, runAfter, id, attempts));
 }
 
 export function getStoredDocuments() {
