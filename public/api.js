@@ -75,9 +75,17 @@ async function requestJson(url, options) {
     payload = null;
   }
   if (!response.ok) {
-    throw new Error(payload?.error || payload?.message || `Request failed: ${response.status}`);
+    const error = new Error(payload?.error || payload?.message || `Request failed: ${response.status}`);
+    error.status = response.status;
+    error.code = payload?.code || '';
+    error.retryAfterMs = Number(payload?.retryAfterMs || 0);
+    throw error;
   }
   return payload;
+}
+
+function delay(ms = 0) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
 }
 
 function canUseSessionStorage() {
@@ -153,21 +161,49 @@ function normalizeSimilarity(payload) {
 
 function buildErrorSearch(query, error) {
   const normalizedQuery = normalizeSearchQuery(query);
+  const message = error?.message || 'search-error';
+  const isNetworkError = /failed to fetch|networkerror|load failed|could not connect|connection/i.test(message);
   return {
     ...EMPTY_SEARCH_RESPONSE,
     query: normalizedQuery.q || '',
     total: 0,
     items: [],
-    summary: '검색 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
-    error: error?.message || 'search-error',
+    summary: isNetworkError
+      ? '검색 서버에 연결하지 못했습니다. Scholaxis 서버가 실행 중인지 확인해 주세요.'
+      : '검색 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+    error: message,
+    errorCode: error?.code || '',
+    errorStatus: error?.status || 0,
+    errorDetail: message,
   };
 }
 
-export async function fetchSearch(query) {
+async function fetchSearchStrict(query) {
   const params = new URLSearchParams(normalizeSearchQuery(query));
+  const payload = await requestJson(`/api/search?${params.toString()}`);
+  return normalizeSearch(payload);
+}
+
+async function fetchSearchWithRetries(query, options = {}) {
+  const attempts = Math.max(1, Number(options.attempts || 1));
+  const baseDelayMs = Math.max(0, Number(options.delayMs || 0));
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchSearchStrict(query);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts) break;
+      const retryAfterMs = Number(error?.retryAfterMs || 0);
+      await delay(retryAfterMs || baseDelayMs * attempt);
+    }
+  }
+  return buildErrorSearch(query, lastError);
+}
+
+export async function fetchSearch(query) {
   try {
-    const payload = await requestJson(`/api/search?${params.toString()}`);
-    return normalizeSearch(payload);
+    return await fetchSearchStrict(query);
   } catch (error) {
     return buildErrorSearch(query, error);
   }
@@ -181,9 +217,12 @@ function parseStreamEventPayload(event) {
   }
 }
 
-export async function fetchSearchStream(query, handlers = {}) {
+export async function fetchSearchStream(query, handlers = {}, options = {}) {
   if (typeof EventSource === 'undefined') {
-    const payload = await fetchSearch(query);
+    const payload = await fetchSearchWithRetries(query, {
+      attempts: Number(options.fallbackAttempts || 3),
+      delayMs: Number(options.fallbackDelayMs || 300),
+    });
     handlers.onDone?.(payload);
     return payload;
   }
@@ -199,7 +238,14 @@ export async function fetchSearchStream(query, handlers = {}) {
       completed = true;
       stream.close();
       try {
-        const payload = await fetchSearch(query);
+        handlers.onProgress?.({
+          stage: 'stream-fallback',
+          message: '스트리밍 연결을 일반 검색으로 복구하고 있습니다.',
+        });
+        const payload = await fetchSearchWithRetries(query, {
+          attempts: Number(options.fallbackAttempts || 3),
+          delayMs: Number(options.fallbackDelayMs || 300),
+        });
         handlers.onDone?.(payload);
         resolve(payload);
       } catch (error) {
@@ -238,13 +284,21 @@ export async function fetchSearchStream(query, handlers = {}) {
 }
 
 export function normalizeSearchQuery(query = {}) {
-  return {
-    ...query,
+  const normalized = {
     q: query.q || '',
     region: REGION_MAP[query.region] || query.region || 'all',
     sourceType: SOURCE_TYPE_MAP[query.sourceType] || query.sourceType || 'all',
     sort: SORT_MAP[query.sort] || query.sort || 'relevance',
   };
+
+  for (const key of ['live', 'autoLive', 'refresh', 'preferredSources']) {
+    const value = query[key];
+    if (value != null && String(value).trim() !== '') {
+      normalized[key] = value;
+    }
+  }
+
+  return normalized;
 }
 
 function humanRegion(region = '') {
@@ -255,7 +309,22 @@ function humanType(type = '') {
   return type === 'paper' ? '논문' : type === 'patent' ? '특허' : type === 'report' ? '보고서' : type || '자료';
 }
 
+function normalizeSourceCountry(item = {}) {
+  const country = item.sourceCountry || {};
+  const code = country.code || item.countryCode || '';
+  const flag = country.flag || item.countryFlag || '';
+  const label = country.label || item.countryLabel || '';
+  return { code, flag, label, inferred: country.inferred !== false, basis: country.basis || 'unknown' };
+}
+
+function buildCountryBadge(country = {}, region = '') {
+  if (!country.flag || humanRegion(region) !== '해외') return '';
+  const suffix = country.basis && country.basis !== 'unknown' ? ' 기준' : '';
+  return `${country.flag} ${country.label || country.code || '해외'}${suffix}`.trim();
+}
+
 export function toUiPaperShape(item = {}) {
+  const sourceCountry = normalizeSourceCountry(item);
   return {
     ...item,
     id: item.id || item.canonicalId,
@@ -266,11 +335,25 @@ export function toUiPaperShape(item = {}) {
     year: item.year || '',
     source: item.source || '',
     sourceType: humanType(item.type || item.sourceType),
+    language: item.language || '',
+    languageLabel: item.languageLabel || item.language || '',
+    sourceCountry,
+    countryBadge: buildCountryBadge(sourceCountry, item.region),
     openAccess: Boolean(item.openAccess),
     badge: item.source || item.badge || 'Scholaxis',
     region: humanRegion(item.region),
     summary: item.summary || '',
     abstract: item.abstract || item.summary || '',
+    matchSortScore: item.matchSortScore || 0,
+    relevanceEvidence: {
+      titleCoverage: item.titleCoverage || 0,
+      keywordCoverage: item.keywordCoverage || 0,
+      semanticTitleCoverage: item.semanticTitleCoverage || 0,
+      orderedPhraseCoverage: item.orderedPhraseCoverage || 0,
+      lexicalScore: item.lexicalScore || 0,
+      bm25Score: item.bm25Score || 0,
+      rerankScore: item.rerankScore || 0,
+    },
     sourceUrl: item.links?.detail || item.sourceUrl || '',
     originalUrl: item.links?.original || item.originalUrl || item.links?.detail || '',
     tags: item.keywords || item.tags || [],

@@ -987,14 +987,17 @@ FROM (
 
 export function leaseNextBackgroundJobFromPostgresSync({ now = new Date().toISOString(), leaseMs = 15000 } = {}) {
   if (!ensurePostgresSchemaSync()) return null;
-  const leasedUntil = new Date(Date.now() + leaseMs).toISOString();
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
   return firstJsonRow(`
 WITH candidate AS (
   SELECT id
   FROM background_jobs
-  WHERE status = 'queued' AND run_after <= ${sqlString(now)}
+  WHERE (status = 'queued' AND run_after <= ${sqlString(now)})
+    OR (status = 'leased' AND (leased_until IS NULL OR leased_until <= ${sqlString(now)}))
   ORDER BY priority DESC, id ASC
   LIMIT 1
+  FOR UPDATE SKIP LOCKED
 ),
 upd AS (
   UPDATE background_jobs
@@ -1021,53 +1024,66 @@ FROM (
 ) t;`);
 }
 
-function updateJobStatusSql(id, fields = {}) {
+function updateBackgroundJobInPostgresSync(id, attempts, fields, condition) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1 || !ensurePostgresSchemaSync()) return null;
   const sets = Object.entries(fields)
     .map(([key, value]) => `${key} = ${value}`)
     .join(', ');
-  return `
-UPDATE background_jobs
-SET ${sets}
-WHERE id = ${Number(id)};
-`;
+  return firstJsonRow(`
+WITH upd AS (
+  UPDATE background_jobs
+  SET ${sets}
+  WHERE id = ${Number(id)} AND attempts = ${attempts} AND ${condition}
+  RETURNING *
+)
+SELECT row_to_json(t)
+FROM (
+  SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts,
+    last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil",
+    created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt"
+  FROM upd
+) t;`);
 }
 
-export function completeBackgroundJobInPostgresSync(id) {
-  if (!ensurePostgresSchemaSync()) return null;
+export function renewBackgroundJobLeaseInPostgresSync(id, { attempts, now = new Date().toISOString(), leaseMs = 15000 } = {}) {
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
+  return updateBackgroundJobInPostgresSync(id, attempts, {
+    leased_until: sqlString(leasedUntil),
+    updated_at: sqlString(now)
+  }, `status = 'leased' AND leased_until > ${sqlString(now)}`);
+}
+
+export function completeBackgroundJobInPostgresSync(id, { attempts } = {}) {
   const now = new Date().toISOString();
-  runPsqlSync(updateJobStatusSql(id, {
+  return updateBackgroundJobInPostgresSync(id, attempts, {
     status: sqlString('completed'),
     leased_until: 'NULL',
     last_error: 'NULL',
     updated_at: sqlString(now),
     completed_at: sqlString(now)
-  }));
-  return firstJsonRow(`SELECT row_to_json(t) FROM (SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts, last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil", created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt" FROM background_jobs WHERE id = ${Number(id)}) t;`);
+  }, `status = 'leased' AND leased_until > ${sqlString(now)}`);
 }
 
-export function failBackgroundJobInPostgresSync(id, error = '') {
-  if (!ensurePostgresSchemaSync()) return null;
+export function failBackgroundJobInPostgresSync(id, error = '', { attempts } = {}) {
   const now = new Date().toISOString();
-  runPsqlSync(updateJobStatusSql(id, {
+  return updateBackgroundJobInPostgresSync(id, attempts, {
     status: sqlString('failed'),
     leased_until: 'NULL',
     last_error: sqlString(String(error || '')),
     updated_at: sqlString(now)
-  }));
-  return firstJsonRow(`SELECT row_to_json(t) FROM (SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts, last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil", created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt" FROM background_jobs WHERE id = ${Number(id)}) t;`);
+  }, `status = 'leased' AND leased_until > ${sqlString(now)}`);
 }
 
-export function requeueBackgroundJobInPostgresSync(id, delayMs = 0) {
-  if (!ensurePostgresSchemaSync()) return null;
+export function requeueBackgroundJobInPostgresSync(id, delayMs = 0, { attempts } = {}) {
   const now = new Date().toISOString();
   const runAfter = new Date(Date.now() + delayMs).toISOString();
-  runPsqlSync(updateJobStatusSql(id, {
+  return updateBackgroundJobInPostgresSync(id, attempts, {
     status: sqlString('queued'),
     leased_until: 'NULL',
     updated_at: sqlString(now),
     run_after: sqlString(runAfter)
-  }));
-  return firstJsonRow(`SELECT row_to_json(t) FROM (SELECT id, job_type AS "jobType", status, payload_json AS payload, priority, attempts, last_error AS "lastError", run_after AS "runAfter", leased_until AS "leasedUntil", created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt" FROM background_jobs WHERE id = ${Number(id)}) t;`);
+  }, "status = 'failed'");
 }
 
 export function getStoredDocumentsFromPostgresSync() {
@@ -1175,15 +1191,30 @@ export function listLibraryItemsFromPostgresSync(userId) {
 SELECT row_to_json(t)
 FROM (
   SELECT
-    canonical_id AS "canonicalId",
-    note,
-    highlights_json AS highlights,
-    share_token AS "shareToken",
-    created_at AS "createdAt",
-    updated_at AS "updatedAt"
-  FROM library_items
-  WHERE user_id = ${Number(userId)}
-  ORDER BY created_at DESC
+    li.canonical_id AS "canonicalId",
+    li.note,
+    li.highlights_json AS highlights,
+    li.share_token AS "shareToken",
+    li.created_at AS "createdAt",
+    li.updated_at AS "updatedAt",
+    d.title,
+    d.source,
+    d.type AS "sourceType",
+    d.year,
+    d.organization,
+    d.authors_json AS authors,
+    d.summary,
+    COALESCE(d.links_json->>'detail', '') AS "detailUrl",
+    COALESCE(d.links_json->>'original', d.links_json->>'detail', '') AS "originalUrl"
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN strpos(li.canonical_id, ':') > 0 THEN split_part(li.canonical_id, ':', 2)
+      ELSE li.canonical_id
+    END
+  WHERE li.user_id = ${Number(userId)}
+  ORDER BY li.created_at DESC
 ) t;`);
 }
 
@@ -1193,14 +1224,29 @@ export function findLibraryItemByShareTokenInPostgresSync(shareToken) {
 SELECT row_to_json(t)
 FROM (
   SELECT
-    canonical_id AS "canonicalId",
-    note,
-    highlights_json AS highlights,
-    share_token AS "shareToken",
-    created_at AS "createdAt",
-    updated_at AS "updatedAt"
-  FROM library_items
-  WHERE share_token = ${sqlString(shareToken)}
+    li.canonical_id AS "canonicalId",
+    li.note,
+    li.highlights_json AS highlights,
+    li.share_token AS "shareToken",
+    li.created_at AS "createdAt",
+    li.updated_at AS "updatedAt",
+    d.title,
+    d.source,
+    d.type AS "sourceType",
+    d.year,
+    d.organization,
+    d.authors_json AS authors,
+    d.summary,
+    COALESCE(d.links_json->>'detail', '') AS "detailUrl",
+    COALESCE(d.links_json->>'original', d.links_json->>'detail', '') AS "originalUrl"
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN strpos(li.canonical_id, ':') > 0 THEN split_part(li.canonical_id, ':', 2)
+      ELSE li.canonical_id
+    END
+  WHERE li.share_token = ${sqlString(shareToken)}
   LIMIT 1
 ) t;`);
 }

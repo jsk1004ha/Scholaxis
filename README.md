@@ -64,7 +64,8 @@ Scholaxis의 우선순위는 다음과 같습니다.
 ## 핵심 기능
 
 ### 탐색 / 검색
-- 통합 검색 UI
+- 미니멀 통합 검색 UI
+- 다크/라이트 테마 토글 및 OS 테마 기본값 지원
 - SSE 기반 스트리밍 검색 (`/api/search/stream`)
 - 추천/관련 자료 확장
 - 인용/참고문헌/그래프 조회
@@ -170,22 +171,32 @@ export SCHOLAXIS_OLLAMA_RERANKER_MODEL=qwen2.5:3b
 
 ## 빠른 시작
 
-### 1) 설치
-```bash
-npm install
-```
-
-### 2) 개발 서버 실행
-```bash
-npm run dev
-```
-
-### 3) 프로덕션 방식으로 실행
+### 1) 가장 빠른 첫 실행
 ```bash
 npm start
 ```
 
-기본적으로 `PORT`가 없으면 `3000`을 사용하고, 포트가 이미 점유되어 있으면 다음 포트로 자동 fallback 합니다.
+`npm start` 는 **처음 실행 시점에 `.env` 가 없으면 quickstart용 `.env` 를 자동 생성**하고,
+SQLite/local 벡터 기본값으로 바로 부팅합니다. 또한:
+
+- `PORT` 가 없으면 `3000` 을 사용하고, 이미 점유되어 있으면 다음 포트로 자동 fallback
+- `DATABASE_URL` 또는 `PG*` 연결 정보가 이미 있으면 별도 export 없이 `postgres + pgvector` 기본값 자동 추론
+- 로컬 `sentence-transformers` 런타임이 없으면 첫 부팅에서 `SCHOLAXIS_LOCAL_MODEL_AUTOSTART=0` 으로 내려 빠른 fallback 경로 사용
+
+즉, **배포자 입장에서는 clone 후 `npm start` 만으로 1차 부팅**이 가능하도록 맞춰져 있습니다.
+
+### 2) 필요하면 개발 모드 실행
+```bash
+npm run dev
+```
+
+### 3) npm 설치가 필요한 경우
+현재 저장소는 추가 npm 패키지 의존성이 없어서 보통 `npm install` 없이도 바로 부팅할 수 있습니다.
+다만 이후 npm 의존성이 추가되거나 배포 환경 정책상 lockfile 설치를 강제한다면 아래처럼 먼저 실행하세요.
+
+```bash
+npm install
+```
 
 ### 4) 전체 검증
 ```bash
@@ -218,6 +229,10 @@ npm run backup
 npm run restore -- <backup-file>
 ```
 
+`npm run backup`은 실행 중인 SQLite의 WAL에만 남아 있는 커밋까지 포함한 일관된 스냅샷을 `.data/backups/`에 저장합니다. 스냅샷 생성이 완료된 후에만 최종 `.db` 파일을 공개하며, 원본 DB가 없거나 손상된 경우 실패합니다. 복원은 API·스케줄러·워커를 모두 종료하고 기존 SQLite 연결과 WAL을 정리한 상태에서 수행하세요.
+
+백그라운드 워커는 실행 중 lease를 갱신하고, 중단된 워커의 만료 lease는 다음 워커가 회수합니다. SQLite와 PostgreSQL 모두 이전 실행의 완료·실패·재시도가 새 실행의 상태를 덮어쓰지 않도록 실행 횟수를 확인합니다. 자세한 동작과 PostgreSQL 통합 테스트 명령은 [배포 문서](docs/deployment.md)를 참고하세요.
+
 ### 6) PostgreSQL + pgvector 모드
 ```bash
 export SCHOLAXIS_STORAGE_BACKEND=postgres
@@ -230,6 +245,9 @@ npm start
 
 실사용/운영 환경에서는 위 구성을 기본값으로 간주하세요. SQLite/local 벡터 경로는 빠른 로컬 개발과 디버깅용 fallback 입니다.
 문서 적재 시 `year` 값은 PostgreSQL INSERT 전에 정수로 정규화되며, 숫자가 아닌 값은 `NULL` 처리되어 SQL 주입 문자열이 실행되지 않습니다.
+
+이미 `DATABASE_URL` 또는 `PGHOST` 계열 환경 변수를 주입한 상태라면 `npm start` 가 `postgres + pgvector` 를 자동 추론하므로,
+위 export 중 일부는 생략해도 됩니다. 명시적 override 가 있으면 그 값을 그대로 존중합니다.
 
 로컬 sentence-transformers + pgvector를 함께 쓸 경우:
 ```bash
@@ -266,7 +284,8 @@ curl "http://127.0.0.1:3000/api/search/stream?q=배터리%20AI&live=1"
 
 ### 캐시 초기화
 ```bash
-curl -X POST "http://127.0.0.1:3000/api/cache/clear"
+curl -X POST "http://127.0.0.1:3000/api/cache/clear" \
+  -H "cookie: scholaxis_session=<admin-session-cookie>"
 ```
 
 ### 백그라운드 잡 스케줄링
@@ -294,6 +313,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 
 기본 로컬 저장소:
 - `.data/scholaxis.db`
+
+정상 SQLite DB와 WAL은 파일 크기와 관계없이 같은 경로로 다시 엽니다. 용량 증가만으로 빈 복구 DB로 전환하지 않으며, 기존 `SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY` / `SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY` 설정은 저장소 경로를 바꾸지 않습니다. 실제 손상·열기 오류의 기존 복구 경로는 유지됩니다.
 
 저장 항목 예시:
 - documents
@@ -338,6 +359,7 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 <summary>펼쳐서 보기</summary>
 
 - `SCHOLAXIS_ENABLE_LIVE_SOURCES`
+- `SCHOLAXIS_EXPERIMENTAL_LIVE_SOURCES` (비워 두면 모든 소스가 기본 자동 검색에 포함되고, 값을 넣으면 해당 소스만 기본 자동 라우팅에서 제외)
 - `SCHOLAXIS_SOURCE_TIMEOUT_MS`
 - `SCHOLAXIS_MAX_LIVE_RESULTS_PER_SOURCE`
 - `SCHOLAXIS_SOURCE_CACHE_TTL_MS`
@@ -378,9 +400,12 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - `SCHOLAXIS_WORKER_POLL_MS`
 - `SCHOLAXIS_WORKER_LEASE_MS`
 - `SCHOLAXIS_ANALYSIS_WORKERS`
+- `SCHOLAXIS_ANALYSIS_MAX_QUEUED_TASKS`
 - `SCHOLAXIS_ANALYSIS_IDLE_SHUTDOWN_MS`
 - `SCHOLAXIS_ASYNC_JOB_TTL_MS`
 - `SCHOLAXIS_ADMIN_EMAILS`
+- `SCHOLAXIS_ADMIN_REGISTRATION_CODE`
+- `SCHOLAXIS_AUTH_RATE_LIMIT_ATTEMPTS`
 
 </details>
 
@@ -405,7 +430,9 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - 검색 결과 카드에서 **유사도 분석으로 바로 이동** 가능
 - `detail.html`, `similarity.html` 이 **202 + polling 기반 async 분석 흐름** 을 사용하고, 진행바/취소 버튼으로 현재 상태를 보여주도록 개선
 - 무거운 상세/유사도 분석은 **analysis worker pool** 로 분리되어 요청마다 새 프로세스를 띄우지 않도록 최적화
-- admin 화면/API는 **로그인 + `SCHOLAXIS_ADMIN_EMAILS` allowlist** 로 제한
+- admin 화면/API는 **로그인 + `SCHOLAXIS_ADMIN_EMAILS` allowlist** 로 제한되며, 운영 환경에서 allowlist 이메일 계정 생성에는 `SCHOLAXIS_ADMIN_REGISTRATION_CODE` 가 필요
+- 캐시 초기화와 저장소 진단 API를 admin 전용으로 전환하고, unsafe API 요청에는 same-origin Origin/Referer 검증을 적용
+- 한화 사이언스 챌린지/R&E/과학전람회처럼 특정 학생연구 소스가 명시된 질의는 같은 학생연구 계열의 다른 소스보다 요청 소스를 우선하도록 랭킹 보정
 - ScienceON 크롤링에 **cp949/euc-kr 우선 디코딩 + escaped `<em>` 제거** 를 적용해 한글 제목 깨짐과 강조 태그 노출을 완화
 
 ---
@@ -437,8 +464,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 - `DELETE /api/analysis/jobs/:id`
 
 ### 운영 / 저장소
-- `GET /api/storage/stats`
-- `POST /api/cache/clear`
+- `GET /api/storage/stats` (admin)
+- `POST /api/cache/clear` (admin)
 - `GET /api/admin/summary`
 - `GET /api/admin/ops`
 - `GET /api/admin/infra`
@@ -479,7 +506,10 @@ admin API와 `admin.html` 은 로그인만으로는 열리지 않으며, 아래 
 
 ```bash
 export SCHOLAXIS_ADMIN_EMAILS=admin1@example.com,admin2@example.com
+export SCHOLAXIS_ADMIN_REGISTRATION_CODE='<long one-time setup code>'
 ```
+
+운영 환경에서는 allowlist 이메일이라고 해도 등록 코드 없이 `/api/auth/register` 로 admin 계정을 만들 수 없습니다.
 
 </details>
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const MAX_DOCX_XML_BYTES = Number(process.env.SCHOLAXIS_DOCX_XML_BYTES || 2_000_000);
 
 export async function extractDocxText(buffer) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
@@ -20,10 +21,13 @@ export async function extractDocxText(buffer) {
       'import zipfile, re',
       'from xml.etree import ElementTree as ET',
       'path = ' + JSON.stringify(inputPath),
+      'max_xml_bytes = ' + JSON.stringify(MAX_DOCX_XML_BYTES),
       "ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}",
       'parts = []',
       'with zipfile.ZipFile(path) as zf:',
-      "    xml = zf.read('word/document.xml')",
+      "    info = zf.getinfo('word/document.xml')",
+      "    if info.file_size > max_xml_bytes: raise ValueError('docx-main-xml-too-large')",
+      "    xml = zf.read(info)",
       'root = ET.fromstring(xml)',
       "for node in root.findall('.//w:body/*', ns):",
       "    tag = node.tag.split('}')[-1]",

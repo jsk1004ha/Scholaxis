@@ -64,7 +64,8 @@ In short, Scholaxis is closer to a **research exploration engine** than a generi
 ## Core capabilities
 
 ### Discovery / search
-- unified search UI
+- minimal unified search UI
+- dark/light theme toggle with OS theme defaults
 - SSE-based streamed search (`/api/search/stream`)
 - related-paper expansion
 - citations/references/graph lookup
@@ -169,22 +170,32 @@ Recommended defaults:
 
 ## Quick start
 
-### 1) Install
+### 1) Fastest first boot
 ```bash
-npm install
+npm start
 ```
+
+On the **first boot**, `npm start` now auto-creates a quickstart `.env` when none exists and brings the app up immediately on the SQLite/local-vector path.
+It also:
+
+- defaults to `3000` and automatically retries the next ports when the requested port is busy
+- infers `postgres + pgvector` automatically when `DATABASE_URL` or `PG*` connection settings are already present
+- disables local `sentence-transformers` autostart for that boot when no local runtime is detected, so fallback search stays responsive
+
+In practice, deployers can now **clone the repo and boot with `npm start`** for the first bring-up.
 
 ### 2) Start the development server
 ```bash
 npm run dev
 ```
 
-### 3) Run in the normal start mode
-```bash
-npm start
-```
+### 3) Install npm packages if your environment requires it
+This repository currently has no extra npm package dependencies, so `npm install` is usually unnecessary for the first boot.
+If your deployment policy still requires an install step, run:
 
-If `PORT` is unset, Scholaxis uses `3000`. If that port is already occupied, the server automatically retries the next ports.
+```bash
+npm install
+```
 
 ### 4) Run the full verification suite
 ```bash
@@ -217,6 +228,10 @@ npm run backup
 npm run restore -- <backup-file>
 ```
 
+`npm run backup` writes a consistent SQLite snapshot to `.data/backups/`, including committed data still in the live WAL. The final `.db` file appears only after snapshot creation succeeds; missing or corrupt source databases fail the command. Restore only after stopping the API, scheduler, and workers and closing the existing SQLite connections and WAL cleanly.
+
+Background workers renew their leases while running, and another worker can reclaim an expired lease after a worker stops. Both SQLite and PostgreSQL check the claim's attempt number so stale completion, failure, and retry operations cannot overwrite a newer claim. See [deployment guidance](docs/deployment.md) for the contract and PostgreSQL integration test command.
+
 ### 6) PostgreSQL + pgvector mode
 ```bash
 export SCHOLAXIS_STORAGE_BACKEND=postgres
@@ -228,6 +243,8 @@ npm start
 ```
 
 Treat this as the default path for serious-use deployments. SQLite/local vector mode remains a quickstart and debugging fallback.
+
+If `DATABASE_URL` or the standard `PG*` variables are already injected by your deployment environment, `npm start` will infer `postgres + pgvector` automatically unless you explicitly override those backends.
 
 ---
 
@@ -250,7 +267,8 @@ curl "http://127.0.0.1:3000/api/search/stream?q=battery%20AI&live=1"
 
 ### Clear the cache
 ```bash
-curl -X POST "http://127.0.0.1:3000/api/cache/clear"
+curl -X POST "http://127.0.0.1:3000/api/cache/clear" \
+  -H "cookie: scholaxis_session=<admin-session-cookie>"
 ```
 
 ### Schedule infrastructure jobs
@@ -278,6 +296,8 @@ curl -X POST http://127.0.0.1:3000/api/admin/jobs \
 
 Default local store:
 - `.data/scholaxis.db`
+
+Healthy SQLite databases and WAL files reopen at the same path regardless of size. Growth alone never switches the application to an empty recovery database, and the former `SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY` / `SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY` settings no longer redirect storage. Existing recovery behavior for actual corruption or open failures is retained.
 
 Stored entities include:
 - documents
@@ -320,6 +340,7 @@ Stored entities include:
 <summary>Expand</summary>
 
 - `SCHOLAXIS_ENABLE_LIVE_SOURCES`
+- `SCHOLAXIS_EXPERIMENTAL_LIVE_SOURCES` (leave empty to include all sources in default auto search; set values to keep only those sources out of default auto-routing)
 - `SCHOLAXIS_SOURCE_TIMEOUT_MS`
 - `SCHOLAXIS_MAX_LIVE_RESULTS_PER_SOURCE`
 - `SCHOLAXIS_SOURCE_CACHE_TTL_MS`
@@ -359,6 +380,10 @@ Stored entities include:
 - `SCHOLAXIS_SCHEDULER_INTERVAL_MS`
 - `SCHOLAXIS_WORKER_POLL_MS`
 - `SCHOLAXIS_WORKER_LEASE_MS`
+- `SCHOLAXIS_ANALYSIS_MAX_QUEUED_TASKS`
+- `SCHOLAXIS_ADMIN_EMAILS`
+- `SCHOLAXIS_ADMIN_REGISTRATION_CODE`
+- `SCHOLAXIS_AUTH_RATE_LIMIT_ATTEMPTS`
 
 </details>
 
@@ -376,6 +401,9 @@ Stored entities include:
 - a real reranker service layer and local HTTP reranker path were added
 - translation + reranker diagnostics are surfaced through runtime APIs
 - saved-search, library sharing, and recommendation-feed user-state features were expanded
+- admin surfaces, cache clearing, and storage diagnostics now require authenticated allowlisted admin access; production admin self-registration requires `SCHOLAXIS_ADMIN_REGISTRATION_CODE`
+- unsafe API requests enforce same-origin Origin/Referer checks, and analysis worker queues now expose bounded queue diagnostics
+- source-explicit student-research queries such as Hanwha Science Challenge, R&E, and science-fair searches now keep the requested source ahead of sibling student-research sources
 
 ---
 
@@ -404,8 +432,8 @@ Stored entities include:
 - `POST /api/similarity/analyze`
 
 ### Ops / persistence
-- `GET /api/storage/stats`
-- `POST /api/cache/clear`
+- `GET /api/storage/stats` (admin)
+- `POST /api/cache/clear` (admin)
 - `GET /api/admin/summary`
 - `GET /api/admin/ops`
 - `GET /api/admin/infra`

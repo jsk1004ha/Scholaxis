@@ -285,11 +285,41 @@
       }
     },
     {
+      "id": "en-crosslingual-patent-edge-medical",
+      "query": "medical imaging edge support",
+      "labels": [
+        "english",
+        "mixed_language",
+        "cross_lingual",
+        "source_filtered",
+        "narrow_technical"
+      ],
+      "filters": {
+        "region": "domestic",
+        "sourceType": "patent"
+      },
+      "expectations": {
+        "minTotal": 1,
+        "maxAcceptedRank": 3,
+        "source": "kipris",
+        "type": "patent",
+        "titleIncludes": [
+          "의료영상",
+          "실시간"
+        ]
+      },
+      "provenance": {
+        "canonicalId": "seed-patent-ko-edge-medical",
+        "basis": "english-to-korean patent crosslingual regression"
+      }
+    },
+    {
       "id": "ko-crosslingual-graph",
       "query": "학술 그래프 검색",
       "labels": [
         "korean",
         "mixed_language",
+        "cross_lingual",
         "broad_topic"
       ],
       "filters": {
@@ -314,6 +344,7 @@
       "query": "portable voltage supply",
       "labels": [
         "english",
+        "cross_lingual",
         "mixed_language"
       ],
       "expectations": {

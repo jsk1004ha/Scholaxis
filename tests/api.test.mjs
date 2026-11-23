@@ -3,27 +3,43 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { Blob } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { createServer, startServer } from '../src/server.mjs';
+import { appConfig } from '../src/config.mjs';
 import { createGraphBackendServer } from '../src/graph-backend-server.mjs';
 import { buildPostgresMigrationSql } from '../src/postgres-migration.mjs';
-import { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics, persistDocumentsToPostgresSync } from '../src/postgres-store.mjs';
+import { getPostgresSchemaSql, getPostgresSeriousUsePathDiagnostics } from '../src/postgres-store.mjs';
 import { createRerankerBackendServer } from '../src/reranker-backend-server.mjs';
 import { createVectorBackendServer } from '../src/vector-backend-server.mjs';
-import { appConfig } from '../src/config.mjs';
 import { extractHwpText, extractHwpxText } from '../src/hwp-text-extractor.mjs';
-import { normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
-import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
-import { searchLiveSources } from '../src/source-adapters.mjs';
+import { fetchSearchStream, normalizeSearchQuery, toUiPaperShape } from '../public/api.js';
+import { buildCrossLingualQueryContext, buildDocument, classifyQueryProfile, expandQueryVariants, hasBrokenEncoding, isUsableSearchText, looksLikeNoise } from '../src/source-helpers.mjs';
+import { getSourceRuntimeDiagnostics, searchLiveSources, sourceRegistrySummary } from '../src/source-adapters.mjs';
 import { extractPdfTextWithOcr } from '../src/ocr-service.mjs';
-import { extractKciDocumentsFromHtml, extractNtisDocumentsFromHtml, extractRneReportDocumentsFromHtml, extractScienceGoDocumentsFromHtml } from '../src/source-adapters.mjs';
+import {
+  extractBlackHatDocumentsFromHtml,
+  extractCveDocumentsFromPayload,
+  extractDefconDocumentsFromHtml,
+  extractHanwhaScienceChallengeDocumentsFromHtml,
+  extractKciDocumentsFromHtml,
+  extractKissDocumentsFromHtml,
+  extractNanetDocumentsFromHtml,
+  extractNtisDocumentsFromHtml,
+  extractPreprintDocumentsFromHtml,
+  extractPubMedDocumentsFromXml,
+  extractRneReportDocumentsFromHtml,
+  extractScienceGoDocumentsFromHtml
+} from '../src/source-adapters.mjs';
 import { dedupeDocuments } from '../src/dedup-service.mjs';
 import { extractPdfText } from '../src/pdf-text-extractor.mjs';
 import { extractDocxText } from '../src/docx-text-extractor.mjs';
 import { persistDocuments } from '../src/storage.mjs';
 import { buildDenseVector, cosineSimilarity } from '../src/vector-service.mjs';
+import { buildFallbackQueries, rankSourcesByProfile, splitSourcesForCrossLingual } from '../src/search-service.mjs';
 
 async function startTestServer() {
   const server = createServer();
@@ -79,6 +95,19 @@ async function closeServer(server) {
       resolve();
     });
   });
+}
+
+async function pollAsyncJob(baseUrl, statusUrl, { attempts = 60, intervalMs = 75 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const jobResponse = await fetch(`${baseUrl}${statusUrl}`);
+    const jobPayload = await jobResponse.json();
+    assert.equal(jobResponse.status, 200);
+    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
+      return jobPayload.job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return null;
 }
 
 
@@ -177,7 +206,8 @@ function runIsolatedSearchQueries(queries = []) {
           canonicalId: item.canonicalId,
           sourceKey: item.sourceKey,
           type: item.type,
-          title: item.title
+          title: item.title,
+          matchSortScore: item.matchSortScore || 0
         }))
       });
     }
@@ -235,17 +265,38 @@ test('startServer falls back to the next port when requested port is already occ
 
 
 test('cache clear endpoint responds with diagnostics', async () => {
+  const adminEmail = `admin-cache-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/cache/clear`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: 'dbpia', query: '배터리 AI' })
-  });
-  const payload = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(payload.ok, true);
-  assert.ok(payload.runtime.cache || payload.runtime);
-  await closeServer(server);
+  try {
+    const anonymousResponse = await fetch(`${baseUrl}/api/cache/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'dbpia', query: '배터리 AI' })
+    });
+    assert.equal(anonymousResponse.status, 401);
+
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Cache Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const response = await fetch(`${baseUrl}/api/cache/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ source: 'dbpia', query: '배터리 AI' })
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.ok, true);
+    assert.ok(payload.runtime.cache || payload.runtime);
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('sources status endpoint exposes cache/runtime diagnostics', async () => {
@@ -263,13 +314,30 @@ test('sources status endpoint exposes cache/runtime diagnostics', async () => {
 });
 
 test('storage stats endpoint returns sqlite diagnostics', async () => {
+  const adminEmail = `admin-storage-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/storage/stats`);
-  const payload = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(payload.ready, true);
-  assert.ok(payload.dbPath);
-  await closeServer(server);
+  try {
+    const anonymousResponse = await fetch(`${baseUrl}/api/storage/stats`);
+    assert.equal(anonymousResponse.status, 401);
+
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Storage Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const response = await fetch(`${baseUrl}/api/storage/stats`, { headers: { cookie } });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.ready, true);
+    assert.ok(payload.dbPath);
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    await closeServer(server);
+  }
 });
 
 test('auth and library flow works end-to-end', async () => {
@@ -338,11 +406,16 @@ test('auth and library flow works end-to-end', async () => {
   assert.deepEqual(libraryPayload.items[0].highlights, ['핵심 주장', '실험 포인트']);
   assert.ok(libraryPayload.items[0].shareToken);
   assert.ok(libraryPayload.items[0].createdAt);
+  assert.equal(libraryPayload.items[0].title, 'Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval');
+  assert.equal(libraryPayload.items[0].source, 'arxiv');
+  assert.equal(libraryPayload.items[0].sourceType, 'paper');
+  assert.ok(libraryPayload.items[0].originalUrl);
 
   const sharedLibraryResponse = await fetch(`${baseUrl}/api/library/shared/${libraryPayload.items[0].shareToken}`);
   const sharedLibraryPayload = await sharedLibraryResponse.json();
   assert.equal(sharedLibraryResponse.status, 200);
   assert.equal(sharedLibraryPayload.item.canonicalId, 'paper:seed-paper-global-quantum');
+  assert.equal(sharedLibraryPayload.item.title, 'Quantum Neural Architectures for Multimodal Scholarly Graph Retrieval');
 
   const savedSearchListResponse = await fetch(`${baseUrl}/api/saved-searches`, {
     headers: { cookie },
@@ -620,6 +693,8 @@ test('admin summary endpoint returns runtime and recent requests', async () => {
     assert.ok(payload.runtime);
     assert.ok(payload.runtime.analysis);
     assert.equal(typeof payload.runtime.analysis.poolSize, 'number');
+    assert.equal(typeof payload.runtime.analysis.queueDepth, 'number');
+    assert.equal(typeof payload.runtime.analysis.overloaded, 'boolean');
     assert.ok(Array.isArray(payload.recentRequests));
   } finally {
     delete process.env.SCHOLAXIS_ADMIN_EMAILS;
@@ -665,6 +740,8 @@ test('admin ops endpoint returns startup, alerts, and similarity runs', async ()
     assert.ok(payload.runtime.graphBackend);
     assert.ok(payload.runtime.analysis);
     assert.equal(typeof payload.runtime.analysis.workerCount, 'number');
+    assert.equal(typeof payload.runtime.analysis.queueDepth, 'number');
+    assert.equal(typeof payload.runtime.analysis.overloaded, 'boolean');
     assert.equal(typeof payload.runtime.analysis.asyncJobs.total, 'number');
     assert.ok(payload.runtime.parserMonitor);
     assert.ok(payload.runtime.worker);
@@ -754,6 +831,61 @@ test('admin endpoints reject unauthenticated and non-admin users', async () => {
   }
 });
 
+test('admin self-registration requires an explicit production registration code', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const adminEmail = `admin-production-${Date.now()}@example.com`;
+  process.env.NODE_ENV = 'production';
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
+  delete process.env.SCHOLAXIS_ADMIN_REGISTRATION_CODE;
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const blockedResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const blockedPayload = await blockedResponse.json();
+    assert.equal(blockedResponse.status, 403);
+    assert.match(blockedPayload.error, /등록 코드/);
+
+    process.env.SCHOLAXIS_ADMIN_REGISTRATION_CODE = 'test-admin-code';
+    const allowedResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: adminEmail,
+        password: 'test-password',
+        displayName: 'Admin',
+        adminRegistrationCode: 'test-admin-code',
+      }),
+    });
+    const allowedPayload = await allowedResponse.json();
+    assert.equal(allowedResponse.status, 200);
+    assert.equal(allowedPayload.ok, true);
+  } finally {
+    if (previousNodeEnv == null) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    delete process.env.SCHOLAXIS_ADMIN_REGISTRATION_CODE;
+    await closeServer(server);
+  }
+});
+
+test('unsafe API requests with a foreign origin are rejected before state changes', async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Origin: 'https://attacker.example' },
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 403);
+    assert.match(payload.error, /Cross-origin/);
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test('search stream endpoint emits summary, progress, results, and done events', async () => {
   const { server, baseUrl } = await startTestServer();
   const response = await fetch(`${baseUrl}/api/search/stream?q=배터리%20AI&region=all&sourceType=all&sort=relevance&autoLive=0`);
@@ -777,6 +909,206 @@ test('search endpoint returns canonicalized Korean-first research results', asyn
   assert.ok(['heuristic', 'http', 'hybrid-local', 'ollama'].includes(payload.reranking.backend));
   assert.equal(payload.crossLingual.enabled, false);
   assert.ok(payload.canonicalCount >= 1);
+  await closeServer(server);
+});
+
+test('fallback query generation keeps phrase windows for unseen broad technical terms', async () => {
+  const autonomousFallbacks = buildFallbackQueries('autonomous driving lidar sensor fusion');
+  assert.ok(autonomousFallbacks.includes('autonomous driving'));
+  assert.ok(autonomousFallbacks.includes('lidar sensor'));
+  assert.ok(autonomousFallbacks.includes('sensor fusion'));
+
+  const carbonFallbacks = buildFallbackQueries('carbon capture solid electrolyte');
+  assert.ok(carbonFallbacks.includes('carbon capture'));
+  assert.ok(carbonFallbacks.includes('solid electrolyte'));
+
+  const batteryFallbacks = buildFallbackQueries('solid state battery dendrite suppression');
+  assert.ok(batteryFallbacks.includes('solid state battery'));
+  assert.ok(batteryFallbacks.includes('dendrite suppression'));
+
+  const perovskiteFallbacks = buildFallbackQueries('perovskite solar cell stability');
+  assert.ok(perovskiteFallbacks.includes('perovskite solar cell'));
+  assert.ok(perovskiteFallbacks.includes('metal halide perovskite'));
+  assert.ok(!perovskiteFallbacks.includes('battery'));
+
+  const federatedFallbacks = buildFallbackQueries('federated learning healthcare privacy');
+  assert.ok(federatedFallbacks.includes('federated learning'));
+  assert.ok(federatedFallbacks.includes('medical data') || federatedFallbacks.includes('electronic health record'));
+
+  const mrnaFallbacks = buildFallbackQueries('mRNA vaccine lipid nanoparticle stability');
+  assert.ok(mrnaFallbacks.includes('mrna vaccine'));
+  assert.ok(mrnaFallbacks.includes('lipid nanoparticle'));
+  assert.ok(mrnaFallbacks.includes('lyophilization') || mrnaFallbacks.includes('freeze drying'));
+  assert.ok(!mrnaFallbacks.includes('perovskite'));
+
+  const pfasFallbacks = buildFallbackQueries('PFAS water treatment adsorption membrane');
+  assert.ok(pfasFallbacks.includes('pfas water treatment'));
+  assert.ok(pfasFallbacks.includes('adsorptive membrane'));
+  assert.ok(!pfasFallbacks.includes('microplastic remediation'));
+
+  const ragFallbacks = buildFallbackQueries('privacy preserving RAG watermarking');
+  assert.ok(ragFallbacks.includes('privacy preserving rag'));
+  assert.ok(ragFallbacks.includes('retrieval augmented generation'));
+  assert.ok(ragFallbacks.includes('data provenance'));
+});
+
+test('search expands recall for unseen broad technical terms without losing top relevance', () => {
+  const results = runIsolatedSearchQueries([
+    'autonomous driving lidar sensor fusion',
+    'carbon capture solid electrolyte',
+    'microfluidics protein immunotherapy',
+    'water quality anomaly sensor',
+  ]);
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  const autonomous = byQuery.get('autonomous driving lidar sensor fusion');
+  assert.ok(autonomous.total >= 6);
+  assert.match(autonomous.items[0]?.title || '', /LiDAR Sensor Fusion|LiDAR Point Cloud|Radar Camera/i);
+  assert.ok(autonomous.items.slice(0, 3).every((item, index, items) => index === 0 || items[index - 1].matchSortScore >= item.matchSortScore));
+
+  const carbon = byQuery.get('carbon capture solid electrolyte');
+  assert.ok(carbon.total >= 4);
+  assert.match(carbon.items[0]?.title || '', /Carbon Capture|탄소 포집|Solid Electrolyte/i);
+  assert.ok(carbon.items.slice(0, 3).every((item, index, items) => index === 0 || items[index - 1].matchSortScore >= item.matchSortScore));
+
+  const microfluidics = byQuery.get('microfluidics protein immunotherapy');
+  assert.ok(microfluidics.total >= 3);
+  assert.match(microfluidics.items[0]?.title || '', /Microfluidic|Protein|Immunotherapy/i);
+
+  const water = byQuery.get('water quality anomaly sensor');
+  assert.ok(water.total >= 6);
+  assert.match(water.items[0]?.title || '', /Water Quality|수질|Anomaly|이상 탐지/i);
+});
+
+test('search maps observed alternate terminology for digital-twin smart-farming queries', () => {
+  const results = runIsolatedSearchQueries([
+    'digital twin smart farm optimization',
+    '디지털 트윈 스마트팜',
+    'smart greenhouse crop growth optimization',
+    'precision agriculture crop recommendation',
+  ]);
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  const englishSmartFarm = byQuery.get('digital twin smart farm optimization');
+  assert.ok(englishSmartFarm.total >= 6);
+  assert.match(englishSmartFarm.items[0]?.title || '', /Digital Twin|디지털 트윈/i);
+  assert.match(englishSmartFarm.items[0]?.title || '', /Smart|스마트|Greenhouse|온실|Agriculture|농업|Farm|팜/i);
+
+  const koreanSmartFarm = byQuery.get('디지털 트윈 스마트팜');
+  assert.ok(koreanSmartFarm.total >= 6);
+  assert.match(koreanSmartFarm.items[0]?.title || '', /디지털 트윈|Digital Twin/i);
+  assert.match(koreanSmartFarm.items[0]?.title || '', /스마트팜|Smart|Greenhouse|Agriculture|농업/i);
+
+  const greenhouse = byQuery.get('smart greenhouse crop growth optimization');
+  assert.ok(greenhouse.total >= 6);
+  assert.match(greenhouse.items[0]?.title || '', /Greenhouse|온실|Smart|스마트/i);
+
+  const precisionAgriculture = byQuery.get('precision agriculture crop recommendation');
+  assert.ok(precisionAgriculture.total >= 6);
+  assert.match(precisionAgriculture.items[0]?.title || '', /Precision Agriculture|Digital Twin|Crop Recommendation/i);
+});
+
+test('search maps externally observed terminology clusters for sparse unseen queries', () => {
+  const results = runIsolatedSearchQueries([
+    'solid state battery dendrite suppression',
+    '전고체 배터리 리튬 덴드라이트',
+    'perovskite solar cell stability',
+    'federated learning healthcare privacy',
+    'causal inference education policy',
+    'satellite flood detection deep learning',
+    'plastic recycling pyrolysis catalyst',
+    'wearable glucose sensor noninvasive',
+    '초전도체 상온 저항 제로',
+    'graph retrieval llm agent memory',
+  ]);
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+  const assertSorted = (query) => {
+    const items = byQuery.get(query).items.slice(0, 3);
+    assert.ok(items.every((item, index) => index === 0 || items[index - 1].matchSortScore >= item.matchSortScore));
+  };
+
+  const solidState = byQuery.get('solid state battery dendrite suppression');
+  assert.ok(solidState.total >= 8);
+  assert.match(solidState.items[0]?.title || '', /Dendrite|전고체|Solid-State|Lithium/i);
+  assertSorted('solid state battery dendrite suppression');
+
+  const koreanBattery = byQuery.get('전고체 배터리 리튬 덴드라이트');
+  assert.ok(koreanBattery.total >= 8);
+  assert.match(koreanBattery.items[0]?.title || '', /전고체|Dendrite|Lithium/i);
+
+  const perovskite = byQuery.get('perovskite solar cell stability');
+  assert.ok(perovskite.total >= 8);
+  assert.match(perovskite.items[0]?.title || '', /Perovskite|페로브스카이트|Passivation|Stability/i);
+  assertSorted('perovskite solar cell stability');
+
+  const federated = byQuery.get('federated learning healthcare privacy');
+  assert.ok(federated.total >= 8);
+  assert.match(federated.items[0]?.title || '', /Federated|페더레이티드|Healthcare|의료/i);
+  assertSorted('federated learning healthcare privacy');
+
+  const causal = byQuery.get('causal inference education policy');
+  assert.ok(causal.total >= 8);
+  assert.match(causal.items[0]?.title || '', /Causal|Difference|Education|교육|인과/i);
+
+  const flood = byQuery.get('satellite flood detection deep learning');
+  assert.ok(flood.total >= 8);
+  assert.match(flood.items[0]?.title || '', /Satellite|Sentinel|SAR|Flood|위성|홍수/i);
+
+  const plastic = byQuery.get('plastic recycling pyrolysis catalyst');
+  assert.ok(plastic.total >= 8);
+  assert.match(plastic.items[0]?.title || '', /Plastic|Pyrolysis|Catalyst|폐플라스틱|열분해/i);
+
+  const glucose = byQuery.get('wearable glucose sensor noninvasive');
+  assert.ok(glucose.total >= 8);
+  assert.match(glucose.items[0]?.title || '', /Glucose|혈당|Noninvasive|Wearable/i);
+
+  const superconductor = byQuery.get('초전도체 상온 저항 제로');
+  assert.ok(superconductor.total >= 8);
+  assert.match(superconductor.items[0]?.title || '', /초전도|Superconduct|Zero|제로/i);
+
+  const graphMemory = byQuery.get('graph retrieval llm agent memory');
+  assert.ok(graphMemory.total >= 8);
+  assert.match(graphMemory.items[0]?.title || '', /Graph-Based Agent Memory|LLM 에이전트|Agent Memory/i);
+  assertSorted('graph retrieval llm agent memory');
+});
+
+test('search keeps top-three relevance for acronym-heavy emerging technical queries', () => {
+  const scenarios = [
+    ['PFAS water treatment adsorption membrane', /PFAS|과불화|PFOA|PFOS/i],
+    ['direct lithium extraction brine sorbent', /Direct Lithium|직접 리튬|Lithium Extraction|염수|Brine|DLE/i],
+    ['green hydrogen ammonia cracking catalyst', /Ammonia|암모니아|NH3/i],
+    ['mRNA vaccine lipid nanoparticle stability', /mRNA|LNP|Lipid|지질 나노입자|백신/i],
+    ['CRISPR base editing off target', /CRISPR|Base Editor|Base Editing|염기교정|Prime/i],
+    ['protein language model enzyme design', /Protein Language|단백질 언어|Enzyme|효소/i],
+    ['urban heat island satellite remote sensing', /Urban Heat Island|도시 열섬|Local Climate|Land-Surface|LST/i],
+    ['soil carbon sequestration biochar', /Soil Carbon|토양|Biochar|바이오차/i],
+    ['membrane desalination fouling prediction', /Desalination|담수화|Membrane Fouling|막오염|Reverse-Osmosis|Ultrafiltration/i],
+    ['solid oxide electrolysis hydrogen', /Solid Oxide|SOEC|고체산화물|수전해|Protonic Ceramic/i],
+    ['battery recycling black mass hydrometallurgy', /Black Mass|블랙매스|Battery Recycling|배터리 재활용|Hydrometallurgical|습식제련|Relithiation/i],
+    ['semiconductor EUV photoresist stochastic defect', /EUV|Photoresist|포토레지스트|Stochastic|확률적|High-NA/i],
+    ['robot tactile sensing soft gripper', /Tactile|촉각|Soft Robotic|소프트|Gripper|그리퍼/i],
+    ['privacy preserving RAG watermarking', /RAG|Retrieval-Augmented|검색증강|Watermark|워터마킹|GraphRAG/i],
+  ];
+  const results = runIsolatedSearchQueries(scenarios.map(([query]) => query));
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  for (const [query, expectedTitle] of scenarios) {
+    const result = byQuery.get(query);
+    assert.ok(result.total >= 8, `${query} should recall at least 8 results`);
+    const topThree = result.items.slice(0, 3);
+    assert.equal(topThree.length, 3);
+    assert.ok(topThree.every((item) => expectedTitle.test(item.title)), `${query} top3 should stay in-domain`);
+    assert.ok(topThree.every((item, index) => index === 0 || topThree[index - 1].matchSortScore >= item.matchSortScore));
+  }
+});
+
+test('search endpoint treats empty live flags as disabled rather than expensive auto-live fanout', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(`${baseUrl}/api/search?q=CD28&region=all&sourceType=all&sort=relevance&live=&autoLive=`);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.liveSourceCount, 0);
+  assert.ok(Array.isArray(payload.results));
   await closeServer(server);
 });
 
@@ -1004,6 +1336,27 @@ test('search includes documents persisted in local storage', async () => {
   await closeServer(server);
 });
 
+test('search supports multilingual technical query fallback and source-country metadata', async () => {
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('量子 グラフ 検索')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.crossLingual?.enabled, true);
+  assert.equal(payload.crossLingual?.direction, 'other-to-en');
+  const globalPaper = payload.items.find((item) => /Quantum Neural Architectures/i.test(item.title));
+  assert.ok(globalPaper);
+  assert.equal(globalPaper.sourceCountry?.flag, '🌐');
+  assert.equal(globalPaper.countryFlag, '🌐');
+  assert.equal(globalPaper.languageLabel, '영어');
+
+  const uiPaper = toUiPaperShape(globalPaper);
+  assert.equal(uiPaper.sourceCountry.flag, '🌐');
+  assert.match(uiPaper.countryBadge, /🌐/);
+  await closeServer(server);
+});
+
 test('search supports Korean to English and English to Korean semantic retrieval', async () => {
   const { server, baseUrl } = await startTestServer();
 
@@ -1013,6 +1366,8 @@ test('search supports Korean to English and English to Korean semantic retrieval
   const koreanPayload = await koreanToEnglish.json();
   assert.equal(koreanToEnglish.status, 200);
   assert.ok(koreanPayload.items.some((item) => /Quantum Neural Architectures/i.test(item.title)));
+  assert.equal(koreanPayload.crossLingual?.enabled, true);
+  assert.equal(koreanPayload.crossLingual?.direction, 'ko-to-en');
 
   const englishToKorean = await fetch(
     `${baseUrl}/api/search?q=${encodeURIComponent('portable voltage supply')}&region=all&sourceType=all&sort=relevance&autoLive=0`
@@ -1020,67 +1375,116 @@ test('search supports Korean to English and English to Korean semantic retrieval
   const englishPayload = await englishToKorean.json();
   assert.equal(englishToKorean.status, 200);
   assert.ok(englishPayload.items.some((item) => /휴대용 전압 공급장치/.test(item.title)));
+  assert.equal(englishPayload.crossLingual?.enabled, true);
+  assert.equal(englishPayload.crossLingual?.direction, 'en-to-ko');
+
+  await closeServer(server);
+});
+
+test('search recalls English-only and Korean-only documents through semantic cross-lingual evidence', async () => {
+  await persistDocuments([
+    {
+      canonicalId: 'paper:cross-en-only-graph',
+      id: 'paper:cross-en-only-graph',
+      type: 'paper',
+      source: 'arxiv',
+      sourceLabel: 'arXiv',
+      title: 'Scholarly Graph Retrieval with Quantum Neural Ranking',
+      englishTitle: 'Scholarly Graph Retrieval with Quantum Neural Ranking',
+      authors: ['Dana Smith'],
+      organization: 'Open Retrieval Lab',
+      year: 2026,
+      language: 'en',
+      abstract: 'This paper improves scholarly graph retrieval and citation discovery with quantum neural ranking.',
+      summary: 'English-only abstract and summary for scholarly graph retrieval.',
+      keywords: ['scholarly graph', 'graph retrieval', 'citation discovery', 'quantum neural ranking'],
+      links: {
+        detail: 'https://example.com/cross-en-only-graph',
+        original: 'https://example.com/cross-en-only-graph'
+      }
+    },
+    {
+      canonicalId: 'fair_entry:cross-ko-only-voltage',
+      id: 'fair_entry:cross-ko-only-voltage',
+      type: 'fair_entry',
+      source: 'student_invention_fair',
+      sourceLabel: '학생발명품경진대회',
+      title: '태양광 기반 휴대용 전압 공급장치 설계',
+      englishTitle: '',
+      authors: ['김하늘'],
+      organization: '학생발명품경진대회',
+      year: 2024,
+      language: 'ko',
+      abstract: '태양광 에너지를 활용해 야외 활동용 휴대용 전압 공급장치를 설계한 학생 발명 사례다.',
+      summary: '한국어 전용 설명으로 구성된 휴대용 전압 공급장치 사례.',
+      keywords: ['태양광', '휴대용 전압 공급장치', '학생 발명', '전원 공급'],
+      links: {
+        detail: 'https://example.com/cross-ko-only-voltage',
+        original: 'https://example.com/cross-ko-only-voltage'
+      }
+    }
+  ]);
+
+  const { server, baseUrl } = await startTestServer();
+
+  const koreanToEnglish = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('학술 그래프 검색')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const koreanPayload = await koreanToEnglish.json();
+  assert.equal(koreanToEnglish.status, 200);
+  assert.ok(koreanPayload.items.some((item) => item.canonicalId === 'paper:cross-en-only-graph'));
+
+  const englishToKorean = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('portable voltage supply')}&region=all&sourceType=all&sort=relevance&autoLive=0`
+  );
+  const englishPayload = await englishToKorean.json();
+  assert.equal(englishToKorean.status, 200);
+  assert.ok(englishPayload.items.some((item) => item.canonicalId === 'fair_entry:cross-ko-only-voltage'));
 
   await closeServer(server);
 });
 
 test('async similarity job API returns accepted job and polling result', async () => {
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/similarity/report?async=1`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: '비동기 배터리 AI 초안',
-      text: '배터리 열폭주 예측과 센서융합 딥러닝 기반 진단 연구 초안입니다.',
-    }),
-  });
-  const payload = await response.json();
-  assert.equal(response.status, 202);
-  assert.equal(payload.async, true);
-  assert.ok(payload.job?.id);
+  try {
+    const response = await fetch(`${baseUrl}/api/similarity/report?async=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '비동기 배터리 AI 초안',
+        text: '배터리 열폭주 예측과 센서융합 딥러닝 기반 진단 연구 초안입니다.',
+      }),
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 202);
+    assert.equal(payload.async, true);
+    assert.ok(payload.job?.id);
 
-  let finalJob = null;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const jobResponse = await fetch(`${baseUrl}${payload.statusUrl}`);
-    const jobPayload = await jobResponse.json();
-    assert.equal(jobResponse.status, 200);
-    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
-      finalJob = jobPayload.job;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const finalJob = await pollAsyncJob(baseUrl, payload.statusUrl);
+    assert.ok(finalJob);
+    assert.equal(finalJob.status, 'completed');
+    assert.ok(finalJob.result?.topMatches?.length > 0);
+  } finally {
+    await closeServer(server);
   }
-
-  assert.ok(finalJob);
-  assert.equal(finalJob.status, 'completed');
-  assert.ok(finalJob.result?.topMatches?.length > 0);
-  await closeServer(server);
 });
 
 test('async paper expand job API returns accepted job and polling result', async () => {
   const { server, baseUrl } = await startTestServer();
-  const response = await fetch(`${baseUrl}/api/papers/${encodeURIComponent('paper:seed-paper-global-quantum')}/expand?async=1`);
-  const payload = await response.json();
-  assert.equal(response.status, 202);
-  assert.equal(payload.async, true);
-  assert.ok(payload.job?.id);
+  try {
+    const response = await fetch(`${baseUrl}/api/papers/${encodeURIComponent('paper:seed-paper-global-quantum')}/expand?async=1`);
+    const payload = await response.json();
+    assert.equal(response.status, 202);
+    assert.equal(payload.async, true);
+    assert.ok(payload.job?.id);
 
-  let finalJob = null;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const jobResponse = await fetch(`${baseUrl}${payload.statusUrl}`);
-    const jobPayload = await jobResponse.json();
-    assert.equal(jobResponse.status, 200);
-    if (['completed', 'failed'].includes(jobPayload.job?.status)) {
-      finalJob = jobPayload.job;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const finalJob = await pollAsyncJob(baseUrl, payload.statusUrl);
+    assert.ok(finalJob);
+    assert.equal(finalJob.status, 'completed');
+    assert.match(finalJob.result?.paper?.title || '', /Quantum Neural Architectures/);
+  } finally {
+    await closeServer(server);
   }
-
-  assert.ok(finalJob);
-  assert.equal(finalJob.status, 'completed');
-  assert.match(finalJob.result?.paper?.title || '', /Quantum Neural Architectures/);
-  await closeServer(server);
 });
 
 test('async analysis job API supports cancellation', async () => {
@@ -1124,6 +1528,136 @@ test('async analysis job API supports cancellation', async () => {
   }
 });
 
+test('admin ops exposes analysis queue depth, busy workers, and overload state while async jobs are queued', async () => {
+  const adminEmail = `admin-analysis-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
+  process.env.SCHOLAXIS_TEST_ANALYSIS_DELAY_MS = '250';
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const jobRequests = Array.from({ length: 6 }, (_, index) =>
+      fetch(`${baseUrl}/api/similarity/report?async=1`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `대기열 진단 ${index + 1}`,
+          text: `요청 기반 프리즈 회귀 테스트 ${index + 1} - 배터리 열폭주 예측과 멀티모달 센서융합.`,
+        }),
+      })
+    );
+    const jobResponses = await Promise.all(jobRequests);
+    const jobs = await Promise.all(jobResponses.map((response) => response.json()));
+    jobResponses.forEach((response) => assert.equal(response.status, 202));
+    jobs.forEach((payload) => assert.ok(payload.job?.id));
+
+    let runtime = null;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/admin/ops`, { headers: { cookie } });
+      const payload = await response.json();
+      assert.equal(response.status, 200);
+      runtime = payload.runtime?.analysis || null;
+      if (runtime?.busyWorkers > 0 && runtime?.queueDepth > 0 && runtime?.overloaded) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    assert.ok(runtime);
+    assert.ok(runtime.busyWorkers > 0);
+    assert.ok(runtime.queueDepth > 0);
+    assert.equal(runtime.queuedTasks, runtime.queueDepth);
+    assert.equal(runtime.overloaded, true);
+
+    await Promise.all(
+      jobs.map(async (payload) => {
+        let status = '';
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          const response = await fetch(`${baseUrl}${payload.statusUrl}`);
+          const jobPayload = await response.json();
+          assert.equal(response.status, 200);
+          status = jobPayload.job?.status || '';
+          if (['completed', 'failed', 'cancelled'].includes(status)) return;
+          await new Promise((resolve) => setTimeout(resolve, 75));
+        }
+        assert.fail(`Timed out waiting for async analysis job ${payload.job?.id} to finish; last status=${status}`);
+      })
+    );
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    delete process.env.SCHOLAXIS_TEST_ANALYSIS_DELAY_MS;
+    await closeServer(server);
+  }
+});
+
+test('search runtime applies bounded queueing/backpressure without blocking health/admin endpoints', async () => {
+  const adminEmail = `admin-search-runtime-${Date.now()}@example.com`;
+  process.env.SCHOLAXIS_ADMIN_EMAILS = adminEmail;
+  process.env.SCHOLAXIS_SEARCH_WORKERS = '1';
+  process.env.SCHOLAXIS_SEARCH_MAX_QUEUED_TASKS = '1';
+  process.env.SCHOLAXIS_TEST_SEARCH_DELAY_MS = '700';
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'test-password', displayName: 'Admin' }),
+    });
+    const cookie = registerResponse.headers.get('set-cookie');
+    assert.ok(cookie);
+
+    const searchRequests = Array.from({ length: 4 }, () =>
+      fetch(`${baseUrl}/api/search?q=${encodeURIComponent('배터리 AI')}&autoLive=0`)
+    );
+
+    let runtime = null;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/admin/ops`, { headers: { cookie } });
+      const payload = await response.json();
+      assert.equal(response.status, 200);
+      runtime = payload.runtime?.search || null;
+      if (runtime?.busyWorkers > 0 || runtime?.queuedTasks > 0 || runtime?.rejectedTasks > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const healthResponse = await fetch(`${baseUrl}/api/health`);
+    const healthPayload = await healthResponse.json();
+    assert.equal(healthResponse.status, 200);
+    assert.ok(healthPayload.runtime?.searchRuntime);
+
+    const searchResponses = await Promise.all(searchRequests);
+    const searchPayloads = await Promise.all(searchResponses.map(async (response) => ({
+      status: response.status,
+      body: await response.json(),
+    })));
+
+    const statuses = searchPayloads.map((entry) => entry.status);
+    assert.ok(statuses.some((status) => status === 200));
+    const overloadPayload = searchPayloads.find((entry) => entry.status === 503)?.body || null;
+    if (overloadPayload) {
+      assert.equal(overloadPayload.code, 'search_runtime_overloaded');
+    }
+
+    assert.ok(runtime);
+    assert.equal(typeof runtime.poolSize, 'number');
+    assert.equal(typeof runtime.busyWorkers, 'number');
+    assert.equal(typeof runtime.queuedTasks, 'number');
+    assert.equal(typeof runtime.rejectedTasks, 'number');
+    assert.ok(runtime.busyWorkers > 0 || runtime.queuedTasks > 0 || runtime.rejectedTasks > 0);
+  } finally {
+    delete process.env.SCHOLAXIS_ADMIN_EMAILS;
+    delete process.env.SCHOLAXIS_SEARCH_WORKERS;
+    delete process.env.SCHOLAXIS_SEARCH_MAX_QUEUED_TASKS;
+    delete process.env.SCHOLAXIS_TEST_SEARCH_DELAY_MS;
+    await closeServer(server);
+  }
+});
+
 test('generic fair/RNE source queries surface representative seeded category results', () => {
   const results = runIsolatedSearchQueries(['전람회', 'RNE', '발명품']);
   const byQuery = new Map(results.map((item) => [item.query, item]));
@@ -1131,6 +1665,75 @@ test('generic fair/RNE source queries surface representative seeded category res
   assert.ok(byQuery.get('전람회')?.items.some((item) => item.sourceKey === 'science_fair'));
   assert.ok(byQuery.get('RNE')?.items.some((item) => item.sourceKey === 'rne_report' && item.type === 'report'));
   assert.ok(byQuery.get('발명품')?.items.some((item) => item.sourceKey === 'student_invention_fair'));
+});
+
+
+test('fair/RNE/Hanwha topic queries prefer student research sources with sorted topical matches', () => {
+  const scenarios = [
+    {
+      query: '과학전람회 수질 이상 탐지 센서',
+      sourceKey: 'science_fair',
+      title: /수질|Water Quality|이상 탐지|Anomaly/i,
+    },
+    {
+      query: '학생과학전람회 미세플라스틱 정화',
+      sourceKey: 'science_fair',
+      title: /미세플라스틱|Microplastic|바이오차|Biochar/i,
+    },
+    {
+      query: 'RNE HPLC 데이터 기울기 용리 AI',
+      sourceKey: 'rne_report',
+      title: /HPLC|기울기 용리|Method 추천/i,
+    },
+    {
+      query: 'R&E MOF 키토산 리그닌 멤브레인',
+      sourceKey: 'rne_report',
+      title: /MOF|키토산|리그닌|멤브레인/i,
+    },
+    {
+      query: 'R&E 항균 펩타이드 천연물',
+      sourceKey: 'rne_report',
+      title: /항균|펩타이드|천연물|Antimicrobial/i,
+    },
+    {
+      query: '한화 사이언스 챌린지 재선충 유인 트랩',
+      sourceKey: 'hanwha_science_challenge',
+      title: /재선충|솔수염하늘소|유인 트랩/i,
+    },
+    {
+      query: '한화사이언스챌린지 해상 풍력 블레이드',
+      sourceKey: 'hanwha_science_challenge',
+      title: /해상 풍력|수위 저장형 ESS|바람 불연속성/i,
+    },
+    {
+      query: 'science challenge carbon capture student project',
+      sourceKey: 'hanwha_science_challenge',
+      title: /Carbon Capture|탄소 포집|학생/i,
+    },
+    {
+      query: 'Hanwha Science Challenge marine waste pollutants',
+      sourceKey: 'hanwha_science_challenge',
+      title: /해양 폐기물|해수면|오염물질|Marine Waste|Pollutants/i,
+    },
+    {
+      query: 'Hanwha Science Challenge microplastic biochar',
+      sourceKey: 'hanwha_science_challenge',
+      title: /해양 폐기물|미세플라스틱|바이오차|Microplastic|Biochar/i,
+    },
+  ];
+
+  const results = runIsolatedSearchQueries(scenarios.map((scenario) => scenario.query));
+  const byQuery = new Map(results.map((item) => [item.query, item]));
+
+  for (const scenario of scenarios) {
+    const result = byQuery.get(scenario.query);
+    assert.ok(result, `${scenario.query} should be evaluated`);
+    assert.ok(result.total >= 8, `${scenario.query} should recall at least 8 results`);
+    assert.equal(result.items[0]?.sourceKey, scenario.sourceKey, `${scenario.query} should rank the requested student-research source first`);
+    const topThree = result.items.slice(0, 3);
+    assert.ok(topThree.some((item) => scenario.title.test(item.title)), `${scenario.query} top3 should include a topical match`);
+    assert.ok(topThree.every((item, index) => index === 0 || topThree[index - 1].matchSortScore >= item.matchSortScore));
+  }
 });
 
 
@@ -1308,6 +1911,129 @@ test('rne report parser extracts report titles from listing html', () => {
   assert.match(docs[0].links.detail, /rs_report\/2295/);
 });
 
+test('preprint parser extracts bioRxiv search results', () => {
+  const html = `
+    <div class="highwire-cite">
+      <span class="highwire-cite-title">Single-cell atlas of liver regeneration</span>
+      <span class="highwire-cite-authors">Jane Doe, John Roe</span>
+      <a href="/content/10.1101/2026.01.02.123456v1">view</a>
+      <div class="highwire-cite-snippet">We profile regenerative liver tissue with single-cell RNA sequencing.</div>
+      <div class="highwire-cite-metadata">Posted January 03, 2026.</div>
+    </div>
+  `;
+  const docs = extractPreprintDocumentsFromHtml('biorxiv', html, 'liver regeneration', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'biorxiv');
+  assert.equal(docs[0].sourceIds.doi, '10.1101/2026.01.02.123456v1');
+  assert.match(docs[0].links.detail, /biorxiv\.org\/content\/10\.1101/);
+});
+
+test('pubmed parser extracts metadata from efetch xml', () => {
+  const xml = `
+    <PubmedArticleSet>
+      <PubmedArticle>
+        <MedlineCitation>
+          <PMID>41763198</PMID>
+          <Article>
+            <Journal><Title>Nature Medicine</Title></Journal>
+            <ArticleTitle>Pyruvate suppresses interferon signaling</ArticleTitle>
+            <Abstract>
+              <AbstractText>Pyruvate induces STAT1 pyruvylation and modulates immune signaling.</AbstractText>
+            </Abstract>
+            <AuthorList>
+              <Author><ForeName>Alice</ForeName><LastName>Kim</LastName></Author>
+              <Author><ForeName>Brian</ForeName><LastName>Park</LastName></Author>
+            </AuthorList>
+          </Article>
+          <DateCompleted><Year>2026</Year></DateCompleted>
+        </MedlineCitation>
+        <PubmedData>
+          <ArticleIdList>
+            <ArticleId IdType="doi">10.1038/test-doi</ArticleId>
+          </ArticleIdList>
+        </PubmedData>
+      </PubmedArticle>
+    </PubmedArticleSet>
+  `;
+  const docs = extractPubMedDocumentsFromXml(xml, 'pyruvate', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'pubmed');
+  assert.equal(docs[0].authors[0], 'Alice Kim');
+  assert.equal(docs[0].sourceIds.doi, '10.1038/test-doi');
+});
+
+test('cve payload parser extracts severity and detail link', () => {
+  const payload = {
+    vulnerabilities: [
+      {
+        cve: {
+          id: 'CVE-2026-12345',
+          published: '2026-03-01T12:00:00.000',
+          descriptions: [{ lang: 'en', value: 'Buffer overflow in parser component.' }],
+          metrics: {
+            cvssMetricV31: [{ cvssData: { baseSeverity: 'HIGH' } }]
+          },
+          references: [{ url: 'https://example.com/advisory' }],
+          weaknesses: [{ description: [{ lang: 'en', value: 'CWE-120' }] }]
+        }
+      }
+    ]
+  };
+  const docs = extractCveDocumentsFromPayload(payload, 'parser overflow', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'cve');
+  assert.equal(docs[0].highlights[0], 'HIGH');
+  assert.match(docs[0].links.detail, /CVE-2026-12345/);
+});
+
+test('kiss parser extracts article detail links', () => {
+  const html = `
+    <section class="result">
+      <a href="/Detail/Ar?key=54577874">검색어 특성과 소비자의 의사결정 여정이 구매 전환에 미치는 효과</a>
+      <div>안정태, 조단비, 강윤희 / 한국심리학회지: 소비자·광고 / 2024.08 / DOI 10.21074/kjlcap.2024.25.3.285</div>
+    </section>
+  `;
+  const docs = extractKissDocumentsFromHtml(html, '의사결정', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'kiss');
+  assert.match(docs[0].links.detail, /Detail\/Ar\?key=54577874/);
+});
+
+test('nanet parser extracts catalog detail links', () => {
+  const html = `
+    <div class="result">
+      <a href="/detail/MONO12025000067308">배터리 워 = Battery war : 누가 배터리 전쟁의 최후 승자가 될 것인가</a>
+      <div>강희종 지음 / 서울 : 부키, 2025 / 일반도서</div>
+    </div>
+  `;
+  const docs = extractNanetDocumentsFromHtml(html, '배터리 전쟁', 5);
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'nanet');
+  assert.match(docs[0].links.detail, /detail\/MONO12025000067308/);
+});
+
+test('blackhat and defcon parsers extract archive sessions', () => {
+  const blackhatHtml = `
+    <div class="session">
+      <a href="/us-25/briefings/schedule/#breaking-kernel">Breaking the Kernel Barrier</a>
+      <div>Speaker One, Speaker Two</div>
+      <p>Advanced exploitation research on kernel attack surfaces in 2025.</p>
+    </div>
+  `;
+  const defconHtml = `
+    <div class="thread">
+      <a href="/node/228049">Testing Photo Albums</a>
+      <div>May 13, 2019, archive thread with village media workflow details.</div>
+    </div>
+  `;
+  const blackhatDocs = extractBlackHatDocumentsFromHtml(blackhatHtml, 'kernel attack', 5, 'https://www.blackhat.com/us-25/briefings/schedule/index.html');
+  const defconDocs = extractDefconDocumentsFromHtml(defconHtml, 'photo albums', 5, 'https://forum.defcon.org/search?query=photo');
+  assert.equal(blackhatDocs.length, 1);
+  assert.equal(blackhatDocs[0].source, 'blackhat');
+  assert.equal(defconDocs.length, 1);
+  assert.equal(defconDocs[0].source, 'defcon');
+});
+
 test('ntis parser ignores no-result guidance text', () => {
   const html = `
     <h4><span class="noData">자기진자 전람회</span> 또는 선택한 조건에 대한 검색결과가 없습니다.</h4>
@@ -1350,6 +2076,74 @@ test('science fair parser excludes 지도논문 rows and avoids query leakage in
   assert.ok(docs[0].keywords.every((keyword) => !keyword.includes('자기진자')));
   assert.match(docs[0].links.detail, /nttSn=23152/);
   assert.match(docs[0].links.detail, /searchKrwd=%EC%A7%84%EC%9E%90/);
+});
+
+test('hanwha science challenge parser extracts award rows and pdf links', () => {
+  const pageUrl = 'https://www.sciencechallenge.or.kr/result/paper.hsc?searchMasterCode=250820110428268R4Y73';
+  const html = `
+    <li class="year_select_node swiper-slide is_active ">
+      <a href="/result/paper.hsc?searchMasterCode=250820110428268R4Y73">2025</a>
+    </li>
+    <table class="tbl_board01 pager_board">
+      <tbody>
+        <tr class="tr_award tr_grand">
+          <td class="td_category"><p>대상</p></td>
+          <td class="td_color td_pl">춤추는 소나무</td>
+          <td class="t_center">김주은, 노윤아</td>
+          <td class="td_pl">기존 솔수염하늘소(재선충) 유인 트랩의 문제점 및 한계점을 보완한 고효율 유인 트랩 제작</td>
+          <td class="t_center">장영규</td>
+          <td class="t_center btn_area">
+            <a href="javascript:fileDownload('250820160504484MDLPL')" class="btn_download">PDF</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+  const docs = extractHanwhaScienceChallengeDocumentsFromHtml(html, '재선충', 10, { pageUrl });
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].source, 'hanwha_science_challenge');
+  assert.equal(docs[0].year, 2025);
+  assert.deepEqual(docs[0].authors, ['김주은', '노윤아']);
+  assert.match(docs[0].title, /솔수염하늘소/);
+  assert.match(docs[0].links.pdf, /common\/file\/download\.hsc\?fileCode=250820160504484MDLPL/);
+  assert.equal(docs[0].links.original, pageUrl);
+});
+
+
+test('hanwha science challenge parser filters source-label-only matches from topical queries', () => {
+  const pageUrl = 'https://www.sciencechallenge.or.kr/result/paper.hsc?searchMasterCode=250820110428268R4Y73';
+  const html = `
+    <li class="year_select_node swiper-slide is_active ">
+      <a href="/result/paper.hsc?searchMasterCode=250820110428268R4Y73">2025</a>
+    </li>
+    <table class="tbl_board01 pager_board">
+      <tbody>
+        <tr class="tr_award tr_grand">
+          <td class="td_category"><p>대상</p></td>
+          <td class="td_color td_pl">춤추는 소나무</td>
+          <td class="t_center">김주은, 노윤아</td>
+          <td class="td_pl">기존 솔수염하늘소(재선충) 유인 트랩의 문제점 및 한계점을 보완한 고효율 유인 트랩 제작</td>
+          <td class="t_center">장영규</td>
+          <td class="t_center btn_area">
+            <a href="javascript:fileDownload('250820160504484MDLPL')" class="btn_download">PDF</a>
+          </td>
+        </tr>
+        <tr class="tr_award tr_gold">
+          <td class="td_category"><p>금상</p></td>
+          <td class="td_color td_pl">슈퍼마리오 브라더스</td>
+          <td class="t_center">김정우, 정서헌</td>
+          <td class="td_pl">바람 불연속성 극복을 위한 수위 저장형 ESS 기반 해상 풍력 발전시스템</td>
+          <td class="t_center">도현진</td>
+          <td class="t_center btn_area">
+            <a href="javascript:fileDownload('250820160504484WIND')" class="btn_download">PDF</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+  const docs = extractHanwhaScienceChallengeDocumentsFromHtml(html, '한화 사이언스 챌린지 재선충 유인 트랩', 10, { pageUrl });
+  assert.equal(docs.length, 1);
+  assert.match(docs[0].title, /재선충|솔수염하늘소/);
 });
 
 
@@ -1446,44 +2240,121 @@ test('postgres serious-use diagnostics recommend postgres + pgvector when fallba
   assert.equal(diagnostics.validationCommand, 'npm run validate:postgres');
 });
 
-test('postgres sync persistence sanitizes year to prevent SQL injection payloads', () => {
-  const scratchDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-psql-test-'));
-  const argvLogPath = path.join(scratchDir, 'psql-argv.log');
-  const psqlWrapper = path.join(scratchDir, 'psql-wrapper.sh');
+function runSqliteStartupSnapshot(fixtureDir, { seed = false, dbLimit = '1', walLimit = '1' } = {}) {
+  const storageModulePath = JSON.stringify(path.resolve(process.cwd(), 'src/storage.mjs'));
+  const script = [
+    "process.chdir(process.argv[1]);",
+    `const mod = await import(${storageModulePath});`,
+    `if (${seed}) {`,
+    "  mod.persistDocuments([{ canonicalId: 'preserved-paper', source: 'fixture', type: 'paper', title: 'Persisted paper' }]);",
+    "  const user = mod.createUser({ email: 'persisted@example.test', displayName: 'Persisted', passwordDigest: 'fixture' });",
+    "  mod.createSession({ userId: user.id, tokenHash: 'preserved-session', expiresAt: '2099-01-01T00:00:00.000Z' });",
+    "  mod.addLibraryItem({ userId: user.id, canonicalId: 'preserved-paper', note: 'Keep this note' });",
+    "  mod.saveSearch({ userId: user.id, label: 'Saved', queryText: 'persistent storage' });",
+    "}",
+    "const user = mod.findUserByEmail('persisted@example.test');",
+    "process.stdout.write(JSON.stringify({",
+    "  diagnostics: mod.getStorageDiagnostics(),",
+    "  documents: mod.getStoredDocuments(),",
+    "  user, session: mod.findSessionByHash('preserved-session'),",
+    "  library: user ? mod.listLibraryItems(user.id) : [],",
+    "  searches: user ? mod.listSavedSearches(user.id) : []",
+    "}));",
+  ].join('\n');
+  const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script, fixtureDir], {
+    cwd: path.resolve(process.cwd()),
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SCHOLAXIS_STORAGE_BACKEND: 'sqlite',
+      SCHOLAXIS_DB_PATH: '',
+      SCHOLAXIS_DB_MAX_BYTES_BEFORE_RECOVERY: dbLimit,
+      SCHOLAXIS_DB_WAL_MAX_BYTES_BEFORE_RECOVERY: walLimit,
+    },
+    encoding: 'utf8',
+  });
+  return JSON.parse(stdout.trim().split('\n').at(-1) || '{}');
+}
 
-  writeFileSync(psqlWrapper, `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${argvLogPath}"
-exit 0
-`);
-  chmodSync(psqlWrapper, 0o755);
+for (const oversizedPart of ['database', 'wal']) {
+  test(`storage preserves a healthy default ${oversizedPart} above the former size threshold across restarts`, (t) => {
+    const fixtureDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-persistent-db-'));
+    t.after(() => rmSync(fixtureDir, { recursive: true, force: true }));
+    const dbPath = path.join(fixtureDir, '.data', 'scholaxis.db');
+    runSqliteStartupSnapshot(fixtureDir, { seed: true, dbLimit: '1000000000000', walLimit: '1000000000000' });
+    let writer;
+    try {
+      if (oversizedPart === 'wal') {
+        writer = new DatabaseSync(dbPath);
+        writer.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE wal_probe (value TEXT);');
+        writer.prepare('INSERT INTO wal_probe VALUES (?)').run('Committed WAL data');
+        assert.ok(statSync(`${dbPath}-wal`).size > 1);
+      } else {
+        assert.ok(statSync(dbPath).size > 1);
+      }
+      const limits = oversizedPart === 'database'
+        ? { dbLimit: '1', walLimit: '1000000000000' }
+        : { dbLimit: '1000000000000', walLimit: '1' };
+      for (let restart = 0; restart < 2; restart += 1) {
+        const snapshot = runSqliteStartupSnapshot(fixtureDir, limits);
+        assert.equal(path.resolve(snapshot.diagnostics.dbPath), path.resolve(dbPath));
+        assert.equal(snapshot.diagnostics.recoveryReason, '');
+        assert.equal(snapshot.user?.email, 'persisted@example.test');
+        assert.ok(snapshot.session);
+        assert.equal(snapshot.documents[0].canonicalId, 'preserved-paper');
+        assert.equal(snapshot.library[0].note, 'Keep this note');
+        assert.equal(snapshot.searches[0].queryText, 'persistent storage');
+      }
+      assert.deepEqual(readdirSync(path.dirname(dbPath)).filter((name) => /recovery|broken/.test(name)), []);
+    } finally {
+      writer?.close();
+    }
+  });
+}
 
-  const previousStorageBackend = appConfig.storageBackend;
-  const previousDatabaseUrl = process.env.DATABASE_URL;
-  const previousPsqlBin = process.env.PSQL_BIN;
-  appConfig.storageBackend = 'postgres';
-  process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/scholaxis';
-  process.env.PSQL_BIN = psqlWrapper;
+test('storage still archives a genuinely corrupt database before rebuilding it', (t) => {
+  const fixtureDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-corrupt-db-'));
+  t.after(() => rmSync(fixtureDir, { recursive: true, force: true }));
+  const dataFixtureDir = path.join(fixtureDir, '.data');
+  mkdirSync(dataFixtureDir);
+  const dbPath = path.join(dataFixtureDir, 'scholaxis.db');
+  const corruptBytes = Buffer.from('This is not a SQLite database.');
+  writeFileSync(dbPath, corruptBytes);
+  const snapshot = runSqliteStartupSnapshot(fixtureDir);
+  assert.equal(path.resolve(snapshot.diagnostics.dbPath), path.resolve(dbPath));
+  assert.equal(snapshot.diagnostics.ready, true);
+  assert.equal(snapshot.diagnostics.users, 0);
+  const archives = readdirSync(dataFixtureDir).filter((name) => name.startsWith('scholaxis.db.broken-'));
+  assert.equal(archives.length, 1);
+  assert.deepEqual(readFileSync(path.join(dataFixtureDir, archives[0])), corruptBytes);
+});
 
-  try {
-    const result = persistDocumentsToPostgresSync([{
-      id: 'doc-1',
-      source: 'test',
-      type: 'paper',
-      title: 'Test title',
-      year: '0); DROP TABLE users;--',
-    }]);
-    assert.equal(result.ready, true);
+test('storage falls back to in-memory sqlite when the default project db path is not writable', () => {
+  const fixtureDir = path.join(tmpdir(), `scholaxis-readonly-db-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(fixtureDir, { recursive: true });
 
-    const argvLog = readFileSync(argvLogPath, 'utf8');
-    assert.match(argvLog, /,\n  NULL,\n  /);
-    assert.doesNotMatch(argvLog, /\n  0\); DROP TABLE users;--,\n/);
-  } finally {
-    appConfig.storageBackend = previousStorageBackend;
-    if (previousDatabaseUrl == null) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = previousDatabaseUrl;
-    if (previousPsqlBin == null) delete process.env.PSQL_BIN;
-    else process.env.PSQL_BIN = previousPsqlBin;
-  }
+  const storageModulePath = JSON.stringify(path.resolve(process.cwd(), 'src/storage.mjs'));
+  const script = [
+    "import { chmodSync } from 'node:fs';",
+    "process.chdir(process.argv[1]);",
+    "chmodSync(process.argv[1], 0o555);",
+    "process.env.NODE_ENV = 'test';",
+    `const mod = await import(${storageModulePath});`,
+    "process.stdout.write(JSON.stringify(mod.getStorageDiagnostics()));",
+  ].join('\n');
+
+  const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script, fixtureDir], {
+    cwd: path.resolve(process.cwd()),
+    env: {
+      ...process.env,
+      SCHOLAXIS_DB_PATH: '',
+    },
+    encoding: 'utf8',
+  });
+
+  const diagnostics = JSON.parse(stdout.trim().split('\n').at(-1) || '{}');
+  assert.equal(diagnostics.dbPath, ':memory:');
+  assert.match(String(diagnostics.recoveryReason || ''), /sqlite-open-recovery:.*memory-fallback:/);
 });
 
 test('frontend search query normalization maps Korean option values to API values', () => {
@@ -1496,6 +2367,21 @@ test('frontend search query normalization maps Korean option values to API value
   assert.equal(normalized.region, 'all');
   assert.equal(normalized.sourceType, 'all');
   assert.equal(normalized.sort, 'relevance');
+});
+
+test('frontend search query normalization omits empty live flags', () => {
+  const normalized = normalizeSearchQuery({
+    q: '자기진자',
+    region: 'all',
+    sourceType: 'all',
+    sort: 'relevance',
+    live: '',
+    autoLive: '',
+  });
+  const params = new URLSearchParams(normalized);
+
+  assert.equal(params.has('live'), false);
+  assert.equal(params.has('autoLive'), false);
 });
 
 test('frontend result normalization adapts backend search items to UI shape', () => {
@@ -1513,11 +2399,94 @@ test('frontend result normalization adapts backend search items to UI shape', ()
     highlights: ['국내 데이터셋'],
     citations: 10,
     score: 82.1,
+    matchSortScore: 123.4,
+    titleCoverage: 0.5,
+    keywordCoverage: 1,
+    orderedPhraseCoverage: 0.25,
+    rerankScore: 0.7,
   });
   assert.equal(paper.sourceType, '논문');
   assert.equal(paper.region, '국내');
   assert.equal(paper.badge, 'KCI');
+  assert.equal(paper.matchSortScore, 123.4);
+  assert.equal(paper.relevanceEvidence.keywordCoverage, 1);
   assert.ok(Array.isArray(paper.tags));
+});
+
+test('frontend search stream fallback retries transient regular-search failures', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEventSource = globalThis.EventSource;
+  let calls = 0;
+
+  try {
+    globalThis.EventSource = undefined;
+    globalThis.fetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({
+          error: '검색 요청이 많아 잠시 후 다시 시도해 주세요.',
+          code: 'search_runtime_overloaded',
+          retryAfterMs: 0,
+        }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({
+        query: '배터리 AI',
+        total: 1,
+        results: [{
+          id: 'paper:retry',
+          title: '배터리 AI',
+          type: 'paper',
+          source: 'KCI',
+          region: 'domestic',
+        }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const payload = await fetchSearchStream(
+      { q: '배터리 AI' },
+      {},
+      { fallbackAttempts: 2, fallbackDelayMs: 0 }
+    );
+
+    assert.equal(calls, 2);
+    assert.equal(payload.total, 1);
+    assert.equal(payload.items[0].id, 'paper:retry');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalEventSource === undefined) {
+      delete globalThis.EventSource;
+    } else {
+      globalThis.EventSource = originalEventSource;
+    }
+  }
+});
+
+test('RNE report source is domestic and does not render an overseas country badge', () => {
+  const document = buildDocument({
+    id: 'rne_report:domestic-region-check',
+    source: 'rne_report',
+    sourceLabel: 'R&E 보고서',
+    type: 'report',
+    title: '국내 R&E 보고서',
+  });
+  assert.equal(document.region, 'domestic');
+  assert.equal(document.sourceCountry.code, 'KR');
+
+  const paper = toUiPaperShape({
+    id: document.id,
+    type: document.type,
+    source: document.sourceLabel,
+    region: document.region,
+    sourceCountry: document.sourceCountry,
+  });
+  assert.equal(paper.region, '국내');
+  assert.equal(paper.countryBadge, '');
 });
 
 test('source helper rejects broken-encoding and code-noise titles', () => {
@@ -1537,6 +2506,139 @@ test('query expansion stays generic when no translation backend is configured', 
   assert.equal(context.reason, 'translation-backend-not-configured');
 });
 
+test('query context uses semantic lexicon fallback for cross-lingual retrieval when translation backend is unavailable', async () => {
+  const koContext = await buildCrossLingualQueryContext('학술 그래프 검색');
+  assert.equal(koContext.enabled, true);
+  assert.equal(koContext.backend, 'lexicon');
+  assert.equal(koContext.direction, 'ko-to-en');
+  assert.match(koContext.translatedQuery, /scholarly graph|knowledge graph|citation graph/i);
+  assert.ok(Array.isArray(koContext.translatedVariants));
+  assert.ok(koContext.translatedVariants.some((term) => /scholarly graph|knowledge graph/i.test(term)));
+  assert.ok(!koContext.translatedVariants.some((term) => /graph neural network/i.test(term)));
+
+  const enContext = await buildCrossLingualQueryContext('portable voltage supply');
+  assert.equal(enContext.enabled, true);
+  assert.equal(enContext.backend, 'lexicon');
+  assert.equal(enContext.direction, 'en-to-ko');
+  assert.match(enContext.translatedQuery, /전압 공급장치/);
+});
+
+test('generic queries stay disabled when lexicon fallback has no strong cross-lingual phrase', async () => {
+  const context = await buildCrossLingualQueryContext('새로운 주제 검색');
+  assert.equal(context.enabled, false);
+  assert.equal(context.backend, 'disabled');
+  assert.equal(context.reason, 'translation-backend-not-configured');
+});
+
+test('query context falls back to lexicon when a configured translation backend fails', async () => {
+  const originalUrl = appConfig.translationServiceUrl;
+  try {
+    appConfig.translationServiceUrl = 'http://127.0.0.1:1/translate';
+    const context = await buildCrossLingualQueryContext('학술 그래프 검색');
+    assert.equal(context.enabled, true);
+    assert.equal(context.backend, 'lexicon');
+    assert.equal(context.direction, 'ko-to-en');
+    assert.match(context.translatedQuery, /scholarly graph|knowledge graph|citation graph/i);
+  } finally {
+    appConfig.translationServiceUrl = originalUrl;
+  }
+});
+
+test('query context times out a hanging translation backend and uses lexicon fallback', async () => {
+  const hangingBackend = createHttpServer((_req, _res) => {
+    // Hold the socket open so AbortSignal.timeout is the only fast recovery path.
+  });
+  hangingBackend.listen(0, '127.0.0.1');
+  await once(hangingBackend, 'listening');
+  const address = hangingBackend.address();
+  const originalUrl = appConfig.translationServiceUrl;
+  const originalTimeout = appConfig.sourceTimeoutMs;
+  try {
+    appConfig.translationServiceUrl = `http://127.0.0.1:${address.port}/translate`;
+    appConfig.sourceTimeoutMs = 25;
+    const startedAt = Date.now();
+    const context = await buildCrossLingualQueryContext('학술 그래프 검색');
+    assert.ok(Date.now() - startedAt < 1000);
+    assert.equal(context.enabled, true);
+    assert.equal(context.backend, 'lexicon');
+    assert.equal(context.direction, 'ko-to-en');
+  } finally {
+    appConfig.translationServiceUrl = originalUrl;
+    appConfig.sourceTimeoutMs = originalTimeout;
+    await closeServer(hangingBackend);
+  }
+});
+
+test('query context supports non Korean-English technical lexicon fallback', async () => {
+  const context = await buildCrossLingualQueryContext('量子 グラフ 検索');
+  assert.equal(context.enabled, true);
+  assert.equal(context.backend, 'lexicon');
+  assert.equal(context.language, 'ja');
+  assert.equal(context.direction, 'other-to-en');
+  assert.ok(context.translatedVariants.includes('quantum'));
+  assert.ok(context.translatedVariants.includes('graph'));
+
+  const routed = rankSourcesByProfile([], classifyQueryProfile('量子 グラフ 検索'), context.direction);
+  const split = splitSourcesForCrossLingual(routed, context.direction);
+  assert.ok(split.translatedSources.includes('arxiv'));
+  assert.ok(split.translatedSources.includes('semantic_scholar'));
+  assert.equal(new Set([...split.originalSources, ...split.translatedSources]).size, split.originalSources.length + split.translatedSources.length);
+});
+
+test('cross-lingual live-source routing preserves opposite-language fan-out without a translation backend', async () => {
+  const koQuery = '학술 그래프 검색';
+  const koContext = await buildCrossLingualQueryContext(koQuery);
+  const koRouted = rankSourcesByProfile([], classifyQueryProfile(koQuery), koContext.direction);
+  const koSplit = splitSourcesForCrossLingual(koRouted, koContext.direction);
+  assert.equal(koContext.backend, 'lexicon');
+  assert.ok(koSplit.translatedSources.includes('arxiv'));
+  assert.ok(koSplit.translatedSources.includes('semantic_scholar'));
+  assert.ok(!koSplit.originalSources.includes('arxiv'));
+  assert.ok(!koSplit.originalSources.includes('semantic_scholar'));
+  assert.equal(new Set([...koSplit.originalSources, ...koSplit.translatedSources]).size, koSplit.originalSources.length + koSplit.translatedSources.length);
+
+  const enQuery = 'portable voltage supply';
+  const enContext = await buildCrossLingualQueryContext(enQuery);
+  const enRouted = rankSourcesByProfile([], classifyQueryProfile(enQuery), enContext.direction);
+  const enSplit = splitSourcesForCrossLingual(enRouted, enContext.direction);
+  assert.equal(enContext.backend, 'lexicon');
+  assert.ok(enSplit.translatedSources.includes('student_invention_fair'));
+  assert.ok(enSplit.translatedSources.includes('science_fair'));
+  assert.ok(enSplit.translatedSources.includes('kci'));
+  assert.ok(!enSplit.originalSources.includes('student_invention_fair'));
+  assert.ok(enSplit.originalSources.includes('arxiv'));
+
+  const guardedContext = await buildCrossLingualQueryContext('양자 암호');
+  assert.equal(guardedContext.enabled, false);
+  assert.equal(guardedContext.direction, 'none');
+});
+
+test('search supports english-to-korean patent routing via lexicon fallback variants', async () => {
+  const context = await buildCrossLingualQueryContext('medical imaging edge support');
+  assert.equal(context.enabled, true);
+  assert.equal(context.backend, 'lexicon');
+  assert.ok(context.translatedVariants.includes('의료영상'));
+  assert.ok(context.translatedVariants.includes('엣지 컴퓨팅'));
+  assert.ok(!context.translatedVariants.includes('지식 그래프'));
+
+  const { server, baseUrl } = await startTestServer();
+  const response = await fetch(
+    `${baseUrl}/api/search?q=${encodeURIComponent('medical imaging edge support')}&region=domestic&sourceType=patent&sort=relevance&autoLive=0`
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.crossLingual.enabled, true);
+  assert.equal(payload.crossLingual.backend, 'lexicon');
+  assert.ok(payload.crossLingual.translatedVariants.includes('의료영상'));
+  assert.ok(payload.crossLingual.translatedVariants.includes('엣지 컴퓨팅'));
+  assert.ok(
+    payload.items.some((item) =>
+      item.sourceKey === 'kipris' && /의료영상/.test(item.title) && /실시간/.test(item.title)
+    )
+  );
+  await closeServer(server);
+});
+
 test('query profile classifier surfaces source hints without term-translation hacks', () => {
   const patent = classifyQueryProfile('KIPRIS 특허 침해 분석');
   assert.ok(patent.requestedTypes.includes('patent'));
@@ -1545,6 +2647,51 @@ test('query profile classifier surfaces source hints without term-translation ha
   const humanities = classifyQueryProfile('한국사 교육 자료 비교');
   assert.ok(humanities.domains.includes('education'));
   assert.ok(humanities.sourceHints.includes('riss'));
+
+  const biomedical = classifyQueryProfile('PubMed 기반 면역 유전자 치료 조사');
+  assert.ok(biomedical.domains.includes('biomedical'));
+  assert.ok(biomedical.sourceHints.includes('pubmed'));
+
+  const security = classifyQueryProfile('CVE 취약점과 Black Hat exploit 사례 조사');
+  assert.ok(security.domains.includes('security'));
+  assert.ok(security.sourceHints.includes('cve'));
+  assert.ok(security.sourceHints.includes('blackhat'));
+
+  const scienceFair = classifyQueryProfile('science fair magnetic pendulum');
+  assert.ok(scienceFair.sourceHints.includes('science_fair'));
+  assert.ok(!scienceFair.sourceHints.includes('student_invention_fair'));
+
+  const inventionFair = classifyQueryProfile('student invention portable voltage supply');
+  assert.ok(inventionFair.sourceHints.includes('student_invention_fair'));
+
+  const scienceChallenge = classifyQueryProfile('한화 사이언스 챌린지 해상 풍력');
+  assert.ok(scienceChallenge.sourceHints.includes('hanwha_science_challenge'));
+});
+
+test('source registry summary includes newly added databases', () => {
+  const summary = sourceRegistrySummary('배터리');
+  const sources = new Set(summary.map((item) => item.source));
+  for (const source of ['biorxiv', 'medrxiv', 'pubmed', 'kiss', 'nanet', 'cve', 'blackhat', 'defcon']) {
+    assert.ok(sources.has(source));
+  }
+  assert.ok(sources.has('hanwha_science_challenge'));
+  assert.match(summary.find((item) => item.source === 'hanwha_science_challenge')?.detailUrl || '', /sciencechallenge\.or\.kr/);
+  assert.equal(summary.find((item) => item.source === 'pubmed')?.experimental, false);
+  assert.equal(summary.find((item) => item.source === 'pubmed')?.autoRoutedByDefault, true);
+});
+
+test('config includes new sources in default preferred source routing', () => {
+  for (const source of ['biorxiv', 'medrxiv', 'pubmed', 'kiss', 'nanet', 'cve', 'blackhat', 'defcon']) {
+    assert.equal(appConfig.preferredSources.includes(source), true);
+  }
+  assert.equal(appConfig.preferredSources.includes('hanwha_science_challenge'), true);
+  assert.equal(appConfig.experimentalLiveSources.length, 0);
+});
+
+test('source runtime diagnostics expose experimental source policy configuration', () => {
+  const diagnostics = getSourceRuntimeDiagnostics();
+  assert.ok(Array.isArray(diagnostics.experimentalSources));
+  assert.equal(diagnostics.experimentalSources.length, 0);
 });
 
 test('vector backend server supports upsert and search', async () => {
@@ -1641,4 +2788,42 @@ test('reranker backend server reranks candidates', async () => {
   assert.equal(response.status, 200);
   assert.equal(payload.results[0].id, 'doc-1');
   await closeServer(server);
+});
+
+test('postgres sync persistence sanitizes year to prevent SQL injection payloads', (t) => {
+  const scratchDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-psql-test-'));
+  t.after(() => rmSync(scratchDir, { recursive: true, force: true }));
+  const argvLogPath = path.join(scratchDir, 'psql-argv.log');
+  const psqlWrapper = path.join(scratchDir, 'psql-wrapper.sh');
+
+  writeFileSync(psqlWrapper, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${argvLogPath}"
+exit 0
+`);
+  chmodSync(psqlWrapper, 0o755);
+
+  // Isolate the runtime readiness cache and configuration from earlier tests.
+  const storeModule = JSON.stringify(path.resolve('src/postgres-store.mjs'));
+  const script = `
+    const { persistDocumentsToPostgresSync } = await import(${storeModule});
+    const result = persistDocumentsToPostgresSync([{
+      id: 'doc-1', source: 'test', type: 'paper', title: 'Test title',
+      year: '0); DROP TABLE users;--',
+    }]);
+    process.stdout.write(JSON.stringify(result));
+  `;
+  const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      SCHOLAXIS_STORAGE_BACKEND: 'postgres',
+      DATABASE_URL: 'postgres://test:test@localhost:5432/scholaxis',
+      PSQL_BIN: psqlWrapper,
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(JSON.parse(stdout).ready, true);
+  const argvLog = readFileSync(argvLogPath, 'utf8');
+  assert.match(argvLog, /,\n  NULL,\n  /);
+  assert.doesNotMatch(argvLog, /\n  0\); DROP TABLE users;--,\n/);
 });

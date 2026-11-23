@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
@@ -32,28 +31,75 @@ import {
   postgresRuntimeReady,
   removeLibraryItemInPostgresSync,
   removeSavedSearchInPostgresSync,
+  renewBackgroundJobLeaseInPostgresSync,
   replaceGraphEdgesForSourceInPostgresSync,
   requeueBackgroundJobInPostgresSync,
   saveSearchInPostgresSync,
   updateUserProfileInPostgresSync
 } from './postgres-store.mjs';
+import { seedCatalog } from './catalog.mjs';
 
 const dataDir = path.resolve('.data');
-mkdirSync(dataDir, { recursive: true });
+try {
+  mkdirSync(dataDir, { recursive: true });
+} catch (error) {
+  if (!['EACCES', 'EPERM', 'EROFS'].includes(String(error?.code || ''))) {
+    throw error;
+  }
+}
 
-let dbPath = path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 'scholaxis.db'));
+function makeRecoveryPath(prefix = 'scholaxis-recovery') {
+  return path.join(dataDir, `${prefix}-${Date.now()}.db`);
+}
+
+function createSqliteDatabase(targetPath) {
+  const database = new DatabaseSync(targetPath);
+  database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+  return database;
+}
+
+function openMemoryRecoveryDatabase(reason = 'sqlite-memory-recovery') {
+  const database = createSqliteDatabase(':memory:');
+  return {
+    database,
+    path: ':memory:',
+    recoveryReason: reason,
+  };
+}
+
+function openRecoveryDatabase(preferredPath, reason) {
+  try {
+    return {
+      database: createSqliteDatabase(preferredPath),
+      path: preferredPath,
+      recoveryReason: reason,
+    };
+  } catch (recoveryError) {
+    return openMemoryRecoveryDatabase(`${reason}:memory-fallback:${recoveryError.message}`);
+  }
+}
+
+const shouldBootstrapSqlite = !postgresRuntimeReady();
+let dbPath = shouldBootstrapSqlite
+  ? path.resolve(process.env.SCHOLAXIS_DB_PATH || path.join(dataDir, 'scholaxis.db'))
+  : ':memory:';
 const opened = openDatabase(dbPath);
 dbPath = opened.path;
 let db = opened.database;
+let dbRecoveryReason = opened.recoveryReason || '';
+if (shouldBootstrapSqlite && dbRecoveryReason) {
+  console.warn(`[storage] using recovery database at ${dbPath} (${dbRecoveryReason})`);
+}
 
 function usePostgresStorage() {
   return postgresRuntimeReady();
 }
 
 function openDatabase(targetPath) {
+  // A large database or WAL is not evidence of corruption. Always open the
+  // configured store first so every process keeps using the same persisted data.
   try {
-    const database = new DatabaseSync(targetPath);
-    database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+    const database = createSqliteDatabase(targetPath);
     return { database, path: targetPath };
   } catch (error) {
     if (error?.code === 'ERR_SQLITE_ERROR') {
@@ -64,18 +110,15 @@ function openDatabase(targetPath) {
         try {
           const brokenPath = `${targetPath}.broken-${Date.now()}`;
           renameSync(targetPath, brokenPath);
-          const database = new DatabaseSync(targetPath);
-          database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
+          const database = createSqliteDatabase(targetPath);
           return { database, path: targetPath };
         } catch {
           // fall through to tmp recovery
         }
       }
 
-      const recoveryPath = path.join(tmpdir(), `scholaxis-recovery-${Date.now()}.db`);
-      const database = new DatabaseSync(recoveryPath);
-      database.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
-      return { database, path: recoveryPath };
+      const recoveryPath = makeRecoveryPath('scholaxis-recovery');
+      return openRecoveryDatabase(recoveryPath, `sqlite-open-recovery:${error.message}`);
     }
     throw error;
   }
@@ -385,6 +428,7 @@ export function getStorageDiagnostics() {
   return {
     ready: true,
     dbPath,
+    recoveryReason: dbRecoveryReason,
     documents: documentsCount?.count || 0,
     searchRuns: searchRunsCount?.count || 0,
     similarityRuns: similarityRunsCount?.count || 0,
@@ -442,27 +486,55 @@ const addLibraryItemStmt = db.prepare(`
 `);
 const listLibraryItemsStmt = db.prepare(`
   SELECT
-    canonical_id AS canonicalId,
-    note,
-    highlights_json AS highlightsJson,
-    share_token AS shareToken,
-    created_at AS createdAt,
-    updated_at AS updatedAt
-  FROM library_items
-  WHERE user_id = ?
-  ORDER BY id DESC
+    li.canonical_id AS canonicalId,
+    li.note,
+    li.highlights_json AS highlightsJson,
+    li.share_token AS shareToken,
+    li.created_at AS createdAt,
+    li.updated_at AS updatedAt,
+    d.title,
+    d.source,
+    d.type AS sourceType,
+    d.year,
+    d.organization,
+    d.authors_json AS authorsJson,
+    d.summary,
+    d.links_json AS linksJson
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN instr(li.canonical_id, ':') > 0 THEN substr(li.canonical_id, instr(li.canonical_id, ':') + 1)
+      ELSE li.canonical_id
+    END
+  WHERE li.user_id = ?
+  ORDER BY li.id DESC
 `);
 const getLibraryItemByShareTokenStmt = db.prepare(`
   SELECT
-    user_id AS userId,
-    canonical_id AS canonicalId,
-    note,
-    highlights_json AS highlightsJson,
-    share_token AS shareToken,
-    created_at AS createdAt,
-    updated_at AS updatedAt
-  FROM library_items
-  WHERE share_token = ?
+    li.user_id AS userId,
+    li.canonical_id AS canonicalId,
+    li.note,
+    li.highlights_json AS highlightsJson,
+    li.share_token AS shareToken,
+    li.created_at AS createdAt,
+    li.updated_at AS updatedAt,
+    d.title,
+    d.source,
+    d.type AS sourceType,
+    d.year,
+    d.organization,
+    d.authors_json AS authorsJson,
+    d.summary,
+    d.links_json AS linksJson
+  FROM library_items li
+  LEFT JOIN documents d
+    ON d.canonical_id = li.canonical_id
+    OR d.canonical_id = CASE
+      WHEN instr(li.canonical_id, ':') > 0 THEN substr(li.canonical_id, instr(li.canonical_id, ':') + 1)
+      ELSE li.canonical_id
+    END
+  WHERE li.share_token = ?
 `);
 const removeLibraryItemStmt = db.prepare(`
   DELETE FROM library_items WHERE user_id = ? AND canonical_id = ?
@@ -549,8 +621,7 @@ const insertBackgroundJobStmt = db.prepare(`
     job_type, status, payload_json, priority, attempts, last_error, run_after, leased_until, created_at, updated_at, completed_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-const listBackgroundJobsStmt = db.prepare(`
-  SELECT
+const backgroundJobColumns = `
     id,
     job_type AS jobType,
     status,
@@ -562,54 +633,57 @@ const listBackgroundJobsStmt = db.prepare(`
     leased_until AS leasedUntil,
     created_at AS createdAt,
     updated_at AS updatedAt,
-    completed_at AS completedAt
+    completed_at AS completedAt`;
+const listBackgroundJobsStmt = db.prepare(`
+  SELECT ${backgroundJobColumns}
   FROM background_jobs
   ORDER BY id DESC
   LIMIT ?
 `);
-const leaseCandidateJobStmt = db.prepare(`
-  SELECT id
-  FROM background_jobs
-  WHERE status = 'queued' AND datetime(run_after) <= datetime(?)
-  ORDER BY priority DESC, id ASC
-  LIMIT 1
-`);
 const leaseJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'leased', leased_until = ?, attempts = attempts + 1, updated_at = ?
-  WHERE id = ?
+  WHERE id = (
+    SELECT id
+    FROM background_jobs
+    WHERE (status = 'queued' AND julianday(run_after) <= julianday(?))
+      OR (status = 'leased' AND (leased_until IS NULL OR julianday(leased_until) <= julianday(?)))
+    ORDER BY priority DESC, id ASC
+    LIMIT 1
+  )
+  RETURNING ${backgroundJobColumns}
 `);
 const getBackgroundJobByIdStmt = db.prepare(`
-  SELECT
-    id,
-    job_type AS jobType,
-    status,
-    payload_json AS payloadJson,
-    priority,
-    attempts,
-    last_error AS lastError,
-    run_after AS runAfter,
-    leased_until AS leasedUntil,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    completed_at AS completedAt
+  SELECT ${backgroundJobColumns}
   FROM background_jobs
   WHERE id = ?
+`);
+const renewJobLeaseStmt = db.prepare(`
+  UPDATE background_jobs
+  SET leased_until = ?, updated_at = ?
+  WHERE id = ? AND attempts = ? AND status = 'leased'
+    AND julianday(leased_until) > julianday(?)
+  RETURNING ${backgroundJobColumns}
 `);
 const completeJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'completed', leased_until = NULL, last_error = NULL, updated_at = ?, completed_at = ?
-  WHERE id = ?
+  WHERE id = ? AND attempts = ? AND status = 'leased'
+    AND julianday(leased_until) > julianday(?)
+  RETURNING ${backgroundJobColumns}
 `);
 const failJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'failed', leased_until = NULL, last_error = ?, updated_at = ?
-  WHERE id = ?
+  WHERE id = ? AND attempts = ? AND status = 'leased'
+    AND julianday(leased_until) > julianday(?)
+  RETURNING ${backgroundJobColumns}
 `);
 const releaseJobStmt = db.prepare(`
   UPDATE background_jobs
   SET status = 'queued', leased_until = NULL, updated_at = ?, run_after = ?
-  WHERE id = ?
+  WHERE id = ? AND attempts = ? AND status = 'failed'
+  RETURNING ${backgroundJobColumns}
 `);
 const getAllDocumentsStmt = db.prepare(`
   SELECT
@@ -642,7 +716,9 @@ const getLightweightDocumentsStmt = db.prepare(`
     authors_json AS authorsJson,
     keywords_json AS keywordsJson,
     summary,
-    links_json AS linksJson
+    links_json AS linksJson,
+    raw_json AS rawJson,
+    updated_at AS updatedAt
   FROM documents
   ORDER BY canonical_id ASC
 `);
@@ -791,33 +867,40 @@ export function leaseNextBackgroundJob({
   if (usePostgresStorage()) {
     return leaseNextBackgroundJobFromPostgresSync({ now, leaseMs });
   }
-  const candidate = leaseCandidateJobStmt.get(now);
-  if (!candidate?.id) return null;
-  const leasedUntil = new Date(Date.now() + leaseMs).toISOString();
-  leaseJobStmt.run(leasedUntil, now, candidate.id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(candidate.id));
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
+  // Selection and acquisition are one write so concurrent processes cannot claim the same attempt.
+  return normalizeBackgroundJob(leaseJobStmt.get(leasedUntil, now, now, now));
 }
 
-export function completeBackgroundJob(id) {
-  if (usePostgresStorage()) return completeBackgroundJobInPostgresSync(id);
+export function renewBackgroundJobLease(id, { attempts, now = new Date().toISOString(), leaseMs = 15000 } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return renewBackgroundJobLeaseInPostgresSync(id, { attempts, now, leaseMs });
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new RangeError('leaseMs must be positive');
+  const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString();
+  return normalizeBackgroundJob(renewJobLeaseStmt.get(leasedUntil, now, id, attempts, now));
+}
+
+export function completeBackgroundJob(id, { attempts } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return completeBackgroundJobInPostgresSync(id, { attempts });
   const now = new Date().toISOString();
-  completeJobStmt.run(now, now, id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+  return normalizeBackgroundJob(completeJobStmt.get(now, now, id, attempts, now));
 }
 
-export function failBackgroundJob(id, error = '') {
-  if (usePostgresStorage()) return failBackgroundJobInPostgresSync(id, error);
+export function failBackgroundJob(id, error = '', { attempts } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return failBackgroundJobInPostgresSync(id, error, { attempts });
   const now = new Date().toISOString();
-  failJobStmt.run(String(error || ''), now, id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+  return normalizeBackgroundJob(failJobStmt.get(String(error || ''), now, id, attempts, now));
 }
 
-export function requeueBackgroundJob(id, delayMs = 0) {
-  if (usePostgresStorage()) return requeueBackgroundJobInPostgresSync(id, delayMs);
+export function requeueBackgroundJob(id, delayMs = 0, { attempts } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) return null;
+  if (usePostgresStorage()) return requeueBackgroundJobInPostgresSync(id, delayMs, { attempts });
   const now = new Date().toISOString();
   const runAfter = new Date(Date.now() + delayMs).toISOString();
-  releaseJobStmt.run(now, runAfter, id);
-  return normalizeBackgroundJob(getBackgroundJobByIdStmt.get(id));
+  return normalizeBackgroundJob(releaseJobStmt.get(now, runAfter, id, attempts));
 }
 
 export function getStoredDocuments() {
@@ -843,7 +926,7 @@ export function getStoredDocuments() {
 
 export function getStoredDocumentsLite() {
   if (usePostgresStorage()) return getStoredDocumentsFromPostgresSync();
-  return getLightweightDocumentsStmt.all().map((row) => ({
+  return getLightweightDocumentsStmt.all().map((row) => hydrateStoredDocument({
     canonicalId: row.canonicalId,
     id: row.canonicalId,
     source: row.source,
@@ -855,10 +938,9 @@ export function getStoredDocumentsLite() {
     keywords: JSON.parse(row.keywordsJson || '[]'),
     summary: row.summary || '',
     links: JSON.parse(row.linksJson || '{}'),
-    methods: [],
-    highlights: [],
+    updatedAt: row.updatedAt,
     alternateSources: row.source ? [row.source] : [],
-  }));
+  }, row.rawJson));
 }
 
 export function createUser({ email, displayName, passwordDigest }) {
@@ -895,13 +977,38 @@ export function deleteSessionByHash(tokenHash) {
 
 function normalizeLibraryItem(row) {
   if (!row) return null;
+  const canonicalId = row.canonicalId || '';
+  const normalizedCanonicalId =
+    typeof canonicalId === 'string' && canonicalId.includes(':')
+      ? canonicalId.split(':').slice(1).join(':')
+      : canonicalId;
+  const seedMatch = seedCatalog.find((item) => item.canonicalId === canonicalId || item.canonicalId === normalizedCanonicalId) || null;
+  const highlights =
+    Array.isArray(row.highlights)
+      ? row.highlights
+      : JSON.parse(row.highlightsJson || '[]');
+  const authors =
+    Array.isArray(row.authors)
+      ? row.authors
+      : JSON.parse(row.authorsJson || '[]');
+  const links = row.linksJson ? JSON.parse(row.linksJson || '{}') : {};
+  const sourceType = row.sourceType || seedMatch?.type || '';
   return {
-    canonicalId: row.canonicalId,
+    canonicalId,
     note: row.note || '',
-    highlights: JSON.parse(row.highlightsJson || '[]'),
+    highlights,
     shareToken: row.shareToken || null,
     createdAt: row.createdAt,
-    updatedAt: row.updatedAt || row.createdAt
+    updatedAt: row.updatedAt || row.createdAt,
+    title: row.title || seedMatch?.title || '',
+    source: row.source || seedMatch?.source || '',
+    sourceType,
+    year: row.year || seedMatch?.year || '',
+    organization: row.organization || seedMatch?.organization || '',
+    authors: authors.length ? authors : (seedMatch?.authors || []),
+    summary: row.summary || seedMatch?.summary || '',
+    detailUrl: row.detailUrl || links.detail || seedMatch?.links?.detail || '',
+    originalUrl: row.originalUrl || links.original || links.detail || seedMatch?.links?.original || seedMatch?.links?.detail || ''
   };
 }
 
@@ -931,12 +1038,12 @@ export function addLibraryItem({
 }
 
 export function listLibraryItems(userId) {
-  if (usePostgresStorage()) return listLibraryItemsFromPostgresSync(userId);
+  if (usePostgresStorage()) return listLibraryItemsFromPostgresSync(userId).map(normalizeLibraryItem);
   return listLibraryItemsStmt.all(userId).map(normalizeLibraryItem);
 }
 
 export function findLibraryItemByShareToken(shareToken) {
-  if (usePostgresStorage()) return findLibraryItemByShareTokenInPostgresSync(shareToken);
+  if (usePostgresStorage()) return normalizeLibraryItem(findLibraryItemByShareTokenInPostgresSync(shareToken));
   return normalizeLibraryItem(getLibraryItemByShareTokenStmt.get(shareToken));
 }
 

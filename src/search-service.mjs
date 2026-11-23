@@ -8,7 +8,7 @@ import { buildRecommendationSet } from './recommendation-service.mjs';
 import { rerankSearchEntries } from './reranker-service.mjs';
 import { expandSemanticLexiconTerms } from './semantic-lexicon.mjs';
 import { searchLiveSources, sourceRegistrySummary } from './source-adapters.mjs';
-import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, mergeSourceStatuses } from './source-helpers.mjs';
+import { buildCrossLingualQueryContext, classifyQueryProfile, expandQueryVariants, languageLabel, mergeSourceStatuses, sourceCountryMetadata } from './source-helpers.mjs';
 import {
   averageDocumentLength,
   bm25Score,
@@ -31,11 +31,53 @@ const regionLabel = { all: '전체', domestic: '국내', global: '해외' };
 const sourceTypeLabel = { all: '전체', paper: '논문', thesis: '학위논문', patent: '특허', report: '보고서', fair_entry: '전람회/발명품' };
 const SEARCH_STOPWORDS = new Set([
   '연구','분석','시스템','모델','기반','설계','예측','요약','문서','검색','자료','평가','결과',
-  'analysis','research','system','model','based','design','prediction','summary','document','search','data','evaluation','results'
+  'analysis','research','system','model','based','design','prediction','summary','document','search','data','evaluation','results',
+  '전람회','과학전람회','전국과학전람회','학생과학전람회','학생부전람회','발명품경진대회',
+  'science','fair','sciencefair','rne','r&e','알앤이',
+  '한화','한화사이언스챌린지','사이언스','챌린지','hanwha','challenge','sciencechallenge'
 ]);
-const GLOBAL_SOURCES = new Set(['semantic_scholar', 'arxiv']);
-const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'ntis', 'kipris', 'science_fair', 'student_invention_fair']);
+const SOURCE_IDENTITY_STOPWORDS = new Set([
+  '전람회','과학전람회','전국과학전람회','학생과학전람회','학생부전람회','발명품경진대회',
+  'science','fair','sciencefair','rne','r&e','알앤이',
+  '한화','한화사이언스챌린지','사이언스','챌린지','hanwha','challenge','sciencechallenge'
+]);
+const GENERIC_FALLBACK_SINGLE_TERMS = new Set([
+  'cell',
+  'cells',
+  'learning',
+  'model',
+  'models',
+  'system',
+  'systems',
+  'sensor',
+  'sensors',
+  'policy',
+  'graph',
+  'memory',
+  'agent',
+  'agents',
+  'health',
+  'medical',
+  'bio',
+  'adsorption',
+  'membrane',
+  'stability',
+  'catalyst',
+  'carbon',
+  'hydrogen',
+  'recycling',
+  'water',
+  'treatment',
+  'prediction',
+  'design',
+  'paper',
+  'article'
+]);
+const GLOBAL_SOURCES = new Set(['semantic_scholar', 'arxiv', 'biorxiv', 'medrxiv', 'pubmed', 'cve', 'blackhat', 'defcon']);
+const DOMESTIC_SOURCES = new Set(['riss', 'kci', 'scienceon', 'dbpia', 'kiss', 'nanet', 'ntis', 'kipris', 'rne_report', 'science_fair', 'student_invention_fair', 'hanwha_science_challenge']);
+const STUDENT_RESEARCH_SOURCES = new Set(['science_fair', 'student_invention_fair', 'hanwha_science_challenge', 'rne_report']);
 const HEURISTIC_EMBEDDING_PROVIDERS = new Set(['hash-projection', 'heuristic-hash', 'local-hash-projection', 'local-semantic-projection']);
+const MIN_RECALL_RESULTS = 8;
 let lastSynchronizedIndexKey = '';
 
 function scheduleBackgroundWork(task) {
@@ -52,11 +94,64 @@ function classifySourceType(type) {
   return 'paper';
 }
 
+function buildTokenWindows(tokens = [], minSize = 2, maxSize = 3) {
+  const normalizedTokens = unique(tokens.map((token) => normalizeText(token)).filter(Boolean));
+  const windows = [];
+  for (let size = minSize; size <= maxSize; size += 1) {
+    if (normalizedTokens.length < size) continue;
+    for (let index = 0; index <= normalizedTokens.length - size; index += 1) {
+      windows.push(normalizedTokens.slice(index, index + size).join(' '));
+    }
+  }
+  return unique(windows);
+}
+
+function compactText(value = '') {
+  return normalizeText(value).replace(/\s+/g, '');
+}
+
+function isSearchStopwordTerm(value = '') {
+  const tokens = tokenize(value);
+  return Boolean(tokens.length) && tokens.every((token) => SEARCH_STOPWORDS.has(token));
+}
+
+function isSourceIdentityTerm(value = '') {
+  const tokens = tokenize(value);
+  return Boolean(tokens.length) && tokens.every((token) => SOURCE_IDENTITY_STOPWORDS.has(token));
+}
+
+function isGenericFallbackSingleTerm(value = '') {
+  const normalized = normalizeText(value);
+  return !/\s/.test(normalized) && GENERIC_FALLBACK_SINGLE_TERMS.has(normalized);
+}
+
+function queryTokenWeight(token = '') {
+  const normalized = normalizeText(token);
+  if (!normalized) return 0;
+  const phrase = /\s/.test(normalized);
+  const compact = normalized.replace(/\s+/g, '');
+  let weight = 1;
+  if (phrase) weight += 0.45;
+  if (compact.length >= 8) weight += 0.25;
+  if (isSourceIdentityTerm(normalized)) weight *= 0.08;
+  else if (isSearchStopwordTerm(normalized)) weight *= 0.35;
+  return weight;
+}
+
+function hasPhraseOrCompoundQuery(queryTerms = []) {
+  if (queryTerms.length >= 3) return true;
+  if (queryTerms.length >= 2 && queryTerms.join('').replace(/\s+/g, '').length >= 4) return true;
+  return queryTerms.some((term) => normalizeText(term).replace(/\s+/g, '').length >= 5);
+}
+
 function buildQueryTokens(query = '') {
   const base = unique(tokenize(query));
-  const semantic = expandSemanticLexiconTerms(base);
+  const normalizedQuery = normalizeText(query);
+  const windows = buildTokenWindows(base, 2, 3);
   const normalized = normalizeText(query).replace(/\s+/g, '');
-  const variants = expandQueryVariants(query).flatMap((value) => tokenize(value));
+  const variants = expandQueryVariants(query);
+  const variantTokens = variants.flatMap((value) => tokenize(value));
+  const semantic = expandSemanticLexiconTerms([normalizedQuery, ...base, ...windows, ...variants, ...variantTokens]);
 
   const koreanChunks = [];
   if (/^[가-힣]{4,}$/.test(normalized)) {
@@ -68,7 +163,9 @@ function buildQueryTokens(query = '') {
     }
   }
 
-  return unique([...base, ...semantic, ...variants, ...koreanChunks]).filter((token) => token.length >= 2);
+  return unique([...base, ...windows, ...semantic, ...variantTokens, ...koreanChunks])
+    .map((token) => normalizeText(token))
+    .filter((token) => token.length >= 2);
 }
 
 function hasReliableSemanticEmbedding(document = {}) {
@@ -77,8 +174,8 @@ function hasReliableSemanticEmbedding(document = {}) {
 
 function hasQueryEvidence(scoreBundle, queryTokens = [], queryTerms = [], rawQueryTermCount = 0, document = {}, query = '') {
   if (!queryTokens.length) return true;
-  const normalizedTitle = String(document.title || '').toLowerCase();
-  const normalizedEnglishTitle = String(document.englishTitle || '').toLowerCase();
+  const normalizedTitle = normalizeText(document.title || '');
+  const normalizedEnglishTitle = normalizeText(document.englishTitle || '');
   const normalizedBody = normalizeText(
     [
       document.title,
@@ -92,8 +189,8 @@ function hasQueryEvidence(scoreBundle, queryTokens = [], queryTerms = [], rawQue
       .filter(Boolean)
       .join(' ')
   );
-  const normalizedQuery = String(query || '').toLowerCase().trim();
-  const compactQuery = normalizeText(query).replace(/\s+/g, '');
+  const normalizedQuery = normalizeText(query);
+  const compactQuery = compactText(query);
   const queryLooksKorean = /[가-힣]/.test(query);
   const queryLooksLatin = /[A-Za-z]/.test(query);
   const documentLanguage = String(document.language || '').toLowerCase();
@@ -103,15 +200,29 @@ function hasQueryEvidence(scoreBundle, queryTokens = [], queryTerms = [], rawQue
   if (normalizedQuery && (normalizedTitle.includes(normalizedQuery) || normalizedEnglishTitle.includes(normalizedQuery))) return true;
   if (compactQuery && normalizedBody.replace(/\s+/g, '').includes(compactQuery)) return true;
   const exactTermMatches = queryTerms.filter((token) => normalizedBody.includes(token));
-  if (queryTerms.length >= 2) {
-    return exactTermMatches.length >= Math.min(2, queryTerms.length);
-  }
+  const semanticTokenMatches = unique(queryTokens.filter((token) => normalizedBody.includes(token)));
+  const strongCrossLingualPhraseMatch = semanticTokenMatches.some((token) => /\s/.test(token) || token.length >= 8);
+  const crossLingualSemanticEnough =
+    semanticTokenMatches.length >= (queryTerms.length >= 2 ? 2 : 1) ||
+    (crossLingualTarget && semanticTokenMatches.length >= 1 && strongCrossLingualPhraseMatch && scoreBundle.lexicalScore >= 18);
+  if (queryTerms.length >= 2 && exactTermMatches.length >= Math.min(2, queryTerms.length)) return true;
   if (queryTerms.length === 1 && exactTermMatches.length >= 1) return true;
+  if (
+    crossLingualTarget &&
+    crossLingualSemanticEnough &&
+    (
+      scoreBundle.lexicalScore >= 6 ||
+      scoreBundle.sparseScore >= 0.08 ||
+      (scoreBundle.rerankScore || 0) >= 0.28
+    )
+  ) {
+    return true;
+  }
   if (hasReliableSemanticEmbedding(document) && scoreBundle.denseScore >= 0.58) return true;
   if (crossLingualTarget && hasReliableSemanticEmbedding(document) && scoreBundle.denseScore >= 0.34) return true;
   if ((scoreBundle.rerankScore || 0) >= 0.62 && scoreBundle.denseScore >= 0.28) return true;
   if (rawQueryTermCount >= 2) return false;
-  if (queryTokens.some((token) => normalizedBody.includes(token))) return true;
+  if (semanticTokenMatches.length) return true;
   return (
     scoreBundle.lexicalScore >= 8 ||
     scoreBundle.sparseScore >= 0.14 ||
@@ -131,6 +242,12 @@ function buildCorpusStats(documents = []) {
 }
 
 function scoreDocument(document, queryTokens, queryTerms, queryVector, querySparse, corpusStats = null) {
+  const titleText = [document.title, document.englishTitle].filter(Boolean).join(' ');
+  const abstractText = [document.abstract, document.summary].filter(Boolean).join(' ');
+  const keywordText = [...(document.keywords || []), ...(document.methods || []), ...(document.highlights || [])]
+    .filter(Boolean)
+    .join(' ');
+  const metadataText = [document.novelty, document.organization].filter(Boolean).join(' ');
   const lexicalText = [
     document.title,
     document.englishTitle,
@@ -143,25 +260,60 @@ function scoreDocument(document, queryTokens, queryTerms, queryVector, querySpar
     ...(document.highlights || [])
   ]
     .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
+    .join(' ');
+  const normalizedFields = {
+    title: normalizeText(titleText),
+    abstract: normalizeText(abstractText),
+    keywords: normalizeText(keywordText),
+    metadata: normalizeText(metadataText),
+    all: normalizeText(lexicalText),
+  };
+  const compactFields = Object.fromEntries(
+    Object.entries(normalizedFields).map(([field, value]) => [field, value.replace(/\s+/g, '')])
+  );
   const normalizedQuery = normalizeText(queryTerms.join(' '));
+  const compactQuery = normalizedQuery.replace(/\s+/g, '');
 
   let lexicalScore = 0;
   for (const token of queryTokens) {
-    if ((document.title || '').toLowerCase().includes(token)) lexicalScore += 12;
-    if ((document.englishTitle || '').toLowerCase().includes(token)) lexicalScore += 6;
-    if ((document.abstract || '').toLowerCase().includes(token)) lexicalScore += 5;
-    if ((document.summary || '').toLowerCase().includes(token)) lexicalScore += 4;
-    if ((document.keywords || []).some((keyword) => keyword.toLowerCase().includes(token))) lexicalScore += 7;
-    if ((document.methods || []).some((method) => method.toLowerCase().includes(token))) lexicalScore += 4;
-    if (lexicalText.includes(token)) lexicalScore += 2;
+    const normalizedToken = normalizeText(token);
+    if (!normalizedToken) continue;
+    const compactToken = normalizedToken.replace(/\s+/g, '');
+    const compactHit = compactToken.length >= 4;
+    const weight = queryTokenWeight(normalizedToken);
+    if (normalizedFields.title.includes(normalizedToken) || (compactHit && compactFields.title.includes(compactToken))) lexicalScore += 13 * weight;
+    if (normalizedFields.abstract.includes(normalizedToken) || (compactHit && compactFields.abstract.includes(compactToken))) lexicalScore += 5.5 * weight;
+    if (normalizedFields.keywords.includes(normalizedToken) || (compactHit && compactFields.keywords.includes(compactToken))) lexicalScore += 8.5 * weight;
+    if (normalizedFields.metadata.includes(normalizedToken) || (compactHit && compactFields.metadata.includes(compactToken))) lexicalScore += 3.5 * weight;
+    if (normalizedFields.all.includes(normalizedToken) || (compactHit && compactFields.all.includes(compactToken))) lexicalScore += 1.8 * weight;
   }
 
-  const titleCoverage = coverageRatio(queryTerms, [document.title, document.englishTitle].filter(Boolean).join(' '));
-  const abstractCoverage = coverageRatio(queryTerms, [document.abstract, document.summary].filter(Boolean).join(' '));
-  const exactTitleBoost = normalizedQuery && normalizeText([document.title, document.englishTitle].join(' ')).includes(normalizedQuery) ? 18 : 0;
-  lexicalScore += titleCoverage * 18 + abstractCoverage * 8 + exactTitleBoost;
+  const importantSemanticTerms = unique(queryTokens)
+    .filter((token) => !isSearchStopwordTerm(token))
+    .filter((token) => /\s/.test(token) || normalizeText(token).replace(/\s+/g, '').length >= 4)
+    .slice(0, 32);
+  const queryPhrases = buildTokenWindows(queryTerms, 2, 3);
+  const titleCoverage = coverageRatio(queryTerms, titleText);
+  const abstractCoverage = coverageRatio(queryTerms, abstractText);
+  const keywordCoverage = coverageRatio(queryTerms, keywordText);
+  const semanticTitleCoverage = coverageRatio(importantSemanticTerms, titleText);
+  const semanticKeywordCoverage = coverageRatio(importantSemanticTerms, keywordText);
+  const orderedPhraseCoverage = coverageRatio(queryPhrases, `${titleText} ${abstractText} ${keywordText}`);
+  const normalizedTitleText = normalizeText(titleText);
+  const exactTitleBoost = normalizedQuery && normalizedTitleText.includes(normalizedQuery) ? 22 : 0;
+  const compactTitleBoost =
+    compactQuery.length >= 5 && compactFields.title.includes(compactQuery)
+      ? 14
+      : 0;
+  lexicalScore +=
+    titleCoverage * 20 +
+    abstractCoverage * 9 +
+    keywordCoverage * 13 +
+    semanticTitleCoverage * 11 +
+    semanticKeywordCoverage * 8 +
+    orderedPhraseCoverage * 15 +
+    exactTitleBoost +
+    compactTitleBoost;
 
   const denseScore = cosineSimilarity(queryVector, document.semanticVector || document.vector || []);
   const sparseScore = sparseOverlapScore(querySparse, document.sparseVector || {});
@@ -180,6 +332,14 @@ function scoreDocument(document, queryTokens, queryTerms, queryVector, querySpar
     denseScore,
     sparseScore,
     bm25Score: bm25,
+    titleCoverage,
+    abstractCoverage,
+    keywordCoverage,
+    semanticTitleCoverage,
+    semanticKeywordCoverage,
+    orderedPhraseCoverage,
+    exactTitleBoost,
+    compactTitleBoost,
     total:
       lexicalScore * 0.5 +
       denseScore * denseWeight +
@@ -240,25 +400,67 @@ function applyQueryProfileBoost(item, scoreBundle, queryProfile = null) {
   if (!queryProfile) return { item, scoreBundle };
   const requestedTypes = queryProfile.requestedTypes || [];
   const sourceHints = queryProfile.sourceHints || [];
+  const requestedStudentSources = sourceHints.filter((source) => STUDENT_RESEARCH_SOURCES.has(source));
   const itemType = classifySourceType(item.type);
   let total = scoreBundle.total;
+  let studentResearchTopicalBoost = 0;
+  let sourceCompetitionPenalty = 0;
 
   if (requestedTypes.length && !requestedTypes.includes('paper')) {
     if (requestedTypes.includes(itemType)) total += 18;
     else total -= 10;
   }
 
-  if (sourceHints.includes(item.source)) total += 10;
+  if (sourceHints.includes(item.source)) {
+    total += STUDENT_RESEARCH_SOURCES.has(item.source) ? 24 : 10;
+  }
+  if (
+    requestedStudentSources.length > 0 &&
+    STUDENT_RESEARCH_SOURCES.has(item.source) &&
+    !requestedStudentSources.includes(item.source)
+  ) {
+    sourceCompetitionPenalty = 36;
+    total -= sourceCompetitionPenalty;
+  }
+  if (
+    requestedTypes.some((type) => ['fair_entry', 'report'].includes(type)) &&
+    sourceHints.some((source) => STUDENT_RESEARCH_SOURCES.has(source)) &&
+    !STUDENT_RESEARCH_SOURCES.has(item.source)
+  ) {
+    total -= 14;
+  }
   if (requestedTypes.includes('fair_entry') && itemType !== 'fair_entry') total -= 8;
   if (requestedTypes.includes('patent') && itemType !== 'patent') total -= 6;
   if (requestedTypes.includes('report') && itemType !== 'report') total -= 6;
+
+  if (
+    STUDENT_RESEARCH_SOURCES.has(item.source) &&
+    ['fair_entry', 'report'].includes(itemType) &&
+    !sourceHints.includes(item.source)
+  ) {
+    const titleCoverage = Number(scoreBundle.titleCoverage || 0);
+    const keywordCoverage = Number(scoreBundle.keywordCoverage || 0);
+    const semanticTitleCoverage = Number(scoreBundle.semanticTitleCoverage || 0);
+    const orderedPhraseCoverage = Number(scoreBundle.orderedPhraseCoverage || 0);
+    const strongTitleMatch =
+      titleCoverage >= 0.5 ||
+      (titleCoverage >= 0.34 && semanticTitleCoverage >= 0.12) ||
+      Boolean(scoreBundle.exactTitleBoost || scoreBundle.compactTitleBoost);
+    const projectPhraseMatch = orderedPhraseCoverage >= 0.12 && (titleCoverage >= 0.25 || keywordCoverage >= 0.15);
+    if (strongTitleMatch || projectPhraseMatch) {
+      studentResearchTopicalBoost = Math.min(42, 18 + titleCoverage * 32 + orderedPhraseCoverage * 24);
+      total += studentResearchTopicalBoost * 0.35;
+    }
+  }
 
   return {
     item,
     scoreBundle: {
       ...scoreBundle,
       total,
-      profileBoost: Number((total - scoreBundle.total).toFixed(2))
+      profileBoost: Number((total - scoreBundle.total).toFixed(2)),
+      studentResearchTopicalBoost: Number(studentResearchTopicalBoost.toFixed(2)),
+      sourceCompetitionPenalty
     }
   };
 }
@@ -279,6 +481,184 @@ function applyPreferredSourceBoost(item, scoreBundle, preferredSources = []) {
       preferredSourceBoost: sourceBoost
     }
   };
+}
+
+function computeMatchSortScore(scoreBundle = {}) {
+  const lexical = Math.min(Number(scoreBundle.lexicalScore || 0), 120);
+  const bm25 = Math.min(Number(scoreBundle.bm25Score || 0), 5) * 18;
+  const sparse = Math.min(Number(scoreBundle.sparseScore || 0), 0.45) * 120;
+  const dense = Math.min(Number(scoreBundle.denseScore || 0), 0.8) * 45;
+  const rerank = Math.min(Number(scoreBundle.rerankScore || 0), 1.25) * 80;
+  const passage = Math.min(Number(scoreBundle.passageDenseScore || 0), 0.8) * 20;
+  const field =
+    Number(scoreBundle.titleCoverage || 0) * 45 +
+    Number(scoreBundle.keywordCoverage || 0) * 35 +
+    Number(scoreBundle.semanticTitleCoverage || 0) * 34 +
+    Number(scoreBundle.semanticKeywordCoverage || 0) * 28 +
+    Number(scoreBundle.orderedPhraseCoverage || 0) * 38 +
+    (scoreBundle.exactTitleBoost ? 40 : 0) +
+    (scoreBundle.compactTitleBoost ? 24 : 0);
+  const profileIntent = Math.max(-32, Math.min(Number(scoreBundle.profileBoost || 0), 42)) * 0.65;
+  const studentResearchTopical = Math.min(Number(scoreBundle.studentResearchTopicalBoost || 0), 42);
+  const penalty = scoreBundle.supplemental || scoreBundle.relaxedRecall ? 18 : 0;
+  return Number((lexical + bm25 + sparse + dense + rerank + passage + field + profileIntent + studentResearchTopical - penalty).toFixed(4));
+}
+
+function hasProfileDrivenFallbackEvidence(item, scoreBundle, queryProfile = null) {
+  const requestedTypes = queryProfile?.requestedTypes || [];
+  if (!requestedTypes.some((type) => type !== 'paper')) return false;
+
+  const itemType = classifySourceType(item.type);
+  const typeMatch = requestedTypes.includes(itemType);
+  const sourceMatch = (queryProfile?.sourceHints || []).includes(item.source);
+  if (!typeMatch) return false;
+
+  if (sourceMatch && scoreBundle.total >= 18) return true;
+  return requestedTypes.includes('fair_entry') && itemType === 'fair_entry' && scoreBundle.total >= 28;
+}
+
+function isGenericCollisionRisk({ queryTerms = [], scoreBundle = {}, document = {}, crossLingual = null } = {}) {
+  if (!hasPhraseOrCompoundQuery(queryTerms)) return false;
+  if (scoreBundle.exactTitleBoost || scoreBundle.compactTitleBoost) return false;
+  if (Number(scoreBundle.orderedPhraseCoverage || 0) > 0) return false;
+  if (Number(scoreBundle.keywordCoverage || 0) >= 0.5 || Number(scoreBundle.semanticKeywordCoverage || 0) >= 0.5) return false;
+
+  const exactQueryTerms = queryTerms.filter((term) => !SEARCH_STOPWORDS.has(term));
+  const translatedTerms = unique([
+    crossLingual?.translatedQuery || '',
+    ...(crossLingual?.translatedVariants || []),
+  ].flatMap((value) => tokenize(value))).filter((token) => !SEARCH_STOPWORDS.has(token));
+  const searchableText = normalizeText([
+    document.title,
+    document.englishTitle,
+    document.abstract,
+    document.summary,
+    ...(document.keywords || []),
+    ...(document.methods || []),
+    ...(document.highlights || []),
+  ].filter(Boolean).join(' '));
+  const exactOverlap = exactQueryTerms.filter((token) => searchableText.includes(token)).length;
+  if (exactQueryTerms.length >= 2 && exactOverlap >= 2) return false;
+  const translatedOverlap = translatedTerms.filter((token) => searchableText.includes(token)).length;
+  if (translatedTerms.length >= 2 && translatedOverlap >= 2) return false;
+  if (exactQueryTerms.length >= 2 && exactOverlap < 2 && translatedOverlap < 2) return true;
+
+  return (
+    Number(scoreBundle.titleCoverage || 0) < 0.5 &&
+    (Number(scoreBundle.semanticTitleCoverage || 0) < 0.5 || exactOverlap < 2) &&
+    Number(scoreBundle.abstractCoverage || 0) < 0.75 &&
+    Number(scoreBundle.sparseScore || 0) < 0.18
+  );
+}
+
+function isStrongLocalSearchResult(entry = null) {
+  if (!entry?.scoreBundle) return false;
+  const score = entry.scoreBundle;
+  return (
+    score.lexicalScore >= 34 ||
+    score.bm25Score >= 1.1 ||
+    score.sparseScore >= 0.22 ||
+    (score.denseScore >= 0.5 && hasReliableSemanticEmbedding(entry.item)) ||
+    score.total >= 52
+  );
+}
+
+function shouldFetchLiveCandidates({ query = '', live = false, shouldAutoLive = false, rankedEntries = [] } = {}) {
+  if (live) return true;
+  if (!String(query || '').trim() || !shouldAutoLive) return false;
+  if (!rankedEntries.length) return true;
+  const sorted = [...rankedEntries].sort((a, b) => b.scoreBundle.total - a.scoreBundle.total);
+  const top = sorted[0] || null;
+  return rankedEntries.length < MIN_RECALL_RESULTS || !isStrongLocalSearchResult(top);
+}
+
+function mergeSupplementalRankedEntries(primaryEntries = [], supplementalEntries = [], {
+  penalty = 8,
+  reason = '직접 일치 후보가 적어 의미적으로 가까운 후보를 함께 확장했습니다.'
+} = {}) {
+  const seen = new Set(primaryEntries.map((entry) => entry.item?.canonicalId || entry.item?.id).filter(Boolean));
+  const supplemental = [];
+  for (const entry of supplementalEntries) {
+    const key = entry.item?.canonicalId || entry.item?.id;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    supplemental.push({
+      ...entry,
+      scoreBundle: {
+        ...entry.scoreBundle,
+        total: Math.max(0, entry.scoreBundle.total - penalty),
+        rerankReason: entry.scoreBundle.rerankReason || reason,
+        supplemental: true,
+      }
+    });
+  }
+  return [...primaryEntries, ...supplemental];
+}
+
+function buildRelaxedRecallTerms(query = '', crossLingual = null) {
+  const fallbackTerms = buildFallbackQueries(query, crossLingual)
+    .slice(0, 12)
+    .flatMap((variant) => [normalizeText(variant), ...tokenize(variant)]);
+  const baseTerms = unique([
+    normalizeText(query),
+    ...tokenize(query),
+    ...(crossLingual?.translatedVariants || []),
+    crossLingual?.translatedQuery || '',
+    ...fallbackTerms,
+  ].filter(Boolean));
+  return unique(expandSemanticLexiconTerms(baseTerms))
+    .concat(baseTerms)
+    .map((term) => normalizeText(term))
+    .filter((term) => term.length >= 3)
+    .filter((term) => !isSearchStopwordTerm(term));
+}
+
+function relaxedRecallEvidenceCount(document = {}, terms = []) {
+  const text = normalizeText([
+    document.title,
+    document.englishTitle,
+    document.abstract,
+    document.summary,
+    document.novelty,
+    ...(document.keywords || []),
+    ...(document.methods || []),
+    ...(document.highlights || []),
+  ].filter(Boolean).join(' '));
+  const compact = text.replace(/\s+/g, '');
+  const matches = new Set();
+  for (const term of terms) {
+    const normalized = normalizeText(term);
+    const compactTerm = normalized.replace(/\s+/g, '');
+    if (!normalized) continue;
+    if (text.includes(normalized) || (compactTerm.length >= 4 && compact.includes(compactTerm))) {
+      matches.add(normalized);
+    }
+  }
+  return matches.size;
+}
+
+function exactQueryOverlapCount(document = {}, queryTerms = []) {
+  const searchableText = normalizeText([
+    document.title,
+    document.englishTitle,
+    document.abstract,
+    document.summary,
+    ...(document.keywords || []),
+    ...(document.methods || []),
+    ...(document.highlights || []),
+  ].filter(Boolean).join(' '));
+  return queryTerms
+    .filter((term) => !SEARCH_STOPWORDS.has(term))
+    .filter((token) => searchableText.includes(token)).length;
+}
+
+function hasStrongExactQuerySupport(entry = {}, queryTerms = []) {
+  return (
+    exactQueryOverlapCount(entry.item, queryTerms) >= Math.min(2, queryTerms.filter((term) => !SEARCH_STOPWORDS.has(term)).length) ||
+    Number(entry.scoreBundle?.orderedPhraseCoverage || 0) > 0 ||
+    Number(entry.scoreBundle?.keywordCoverage || 0) >= 0.5 ||
+    Boolean(entry.scoreBundle?.exactTitleBoost || entry.scoreBundle?.compactTitleBoost)
+  );
 }
 
 function sanitizeDocumentForDetail(document = {}) {
@@ -320,19 +700,43 @@ function summarizeFilters({ region, sourceType, sort }) {
   return `${regionLabel[region] || '전체'} · ${sourceTypeLabel[sourceType] || '전체'} · ${sort === 'latest' ? '최신순' : sort === 'citation' ? '인용순' : '관련도순'}`;
 }
 
-function buildFallbackQueries(query = '', crossLingual = null) {
+export function buildFallbackQueries(query = '', crossLingual = null) {
   const normalized = normalizeText(query);
   const tokens = unique(tokenize(query));
   const informative = tokens.filter((token) => !SEARCH_STOPWORDS.has(token));
-  const longest = [...informative].sort((a, b) => b.length - a.length).slice(0, 3);
+  const windows = buildTokenWindows(informative, 2, 3);
+  const translatedVariants = unique([
+    crossLingual?.translatedQuery || '',
+    ...(crossLingual?.translatedVariants || []),
+    ...(crossLingual?.variants || []).filter((variant) => normalizeText(variant) !== normalized),
+  ].filter(Boolean));
+  const translatedTokens = translatedVariants.flatMap((variant) => tokenize(variant));
+  const translatedWindows = buildTokenWindows(translatedTokens, 2, 3);
+  const semanticAnchorCandidates = unique([...informative, ...windows]);
+  const semanticAnchorCount = semanticAnchorCandidates.filter((token) =>
+    expandSemanticLexiconTerms([token]).some((term) => normalizeText(term) !== normalizeText(token))
+  ).length;
+  const allowSemanticExpansion =
+    Boolean(crossLingual?.enabled) ||
+    informative.length <= 1 ||
+    semanticAnchorCount >= Math.min(2, informative.length);
+  const semanticTerms = (allowSemanticExpansion ? expandSemanticLexiconTerms([normalized, ...informative, ...windows]) : [])
+    .filter((term) => term && normalizeText(term) !== normalized);
+  const semanticPhrases = semanticTerms.filter((term) => /\s/.test(term));
+  const semanticSingles = semanticTerms.filter((term) => !/\s/.test(term) && !isGenericFallbackSingleTerm(term));
+  const longest = [...informative].sort((a, b) => b.length - a.length).slice(0, 4);
   const variants = [
     normalized,
     normalized.replace(/\s+/g, ''),
     informative.join(' '),
+    ...windows,
     informative.slice(0, 2).join(' '),
+    informative.slice(0, 3).join(' '),
     longest.join(' '),
-    crossLingual?.translatedQuery || '',
-    ...expandSemanticLexiconTerms(informative).slice(0, 6),
+    ...translatedVariants,
+    ...translatedWindows,
+    ...semanticPhrases,
+    ...semanticSingles,
   ].filter(Boolean);
 
   if (informative.length >= 3) {
@@ -344,10 +748,10 @@ function buildFallbackQueries(query = '', crossLingual = null) {
   return unique(variants)
     .map((item) => item.trim())
     .filter(Boolean)
-    .filter((item) => item !== query.trim());
+    .filter((item) => normalizeText(item) !== normalized || compactText(item) !== compactText(query));
 }
 
-function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') {
+export function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') {
   const selected = preferredSources.length ? preferredSources : [...GLOBAL_SOURCES, ...DOMESTIC_SOURCES];
   if (direction === 'ko-to-en') {
     return {
@@ -361,23 +765,32 @@ function splitSourcesForCrossLingual(preferredSources = [], direction = 'none') 
       translatedSources: selected.filter((source) => DOMESTIC_SOURCES.has(source))
     };
   }
+  if (direction === 'other-to-en') {
+    return {
+      originalSources: selected.filter((source) => !GLOBAL_SOURCES.has(source)),
+      translatedSources: selected.filter((source) => GLOBAL_SOURCES.has(source))
+    };
+  }
   return { originalSources: selected, translatedSources: [] };
 }
 
-function rankSourcesByProfile(preferredSources = [], profile = null, direction = 'none') {
+export function rankSourcesByProfile(preferredSources = [], profile = null, direction = 'none') {
   const selected = preferredSources.length ? preferredSources : [...GLOBAL_SOURCES, ...DOMESTIC_SOURCES];
   const scored = selected.map((source) => {
     let score = 0;
     if (profile?.sourceHints?.includes(source)) score += 8;
     if (profile?.requestedTypes?.includes('patent') && source === 'kipris') score += 6;
     if (profile?.requestedTypes?.includes('report') && ['ntis', 'rne_report'].includes(source)) score += 6;
-    if (profile?.requestedTypes?.includes('fair_entry') && ['science_fair', 'student_invention_fair', 'rne_report'].includes(source)) score += 6;
+    if (profile?.requestedTypes?.includes('fair_entry') && ['science_fair', 'student_invention_fair', 'hanwha_science_challenge', 'rne_report'].includes(source)) score += 6;
     if (direction === 'ko-to-en' && GLOBAL_SOURCES.has(source)) score += 4;
     if (direction === 'en-to-ko' && DOMESTIC_SOURCES.has(source)) score += 4;
-    if (profile?.domains?.includes('humanities') && ['riss', 'kci', 'dbpia'].includes(source)) score += 5;
-    if (profile?.domains?.includes('education') && ['riss', 'kci', 'dbpia'].includes(source)) score += 5;
+    if (direction === 'other-to-en' && GLOBAL_SOURCES.has(source)) score += 4;
+    if (profile?.domains?.includes('humanities') && ['riss', 'kci', 'dbpia', 'kiss', 'nanet'].includes(source)) score += 5;
+    if (profile?.domains?.includes('education') && ['riss', 'kci', 'dbpia', 'kiss', 'nanet'].includes(source)) score += 5;
+    if (profile?.domains?.includes('biomedical') && ['pubmed', 'biorxiv', 'medrxiv', 'scienceon', 'semantic_scholar', 'riss'].includes(source)) score += 5;
     if (profile?.domains?.includes('earth_space') && ['semantic_scholar', 'arxiv', 'scienceon', 'ntis'].includes(source)) score += 4;
     if (profile?.domains?.includes('engineering') && ['arxiv', 'semantic_scholar', 'kci', 'dbpia', 'kipris'].includes(source)) score += 4;
+    if (profile?.domains?.includes('security') && ['cve', 'blackhat', 'defcon'].includes(source)) score += 6;
     return { source, score };
   });
   return scored.sort((a, b) => b.score - a.score).map((item) => item.source);
@@ -589,6 +1002,63 @@ async function rankExploratoryCandidates({
       return (typeDrivenFallback || sourceDrivenFallback) && entry.scoreBundle.total >= 18;
     })
     .slice(0, limit);
+}
+
+async function rankRelaxedRecallCandidates({
+  query = '',
+  crossLingual = null,
+  documents = [],
+  candidateIds = new Set(),
+  region = 'all',
+  sourceType = 'all',
+  queryProfile = null,
+  preferredSources = [],
+  limit = MIN_RECALL_RESULTS
+} = {}) {
+  const queryTokens = buildQueryTokens(query);
+  const queryTerms = unique(tokenize(query)).filter((token) => !SEARCH_STOPWORDS.has(token));
+  const relaxedTerms = buildRelaxedRecallTerms(query, crossLingual);
+  const queryVector = await embedText(query);
+  const querySparse = buildSparseVector(query);
+  const filtered = documents
+    .filter((item) => {
+      const key = item.canonicalId || item.id;
+      return !candidateIds.size || candidateIds.has(key);
+    })
+    .filter((item) => (region === 'all' ? true : item.region === region))
+    .filter((item) => (sourceType === 'all' ? true : classifySourceType(item.type) === sourceType))
+    .map((item) => ({
+      item,
+      evidenceCount: relaxedRecallEvidenceCount(item, relaxedTerms)
+    }))
+    .filter(({ evidenceCount }) => evidenceCount >= 1);
+  if (!filtered.length) return [];
+
+  const corpusStats = buildCorpusStats(filtered.map(({ item }) => item));
+  const ranked = filtered
+    .map(({ item, evidenceCount }) => {
+      const boosted = applyQueryProfileBoost(
+        item,
+        scoreDocument(item, queryTokens, queryTerms, queryVector, querySparse, corpusStats),
+        queryProfile
+      );
+      const preferred = applyPreferredSourceBoost(boosted.item, boosted.scoreBundle, preferredSources);
+      return {
+        item: preferred.item,
+        scoreBundle: {
+          ...preferred.scoreBundle,
+          total: preferred.scoreBundle.total + Math.min(evidenceCount, 5) * 12,
+          relaxedRecall: true,
+          relaxedRecallEvidenceCount: evidenceCount,
+          rerankReason: preferred.scoreBundle.rerankReason || '라이브 소스에서 관측된 부분 일치 후보를 recall 확장으로 포함했습니다.'
+        }
+      };
+    })
+    .sort((a, b) => b.scoreBundle.total - a.scoreBundle.total)
+    .slice(0, Math.max(limit, MIN_RECALL_RESULTS));
+
+  const reranked = await rerankSearchEntries(ranked, query, crossLingual, Math.max(limit, 6));
+  return reranked.entries.slice(0, limit);
 }
 
 function describeGraphInsights(paper, graph, recommendations = []) {
@@ -908,6 +1378,26 @@ function buildGraphEdgesFromResults(results = []) {
   }));
 }
 
+function persistSearchArtifacts({ query = '', filters = {}, results = [], liveSourceCount = 0, canonicalCount = 0 } = {}) {
+  try {
+    persistGraphEdges(buildGraphEdgesFromResults(results));
+  } catch (error) {
+    console.warn(`[search] graph-edge persistence skipped: ${error.message}`);
+  }
+
+  try {
+    persistSearchRun({
+      query,
+      filters,
+      total: results.length,
+      liveSourceCount,
+      canonicalCount
+    });
+  } catch (error) {
+    console.warn(`[search] search-run persistence skipped: ${error.message}`);
+  }
+}
+
 async function buildSearchIndexDocuments(options = {}) {
   if (Array.isArray(options)) {
     return loadSearchIndexDocuments({ liveDocuments: options });
@@ -947,6 +1437,7 @@ export async function warmSearchIndex() {
 }
 
 function normalizeSearchResult(document, rank, scoreBundle) {
+  const sourceCountry = document.sourceCountry || sourceCountryMetadata(document.source, document.region, document.language);
   return {
     id: document.canonicalId || document.id,
     rank,
@@ -955,11 +1446,21 @@ function normalizeSearchResult(document, rank, scoreBundle) {
     denseScore: Number(scoreBundle.denseScore.toFixed(4)),
     sparseScore: Number(scoreBundle.sparseScore.toFixed(4)),
     bm25Score: Number((scoreBundle.bm25Score || 0).toFixed(4)),
+    matchSortScore: computeMatchSortScore(scoreBundle),
+    titleCoverage: Number((scoreBundle.titleCoverage || 0).toFixed(4)),
+    keywordCoverage: Number((scoreBundle.keywordCoverage || 0).toFixed(4)),
+    semanticTitleCoverage: Number((scoreBundle.semanticTitleCoverage || 0).toFixed(4)),
+    orderedPhraseCoverage: Number((scoreBundle.orderedPhraseCoverage || 0).toFixed(4)),
     passageDenseScore: Number((scoreBundle.passageDenseScore || 0).toFixed(4)),
     passageLabel: scoreBundle.passageLabel || '',
     type: classifySourceType(document.type),
     region: document.region,
     year: document.year,
+    language: document.language || '',
+    languageLabel: document.languageLabel || languageLabel(document.language || ''),
+    sourceCountry,
+    countryCode: sourceCountry.code || '',
+    countryFlag: sourceCountry.flag || '',
     title: document.title,
     englishTitle: document.englishTitle,
     authors: document.authors,
@@ -1028,7 +1529,10 @@ async function executeSearchCatalog({
 } = {}, onEvent = null) {
   const crossLingual = await buildCrossLingualQueryContext(q);
   const queryProfile = classifyQueryProfile(q);
-  const retrievalQuery = unique([q, crossLingual.translatedQuery].filter(Boolean)).join(' ').trim() || q;
+  const translatedQueryBundle = crossLingual.translatedVariants?.length
+    ? crossLingual.translatedVariants.join(' ')
+    : crossLingual.translatedQuery;
+  const retrievalQuery = unique([q, translatedQueryBundle].filter(Boolean)).join(' ').trim() || q;
   const queryTokens = buildQueryTokens(retrievalQuery);
   const queryTerms = unique(tokenize(retrievalQuery)).filter((token) => !SEARCH_STOPWORDS.has(token));
   const rawQueryTermCount = unique(tokenize(retrievalQuery)).length;
@@ -1087,7 +1591,13 @@ async function executeSearchCatalog({
           total: scoreBundle.total + (vectorHitScores.get(item.canonicalId || item.id) || 0) * vectorBoostWeight,
         },
       }))
-      .filter(({ item, scoreBundle }) => hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, retrievalQuery));
+      .filter(({ item, scoreBundle }) =>
+        (
+          hasQueryEvidence(scoreBundle, queryTokens, queryTerms, rawQueryTermCount, item, retrievalQuery) ||
+          hasProfileDrivenFallbackEvidence(item, scoreBundle, queryProfile)
+        ) &&
+        !isGenericCollisionRisk({ queryTerms, scoreBundle, document: item, crossLingual })
+      );
   }
 
   let liveBundle = { documents: [], statuses: [] };
@@ -1101,7 +1611,7 @@ async function executeSearchCatalog({
   });
   let rankedEntries = await attachVectorBoost(rankDocuments(mergedSourceData));
 
-  if ((live || shouldAutoLive) && (!rankedEntries.length || live)) {
+  if (shouldFetchLiveCandidates({ query: q, live, shouldAutoLive, rankedEntries })) {
     emitSearchEvent(onEvent, 'progress', {
       stage: 'live-fetch',
       query: q,
@@ -1117,7 +1627,7 @@ async function executeSearchCatalog({
     });
     const translatedLiveBundle =
       crossLingual.enabled && crossLingual.translatedQuery && sourceSplit.translatedSources.length
-        ? await searchLiveSources(crossLingual.translatedQuery, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
+        ? await searchLiveSources(translatedQueryBundle, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
             forceRefresh,
             overrideEnable: shouldAutoLive || live
           })
@@ -1189,7 +1699,7 @@ async function executeSearchCatalog({
         });
         const liveFallbackTranslated =
           crossLingual.enabled && crossLingual.translatedQuery && sourceSplit.translatedSources.length
-            ? await searchLiveSources(crossLingual.translatedQuery, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
+            ? await searchLiveSources(translatedQueryBundle, sourceSplit.translatedSources, appConfig.maxLiveResultsPerSource, {
                 forceRefresh,
                 overrideEnable: shouldAutoLive || live
               })
@@ -1222,7 +1732,7 @@ async function executeSearchCatalog({
       documents: mergedSourceData,
       region,
       sourceType,
-      limit: 6
+      limit: MIN_RECALL_RESULTS
     });
     if (exploratory.length) {
       rankedEntries = exploratory.map((entry) => ({
@@ -1243,18 +1753,91 @@ async function executeSearchCatalog({
     }
   }
 
+  if (liveBundle.documents.length && rankedEntries.length < MIN_RECALL_RESULTS) {
+    const liveCandidateIds = new Set(liveBundle.documents.map((document) => document.canonicalId || document.id).filter(Boolean));
+    const relaxedLiveCandidates = await rankRelaxedRecallCandidates({
+      query: retrievalQuery,
+      crossLingual,
+      documents: mergedSourceData,
+      candidateIds: liveCandidateIds,
+      region,
+      sourceType,
+      queryProfile,
+      preferredSources,
+      limit: MIN_RECALL_RESULTS
+    });
+    const expandedEntries = mergeSupplementalRankedEntries(rankedEntries, relaxedLiveCandidates, {
+      penalty: 0,
+      reason: '라이브 소스에서 관측된 부분 일치 후보를 recall 확장으로 포함했습니다.'
+    });
+    if (expandedEntries.length > rankedEntries.length) {
+      rankedEntries = expandedEntries;
+      if (fallbackMode === 'strict') fallbackMode = 'supplemental';
+      emitSearchEvent(onEvent, 'progress', {
+        stage: 'live-recall-supplemental',
+        query: q,
+        filters,
+        message: `라이브 소스 후보 ${liveBundle.documents.length}건 중 부분 일치 후보를 ${rankedEntries.length}건까지 확장했습니다.`,
+        liveSourceCount: liveBundle.documents.length,
+        supplementalCount: rankedEntries.length
+      });
+    }
+  }
+
+  if (rankedEntries.length > 0 && rankedEntries.length < MIN_RECALL_RESULTS) {
+    const supplemental = await rankExploratoryCandidates({
+      query: retrievalQuery,
+      documents: mergedSourceData,
+      region,
+      sourceType,
+      limit: MIN_RECALL_RESULTS
+    });
+    const expandedEntries = mergeSupplementalRankedEntries(rankedEntries, supplemental, {
+      penalty: fallbackMode === 'strict' ? 10 : 4,
+      reason: '상위 직접 일치 후보가 적어 확장 후보로 보강했습니다.'
+    });
+    if (expandedEntries.length > rankedEntries.length) {
+      rankedEntries = expandedEntries;
+      if (fallbackMode === 'strict') fallbackMode = 'supplemental';
+      emitSearchEvent(onEvent, 'progress', {
+        stage: 'recall-supplemental',
+        query: q,
+        filters,
+        message: `직접 일치 후보가 적어 ${rankedEntries.length}건까지 연관 후보를 확장했습니다.`,
+        supplementalCount: rankedEntries.length
+      });
+    }
+  }
+
   rankedEntries = await boostWithPassageMatches(rankedEntries, queryVector, appConfig.recommendationCandidateLimit);
 
   const ranked = [...rankedEntries].sort((a, b) => {
     if (sort === 'latest') return (b.item.year || 0) - (a.item.year || 0) || b.scoreBundle.total - a.scoreBundle.total;
     if (sort === 'citation') return (b.item.citations || 0) - (a.item.citations || 0) || b.scoreBundle.total - a.scoreBundle.total;
+    const matchDelta = computeMatchSortScore(b.scoreBundle) - computeMatchSortScore(a.scoreBundle);
+    if (Math.abs(matchDelta) >= 0.01) return matchDelta;
     return b.scoreBundle.total - a.scoreBundle.total || (b.item.year || 0) - (a.item.year || 0);
   });
   const rerankResult =
     sort === 'relevance'
       ? await rerankSearchEntries(ranked, q, crossLingual, appConfig.rerankerTopK)
       : { entries: ranked, diagnostics: { backend: 'none', applied: false, topK: 0 } };
-  const reranked = rerankResult.entries;
+  const reranked = sort === 'relevance'
+    ? [...rerankResult.entries].sort((a, b) => {
+        const matchDelta = computeMatchSortScore(b.scoreBundle) - computeMatchSortScore(a.scoreBundle);
+        if (Math.abs(matchDelta) >= 0.01) return matchDelta;
+        return b.scoreBundle.total - a.scoreBundle.total || (b.item.year || 0) - (a.item.year || 0);
+      })
+    : rerankResult.entries;
+  if (
+    sort === 'relevance' &&
+    !crossLingual.enabled &&
+    queryTerms.filter((term) => !SEARCH_STOPWORDS.has(term)).length >= 2 &&
+    reranked.length &&
+    !reranked.some((entry) => hasStrongExactQuerySupport(entry, queryTerms))
+  ) {
+    fallbackMode = 'exploratory';
+  }
 
   const summary = q
     ? reranked.length
@@ -1268,10 +1851,16 @@ async function executeSearchCatalog({
     ...normalizeSearchResult(item, index + 1, scoreBundle),
     rerankScore: Number((scoreBundle.rerankScore || 0).toFixed(4)),
     rerankReason: scoreBundle.rerankReason || '',
-    exploratory: fallbackMode === 'exploratory',
+    exploratory: fallbackMode === 'exploratory' || Boolean(scoreBundle.supplemental) || Boolean(scoreBundle.relaxedRecall),
   }));
   const sourceStatus = mergeSourceStatuses(listSourceStatuses(q), liveBundle.statuses);
-  persistGraphEdges(buildGraphEdgesFromResults(results));
+  persistSearchArtifacts({
+    query: q,
+    filters,
+    results,
+    liveSourceCount: liveBundle.documents.length,
+    canonicalCount: mergedSourceData.length
+  });
   scheduleBackgroundWork(async () => {
     try {
       await synchronizeIndexedArtifacts(mergedSourceData);
@@ -1279,7 +1868,6 @@ async function executeSearchCatalog({
       console.warn(`[search-sync] background artifact synchronization failed: ${error.message}`);
     }
   });
-  persistSearchRun({ query: q, filters, total: reranked.length, liveSourceCount: liveBundle.documents.length, canonicalCount: mergedSourceData.length });
 
   const payload = {
     query: q,

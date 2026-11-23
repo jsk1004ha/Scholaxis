@@ -12,8 +12,15 @@ export function hashPassword(password, salt = randomBytes(16).toString('hex')) {
 export function verifyPassword(password, digest = '') {
   const [salt, expected] = String(digest).split(':');
   if (!salt || !expected) return false;
-  const actual = scryptSync(password, salt, 64).toString('hex');
-  return timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
+  try {
+    const actual = scryptSync(password, salt, 64).toString('hex');
+    const actualBuffer = Buffer.from(actual, 'hex');
+    const expectedBuffer = Buffer.from(expected, 'hex');
+    if (actualBuffer.length !== expectedBuffer.length) return false;
+    return timingSafeEqual(actualBuffer, expectedBuffer);
+  } catch {
+    return false;
+  }
 }
 
 export function createSessionToken() {
@@ -29,7 +36,12 @@ export function parseCookies(header = '') {
   for (const chunk of String(header).split(';')) {
     const [name, ...rest] = chunk.trim().split('=');
     if (!name) continue;
-    cookies[name] = decodeURIComponent(rest.join('='));
+    const rawValue = rest.join('=');
+    try {
+      cookies[name] = decodeURIComponent(rawValue);
+    } catch {
+      cookies[name] = rawValue;
+    }
   }
   return cookies;
 }
@@ -47,6 +59,8 @@ export function buildSessionCookie(token, options = {}) {
   return parts.join('; ');
 }
 
-export function buildClearedSessionCookie() {
-  return 'scholaxis_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0';
+export function buildClearedSessionCookie(options = {}) {
+  const parts = ['scholaxis_session=', 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (options.secure) parts.push('Secure');
+  return parts.join('; ');
 }

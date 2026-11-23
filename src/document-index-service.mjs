@@ -66,7 +66,7 @@ function sanitizeIndexedDocument(document = {}) {
   if (!document || typeof document !== 'object') return document;
   if (isGuidanceOnlyFairDocument(document)) return null;
 
-  if (!['science_fair', 'student_invention_fair', 'rne_report'].includes(document.source)) {
+  if (!['science_fair', 'student_invention_fair', 'hanwha_science_challenge', 'rne_report'].includes(document.source)) {
     return document;
   }
 

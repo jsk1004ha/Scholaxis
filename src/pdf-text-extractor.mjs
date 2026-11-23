@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 
 const execFileAsync = promisify(execFile);
+const MAX_PDF_STREAM_OUTPUT_BYTES = Number(process.env.SCHOLAXIS_PDF_STREAM_OUTPUT_BYTES || 2_000_000);
 
 function decodePdfEscapes(value = '') {
   return value
@@ -61,6 +62,7 @@ function collectPdfTextOperators(source = '') {
 function extractStreams(buffer) {
   const binary = buffer.toString('latin1');
   const decoded = [];
+  let decodedBytes = 0;
   let cursor = 0;
 
   while (cursor < binary.length) {
@@ -82,9 +84,15 @@ function extractStreams(buffer) {
     const streamBuffer = buffer.subarray(bodyStart, bodyEnd);
 
     try {
-      if (/\/FlateDecode/.test(header)) decoded.push(zlib.inflateSync(streamBuffer).toString('latin1'));
-      else decoded.push(streamBuffer.toString('latin1'));
+      const outputBuffer = /\/FlateDecode/.test(header)
+        ? zlib.inflateSync(streamBuffer, { maxOutputLength: MAX_PDF_STREAM_OUTPUT_BYTES })
+        : streamBuffer;
+      decodedBytes += outputBuffer.length;
+      if (decodedBytes > MAX_PDF_STREAM_OUTPUT_BYTES) break;
+      decoded.push(outputBuffer.toString('latin1'));
     } catch {
+      decodedBytes += streamBuffer.length;
+      if (decodedBytes > MAX_PDF_STREAM_OUTPUT_BYTES) break;
       decoded.push(streamBuffer.toString('latin1'));
     }
 
