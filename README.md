@@ -244,6 +244,7 @@ npm start
 ```
 
 실사용/운영 환경에서는 위 구성을 기본값으로 간주하세요. SQLite/local 벡터 경로는 빠른 로컬 개발과 디버깅용 fallback 입니다.
+문서 적재 시 `year` 값은 PostgreSQL INSERT 전에 정수로 정규화되며, 숫자가 아닌 값은 `NULL` 처리되어 SQL 주입 문자열이 실행되지 않습니다.
 
 이미 `DATABASE_URL` 또는 `PGHOST` 계열 환경 변수를 주입한 상태라면 `npm start` 가 `postgres + pgvector` 를 자동 추론하므로,
 위 export 중 일부는 생략해도 됩니다. 명시적 override 가 있으면 그 값을 그대로 존중합니다.

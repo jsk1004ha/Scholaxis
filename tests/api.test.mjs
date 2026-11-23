@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { Blob } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
@@ -2788,4 +2788,42 @@ test('reranker backend server reranks candidates', async () => {
   assert.equal(response.status, 200);
   assert.equal(payload.results[0].id, 'doc-1');
   await closeServer(server);
+});
+
+test('postgres sync persistence sanitizes year to prevent SQL injection payloads', (t) => {
+  const scratchDir = mkdtempSync(path.join(tmpdir(), 'scholaxis-psql-test-'));
+  t.after(() => rmSync(scratchDir, { recursive: true, force: true }));
+  const argvLogPath = path.join(scratchDir, 'psql-argv.log');
+  const psqlWrapper = path.join(scratchDir, 'psql-wrapper.sh');
+
+  writeFileSync(psqlWrapper, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${argvLogPath}"
+exit 0
+`);
+  chmodSync(psqlWrapper, 0o755);
+
+  // Isolate the runtime readiness cache and configuration from earlier tests.
+  const storeModule = JSON.stringify(path.resolve('src/postgres-store.mjs'));
+  const script = `
+    const { persistDocumentsToPostgresSync } = await import(${storeModule});
+    const result = persistDocumentsToPostgresSync([{
+      id: 'doc-1', source: 'test', type: 'paper', title: 'Test title',
+      year: '0); DROP TABLE users;--',
+    }]);
+    process.stdout.write(JSON.stringify(result));
+  `;
+  const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      SCHOLAXIS_STORAGE_BACKEND: 'postgres',
+      DATABASE_URL: 'postgres://test:test@localhost:5432/scholaxis',
+      PSQL_BIN: psqlWrapper,
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(JSON.parse(stdout).ready, true);
+  const argvLog = readFileSync(argvLogPath, 'utf8');
+  assert.match(argvLog, /,\n  NULL,\n  /);
+  assert.doesNotMatch(argvLog, /\n  0\); DROP TABLE users;--,\n/);
 });
